@@ -43,6 +43,33 @@ Follow the `ruby-code-style` skill. RuboCop config inherits `rubocop-vicenzo: co
 Hot paths (CPU step, PPU dot, APU tick) have their own rules, set in plan 01: integers and preallocated arrays, no
 allocation per cycle, no metaprogramming that would defeat the JIT or an AOT compiler.
 
+### Readability
+
+The code mirrors hardware but must read like prose to someone who does not know the NES by heart:
+
+- No single-letter or meaningless names (`a`, `x`, `tmp`, `val`), block parameters and loop indices included
+  (`accumulator`, `index_x`, not `a`, `x`).
+- No abbreviations or acronyms in names. When one is unavoidable (the documented hardware name: `OAM`, `PPUCTRL`,
+  `DMC`), a comment at its definition expands it and says what it is.
+- Prefer named methods to operator-like ones when Ruby offers them: `first.intersection(second)` over
+  `first & second`; `union`, `difference`; `Integer#anybits?`/`allbits?`/`nobits?` for flag tests.
+- Bit masks, addresses and magic numbers are named constants, citing the NESdev page they come from.
+- Raw bitwise arithmetic (`&`, `|`, `<<`, `>>`) is fine where no named method exists, wrapped in a method whose
+  name states the intent (`wrap_to_byte(value)`, `high_byte(address)`).
+
+### Design
+
+A large spec tree from `specify-behavior` (more than ~10–12 leaves for one unit, contexts nested deeper than 3, or a
+combinatorial repetition of the same condition) means the unit makes too many decisions: split it before writing the
+tests. Tell-don't-ask, strategy/polymorphism and lookup tables are the preferred tools, not mandatory ones. A long but
+flat tree of data rows (one example per opcode) is not a design smell.
+
+## Implementing a plan
+
+Use the global skill `/implement-plan [NN]` (`~/.claude/skills/implement-plan/`, outside this repository, like the
+skills it invokes): plan selection and dependency check, refinement in plan mode, TDD per unit, independent Opus code
+review, commit and push.
+
 ## Commands
 
 - `bundle exec rspec` — tests
