@@ -2,8 +2,8 @@
 
 # nestest's automation mode (https://www.nesdev.org/wiki/Emulator_tests, plan 08): the program counter starts at $C000
 # instead of the reset vector, on a powered-up CPU (https://www.nesdev.org/wiki/CPU_power_up_state: P reads $24 when
-# pushed, S is $FD, and the reset sequence took 7 cycles). The official opcodes' result is written to $0002, zero
-# meaning every test passed (other/nestest.txt in the test ROM collection).
+# pushed, S is $FD, and the reset sequence took 7 cycles). The official opcodes' result is written to $0002 and the
+# unofficial opcodes' result to $0003, zero meaning every test passed (other/nestest.txt in the test ROM collection).
 RSpec.describe Nestest::Runner do
   describe '.automation_mode' do
     let(:cartridge) { Cartridges.build }
@@ -117,20 +117,20 @@ RSpec.describe Nestest::Runner do
             end
           end
 
-          context "and they are nestest.log's official section", test_rom: [Nestest::ROM_PATH, Nestest::LOG_PATH] do
+          context "and they are nestest.log's lines", test_rom: [Nestest::ROM_PATH, Nestest::LOG_PATH] do
             subject(:runner) { described_class.automation_mode(cartridge) }
 
             let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(Nestest::ROM_PATH)) }
-            let(:official_lines) { Nestest::Log.official_lines(File.read(test_rom_path(Nestest::LOG_PATH))) }
+            let(:log_lines) { Nestest::Log.lines(File.read(test_rom_path(Nestest::LOG_PATH))) }
 
             it 'finds none' do
-              expect(runner.first_divergence(official_lines)).to be_nil
+              expect(runner.first_divergence(log_lines)).to be_nil
             end
 
-            # Line 5003 is `C6BC PLP`; the first unofficial opcode follows at $C6BD.
+            # Line 8991 is `C66E RTS` with S at $FD: it pulls $0000 from the bottom of the stack and returns to $0001.
             it "runs the last line's instruction too" do
-              runner.first_divergence(official_lines)
-              expect(runner.cpu.program_counter).to eq(0xC6BD)
+              runner.first_divergence(log_lines)
+              expect(runner.cpu.program_counter).to eq(0x0001)
             end
           end
         end
@@ -152,16 +152,44 @@ RSpec.describe Nestest::Runner do
       end
     end
 
-    context 'when nestest.nes has run its official section', test_rom: [Nestest::ROM_PATH, Nestest::LOG_PATH] do
+    context 'when nestest.nes has run its whole log', test_rom: [Nestest::ROM_PATH, Nestest::LOG_PATH] do
       subject(:runner) { described_class.automation_mode(cartridge) }
 
       let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(Nestest::ROM_PATH)) }
-      let(:official_lines) { Nestest::Log.official_lines(File.read(test_rom_path(Nestest::LOG_PATH))) }
+      let(:log_lines) { Nestest::Log.lines(File.read(test_rom_path(Nestest::LOG_PATH))) }
 
-      before { runner.first_divergence(official_lines) }
+      before { runner.first_divergence(log_lines) }
 
       it 'is $00' do
         expect(runner.official_result).to eq(0x00)
+      end
+    end
+  end
+
+  describe '#unofficial_result' do
+    context 'when $0003 holds an error code' do
+      subject(:runner) { described_class.new(cpu:, bus:) }
+
+      let(:bus) { FlatBus.new }
+      let(:cpu) { Ruby::Nes::Cpu.new(bus:) }
+
+      before { bus.write(0x0003, 0x4E) }
+
+      it 'is that code' do
+        expect(runner.unofficial_result).to eq(0x4E)
+      end
+    end
+
+    context 'when nestest.nes has run its whole log', test_rom: [Nestest::ROM_PATH, Nestest::LOG_PATH] do
+      subject(:runner) { described_class.automation_mode(cartridge) }
+
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(Nestest::ROM_PATH)) }
+      let(:log_lines) { Nestest::Log.lines(File.read(test_rom_path(Nestest::LOG_PATH))) }
+
+      before { runner.first_divergence(log_lines) }
+
+      it 'is $00' do
+        expect(runner.unofficial_result).to eq(0x00)
       end
     end
   end

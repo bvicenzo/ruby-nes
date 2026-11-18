@@ -7,8 +7,10 @@ module Nestest
     # Automation mode: "set PC = $C000 instead of the reset vector" and nestest runs every test without a PPU
     # (https://www.nesdev.org/wiki/Emulator_tests).
     AUTOMATION_START = 0xC000
-    # Where nestest writes the official opcodes' result: zero when every test passed (other/nestest.txt).
+    # Where nestest writes the official and the unofficial opcodes' results: zero when every test passed
+    # (other/nestest.txt).
     OFFICIAL_RESULT_ADDRESS = 0x0002
+    UNOFFICIAL_RESULT_ADDRESS = 0x0003
 
     attr_reader :cpu
 
@@ -42,5 +44,7 @@ module Nestest
     end
 
     def official_result = @bus.read(OFFICIAL_RESULT_ADDRESS)
+
+    def unofficial_result = @bus.read(UNOFFICIAL_RESULT_ADDRESS)
   end
 end
