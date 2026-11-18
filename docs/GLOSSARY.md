@@ -164,6 +164,42 @@ constant name.
 - Off the hot path: the same expression; no helper.
 - Moves every bit one position down (halves the value, rounding down). Bit 0 is dropped.
 
+### bitwise-and
+
+- Inline: `first & second`
+- Off the hot path: the same expression; the operator is the 6502's own `AND`, so there is no helper.
+- Keeps the bits set in both values (`$CC & $AA` → `$88`). The instruction `AND` combines A with memory this way
+  ([Instruction reference](https://www.nesdev.org/wiki/Instruction_reference)).
+
+### bitwise-or
+
+- Inline: `first | second`
+- Off the hot path: the same expression; no helper (the 6502's `ORA`).
+- Keeps the bits set in either value (`$CC | $AA` → `$EE`).
+
+### bitwise-exclusive-or
+
+- Inline: `first ^ second`
+- Off the hot path: the same expression; no helper (the 6502's `EOR`).
+- Keeps the bits set in exactly one of the values (`$CC ^ $AA` → `$66`).
+
+### invert-byte
+
+- Inline: `value ^ BYTE_MASK`
+- Off the hot path: `Bits.invert_byte(value)`
+- Flips every bit of a byte (`$30` → `$CF`), staying within `0-255` (unlike `~value`, which is negative in Ruby).
+  `SBC` is `ADC` with the operand inverted this way: it "subtracts 1 more when carry is _clear_"
+  ([Instruction reference](https://www.nesdev.org/wiki/Instruction_reference)).
+
+### signed-overflow
+
+- Inline: `sign_flips = (result ^ first) & (result ^ second)`, then `sign_flips.anybits?(SIGN_BIT)`
+- Off the hot path: `Bits.signed_overflow?(first, second, result)`
+- True when the result's sign differs from the signs of both addends: two positives that sum to a negative, or two
+  negatives that sum to a positive. It is the `ADC` overflow flag, `V = (result ^ A) & (result ^ memory) & $80`
+  ([Instruction reference](https://www.nesdev.org/wiki/Instruction_reference),
+  [The 6502 overflow flag explained](http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html)).
+
 ### mirror-down
 
 - Inline: `address & MIRROR_MASK` (for example `RAM_MIRROR_MASK = 0x07FF`)

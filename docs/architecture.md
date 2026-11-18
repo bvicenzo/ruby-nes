@@ -176,7 +176,8 @@ MMC3 scanline IRQ. The `Cpu#step` interface stays in every option; only where th
 | `lib/ruby/nes/cpu_bus.rb` | `Ruby::Nes::CpuBus` | CPU address decoding, RAM, open bus |
 | `lib/ruby/nes/cpu_bus/` | `Ruby::Nes::CpuBus::Disconnected` | the device in an empty slot |
 | `lib/ruby/nes/cpu.rb` | `Ruby::Nes::Cpu` | registers, operand fetch, `step`, interrupts |
-| `lib/ruby/nes/cpu/` | `Ruby::Nes::Cpu::Status`, `::Stack`, `::AddressingModes`… | status flags, stack, addressing modes (a mixin of `Cpu`), instruction table |
+| `lib/ruby/nes/cpu/` | `Ruby::Nes::Cpu::Status`, `::Stack`, `::Shifter`, `::AddressingModes`, `::Dispatch`, `::Opcodes` | status flags, stack, the shift/rotate unit, addressing modes and the opcode dispatch (mixins of `Cpu`), the opcode table (mnemonic, mode, base cycles) |
+| `lib/ruby/nes/cpu/instructions/` | `Ruby::Nes::Cpu::Instructions::LoadStore`, `::Arithmetic`, `::Branches`… | one mixin of `Cpu` per instruction group, each instruction a method taking the resolved effective address |
 | `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding, VRAM, palette RAM |
 | `lib/ruby/nes/ppu.rb`, `ppu/` | `Ruby::Nes::Ppu`, `Ruby::Nes::Ppu::…` | registers, timing, renderer pieces |
 | `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
@@ -269,6 +270,7 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | Gap | Hardware | Revisit in |
 |---|---|---|
 | Dummy reads | On a page cross an indexed read "reads an incorrect location first, a location that is smaller by one page", and indexed writes always read before writing ([6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)). The emulator reads only the effective address, so a dummy read of a register with read side effects (`$2002`, `$2007`) or its effect on open bus is missing. | Plan 12, with the `cpu_dummy_reads` test ROM once the PPU exists |
+| Read-modify-write double write | `ASL`, `LSR`, `ROL`, `ROR`, `INC` and `DEC` on memory "first [write] the original value back to memory" before the modified one ([Instruction reference](https://www.nesdev.org/wiki/Instruction_reference)). The emulator writes only the result, so a device that reacts to every write misses the first one: the MMC1 serial port "ignores every write after the first" on consecutive cycles, which "only happens when the CPU executes read-modify-write instructions" ([MMC1](https://www.nesdev.org/wiki/MMC1)). | Plan 20 (MMC1) |
 
 ## Frame buffer contract
 
@@ -296,3 +298,7 @@ presentation, in a frontend).
 | 6 | 2026-11-18 | The status register is a `Cpu::Status` object holding one Integer with bit masks | Matches push/pull and the trace; the object hides the representation, so a benchmark can swap it alone | Plan 10 (Integer vs one ivar per flag) |
 | 7 | 2026-11-18 | The page-cross cycle of indexed reads is charged by `_for_read` resolvers; write and read-modify-write instructions use the plain ones | Tell, don't ask: no flag to query, no second return value | — |
 | 8 | 2026-11-18 | Dummy reads are not modelled (see Known gaps) | They matter only for registers with read side effects and open bus, which need the PPU | Plan 12 |
+| 9 | 2026-11-18 | Opcode dispatch is one `case opcode` with an integer literal per `when` (`Cpu::Dispatch#execute`), the only method exempt from the size and complexity Metrics cops | Ruby compiles it into `opt_case_dispatch`, one hash lookup with no `Proc#call` or `send` per instruction: the shape YJIT/ZJIT compile best and Spinel can type, with the whole opcode map in one place | Plan 10 (`case` vs a table of lambdas) |
+| 10 | 2026-11-18 | Instructions are spelled-out methods (`load_accumulator`) in one `Cpu` mixin per group; mnemonics are data in `Cpu::Opcodes` | The readability rule against abbreviations; the tracer still finds the mnemonic | — |
+| 11 | 2026-11-18 | The read-modify-write double write is not modelled (see Known gaps) | Only devices that react to every write notice it; none exists before MMC1 | Plan 20 |
+| 12 | 2026-11-18 | `Cpu.new` takes one optional keyword per register, `stack_pointer:` included; `Metrics/ParameterLists` is disabled on that method alone | The list is as long as the register file; specs declare the state instead of mutating it | Plan 07 (power-up state) |
