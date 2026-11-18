@@ -11,3 +11,8 @@ AllCops:
     - 'bin/**/*'
     - 'tmp/**/*'
     - 'roms/**/*'
+
+# rubocop-vicenzo exempts any line containing a comment from the length limit. Hot-path lines end with a
+# `# glossary: <term>` tag (docs/architecture.md, Readability), so only lines that are entirely a comment are exempt.
+Layout/LineLength:
+  AllowedPatterns: ['\A\s*#']
