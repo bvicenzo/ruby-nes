@@ -36,8 +36,8 @@ In:
   (no-op default).
 - `Mappers.build(cartridge)` factory by mapper number; unknown mapper → named error.
 - `Mappers::Nrom`.
-- `CpuBus` with RAM, mirroring, open bus, and slots for PPU/APU/IO devices (stubs answering open bus until their
-  plans exist).
+- `Ruby::Nes::CpuBus` (`lib/ruby/nes/cpu_bus.rb`, top-level: the bus belongs to no device) with RAM, mirroring,
+  open bus, and slots for PPU/APU/IO devices (stubs answering open bus until their plans exist).
 
 Out: PPU registers behaviour (plan 11), APU/controllers (plans 15, 22).
 

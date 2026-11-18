@@ -48,7 +48,8 @@ Out: mapper behaviour (plan 04 onward), NES 2.0 extended fields (backlog).
 
 - [ ] Describe the header behaviour in prose → `specify-behavior` → `write-tests` (build headers from byte literals in
       specs, no ROM files needed).
-- [ ] Implement `Header`, `Loader`, `Cartridge`, error classes under `Ruby::Nes::Cartridge`.
+- [ ] Implement `Ruby::Nes::Cartridge` (`lib/ruby/nes/cartridge.rb`) with `Cartridge::Header`, `Cartridge::Loader` and
+      the error classes nested under it (`lib/ruby/nes/cartridge/`), per the layout in `docs/architecture.md`.
 - [ ] One `:test_rom`-style integration example (tag `:local_rom`, skipped when `roms/smb3.nes` is absent) that loads
       SMB3 and checks the values above.
 
