@@ -1,6 +1,26 @@
 # frozen_string_literal: true
 
 RSpec.describe Ruby::Nes::Bits do
+  describe '.wrap_to_byte' do
+    context 'when the value fits in a byte' do
+      it 'returns the value' do
+        expect(described_class.wrap_to_byte(0xFF)).to eq(0xFF)
+      end
+    end
+
+    context 'when the value is one past a byte' do
+      it 'wraps to zero' do
+        expect(described_class.wrap_to_byte(0x100)).to eq(0x00)
+      end
+    end
+
+    context 'when the value is below zero' do
+      it 'wraps from the top of the byte' do
+        expect(described_class.wrap_to_byte(-3)).to eq(0xFD)
+      end
+    end
+  end
+
   describe '.high_nibble' do
     context 'when the low half is clear' do
       it 'returns the high half' do
