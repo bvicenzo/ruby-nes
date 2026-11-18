@@ -1,7 +1,8 @@
 # Glossary
 
-Two kinds of shorthand appear in ruby-nes code: hardware acronyms kept as names because the reference documentation
-uses them, and inline bit operations on hot paths. This page expands both. See
+Three kinds of shorthand appear in ruby-nes code: hardware acronyms kept as names because the reference documentation
+uses them, standard computing acronyms used by the tooling, and inline bit operations on hot paths. This page expands
+all three. See
 [`architecture.md`](architecture.md#readability) for when each is allowed.
 
 A plan that introduces a new acronym or a new bit idiom adds it here in the same change.
@@ -36,11 +37,26 @@ A plan that introduces a new acronym or a new bit idiom adds it here in the same
 | PPU | Picture Processing Unit | Generates the video signal, 240 lines of pixels. | [PPU](https://www.nesdev.org/wiki/PPU) |
 | PPUCTRL … PPUDATA | PPU registers | `$2000` PPUCTRL, `$2001` PPUMASK, `$2002` PPUSTATUS, `$2003` OAMADDR, `$2004` OAMDATA, `$2005` PPUSCROLL, `$2006` PPUADDR, `$2007` PPUDATA; `$4014` OAMDMA. | [PPU registers](https://www.nesdev.org/wiki/PPU_registers) |
 | PRG | Program (memory) | The cartridge memory on the CPU side: PRG ROM (16 KiB units in iNES) with the program, and PRG RAM (also called WRAM), usually at `$6000-$7FFF`. | [iNES](https://www.nesdev.org/wiki/INES), [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
+| RAM | Random-Access Memory | Readable and writable memory: the console's 2 KiB internal RAM at `$0000-$07FF`, and on some cartridges PRG RAM and CHR RAM. | [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
+| ROM | Read-Only Memory | The cartridge's PRG ROM and CHR ROM. By extension, a dumped cartridge image (an iNES file), as in "test ROM". | [iNES](https://www.nesdev.org/wiki/INES) |
 | Scanline | — | One row of the frame; 262 per NTSC frame. | [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering) |
 | Sprite 0 hit | — | A PPUSTATUS flag set when sprite 0 overlaps the background; games poll it to time mid-frame effects such as a fixed status bar. | [PPU registers](https://www.nesdev.org/wiki/PPU_registers) |
 | Status flags | — | The CPU's P register, bits `NV1B DIZC`: N negative, V overflow, B break (not a real flag), D decimal, I interrupt disable, Z zero, C carry. | [Status flags](https://www.nesdev.org/wiki/Status_flags) |
 | VBlank | Vertical blanking | Scanlines 241–260, when the PPU makes no memory accesses; the VBlank flag is set at scanline 241, dot 1. | [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering) |
 | VRAM | Video RAM | The PPU's nametable memory; on the console, the 2 KiB CIRAM. | [PPU nametables](https://www.nesdev.org/wiki/PPU_nametables) |
+
+## Computing terms
+
+Standard acronyms used by the tooling around the emulator (the test ROM harness, for now), kept in names because they
+are what the libraries and protocols call them.
+
+| Term | Stands for | Meaning | Reference |
+|---|---|---|---|
+| HTTP | Hypertext Transfer Protocol | The protocol the test ROM downloader speaks; a `200` status is a delivered file. | [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) |
+| SHA-256 | Secure Hash Algorithm, 256-bit | The digest the test ROM manifest records for each file; a matching digest means the bytes are the expected ones. | [FIPS 180-4](https://csrc.nist.gov/pubs/fips/180-4/upd1/final) |
+| SSL | Secure Sockets Layer | Name kept by Ruby `Net::HTTP` (`use_ssl:`) for an encrypted (TLS) connection. | [Net::HTTP](https://docs.ruby-lang.org/en/master/Net/HTTP.html) |
+| URL | Uniform Resource Locator | The address of a file on the web, e.g. a test ROM at one of the manifest sources. | [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986) |
+| YAML | YAML Ain't Markup Language | The format of the test ROM manifest (`spec/fixtures/test_roms.yml`). | [YAML](https://yaml.org/) |
 
 ## Bit operations
 

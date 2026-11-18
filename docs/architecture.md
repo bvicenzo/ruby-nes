@@ -159,6 +159,7 @@ MMC3 scanline IRQ. The `Cpu#step` interface stays in every option; only where th
 | `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer`, `::FrameDump`… | tooling off the hot path |
 | `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | readable bit helpers for code off the hot path |
 | `lib/ruby/nes/cli.rb` | — | command line (plan 18) |
+| `spec/support/test_roms.rb`, `spec/support/test_roms/` | `TestRoms`, `TestRoms::Manifest`, `::Fetcher`… | test ROM harness (plan 02): test tooling, not shipped in the gem |
 
 Rules:
 
@@ -211,7 +212,9 @@ production code and specs alike.
 **Exception 1 — hardware acronyms** (decision 4). Documented hardware names are kept in class and constant names
 (`Cpu`, `Ppu`, `Apu`, `Oam`, `Dmc`, `PPUCTRL`) because they are what the reference documentation uses and what a reader
 searches for. Each is expanded in [`GLOSSARY.md`](GLOSSARY.md#hardware-terms), and the class or constant comment
-expands its own. Anything that is not a documented hardware name is spelled out.
+expands its own. Standard computing acronyms used by the tooling (URL, HTTP, YAML, SHA-256, SSL) are allowed on the
+same terms (decision 5): each is expanded in [`GLOSSARY.md`](GLOSSARY.md#computing-terms). Anything else is spelled
+out.
 
 **Exception 2 — inline bit operations on hot paths** (decision 3). On hot paths the operators `&`, `|`, `^`, `~`,
 `<<`, `>>` and the signed-byte idiom are written inline, so no method call is paid per cycle, provided that
@@ -255,3 +258,4 @@ presentation, in a frontend).
 | 2 | 2026-11-17 | Memory container: `Array` of Integer | Most readable; no evidence yet for the alternatives | Plan 10 (Array vs String vs `IO::Buffer`) |
 | 3 | 2026-11-17 | Hot paths write bit operations inline with named constants and `# glossary:` tags; flag tests always use `anybits?`/`nobits?` | No method call per cycle, meaning still one lookup away; RuboCop enforces the predicates | Plan 10 (`Bits` helpers vs inline operators) |
 | 4 | 2026-11-17 | Hardware acronyms kept in names, expanded in the glossary | They match the reference documentation readers search | — |
+| 5 | 2026-11-17 | Standard computing acronyms (URL, HTTP, YAML, SHA-256, SSL) allowed in tooling names, expanded in the glossary | They are what the libraries and protocols call them; spelling them out (`address` for URL) would clash with emulator terms | — |
