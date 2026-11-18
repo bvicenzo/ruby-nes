@@ -37,7 +37,7 @@ Conventions (see also `CLAUDE.md`):
 | 06 | [CPU official instructions](06-cpu-official-instructions.md) | 05 | done |
 | 07 | [CPU interrupts and power-up](07-cpu-interrupts-and-power-up.md) | 06 | done |
 | 08 | [nestest trace (official opcodes)](08-nestest-trace-official.md) | 02, 07 | done |
-| 09 | [CPU unofficial opcodes and blargg CPU tests](09-cpu-unofficial-opcodes.md) | 08 | todo |
+| 09 | [CPU unofficial opcodes](09-cpu-unofficial-opcodes.md) | 08 | done |
 | 10 | [JIT benchmark: interpreter vs YJIT vs ZJIT](10-jit-benchmark.md) | 09 | todo |
 | 11 | [PPU registers and VRAM](11-ppu-registers-and-vram.md) | 04 | todo |
 | 12 | [PPU timing, VBlank/NMI and the console loop](12-ppu-timing-vblank-nmi.md) | 07, 11 | todo |
