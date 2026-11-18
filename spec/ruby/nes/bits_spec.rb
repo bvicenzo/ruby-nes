@@ -21,6 +21,26 @@ RSpec.describe Ruby::Nes::Bits do
     end
   end
 
+  describe '.wrap_to_word' do
+    context 'when the value fits in a word' do
+      it 'returns the value' do
+        expect(described_class.wrap_to_word(0xFFFF)).to eq(0xFFFF)
+      end
+    end
+
+    context 'when the value is one past a word' do
+      it 'wraps to zero' do
+        expect(described_class.wrap_to_word(0x10000)).to eq(0x0000)
+      end
+    end
+
+    context 'when the value is below zero' do
+      it 'wraps from the top of the word' do
+        expect(described_class.wrap_to_word(-3)).to eq(0xFFFD)
+      end
+    end
+  end
+
   describe '.high_nibble' do
     context 'when the low half is clear' do
       it 'returns the high half' do

@@ -22,6 +22,9 @@ module Ruby
       # glossary: wrap-to-byte — the low 8 bits, so $100 -> $00 and -3 -> $FD: a byte-wide register overflowing.
       def self.wrap_to_byte(value) = value & BYTE_MASK
 
+      # glossary: wrap-to-word — the low 16 bits, so $10000 -> $0000: an address wrapping past $FFFF.
+      def self.wrap_to_word(value) = value & WORD_MASK
+
       # glossary: high-nibble — the upper 4 bits of a byte, as 0-15 ($4A -> $4).
       def self.high_nibble(byte) = (byte >> NIBBLE_WIDTH) & NIBBLE_MASK
 
