@@ -21,6 +21,7 @@ require_relative 'support/cartridges'
 require_relative 'support/flat_bus'
 require_relative 'support/hex_dump'
 require_relative 'support/local_roms'
+require_relative 'support/nestest'
 require_relative 'support/test_roms'
 
 RSpec.configure do |config|
@@ -31,8 +32,7 @@ RSpec.configure do |config|
   config.disable_monkey_patching!
 
   # Groups tagged with `test_rom:` are skipped when their ROMs have not been fetched (`rake test_roms:fetch`).
-  test_rom_requirement = TestRoms::Requirement.new(manifest: TestRoms.manifest, directory: TestRoms::DIRECTORY)
-  TestRoms::ExampleGroups.install(config, requirement: test_rom_requirement)
+  TestRoms::ExampleGroups.install(config, requirement: TestRoms.requirement)
 
   # Groups tagged with `local_rom:` are skipped when the user's own dump is not under roms/.
   LocalRoms.install(config, directory: LocalRoms::DIRECTORY)

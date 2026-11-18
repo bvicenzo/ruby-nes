@@ -7,6 +7,9 @@ module TestRoms
   MANIFEST_FILE = File.expand_path('../fixtures/test_roms.yml', __dir__)
 
   def self.manifest = Manifest.load(MANIFEST_FILE)
+
+  # What the specs and the rake tasks check before using a ROM: listed, present and intact under DIRECTORY.
+  def self.requirement = Requirement.new(manifest:, directory: DIRECTORY)
 end
 
 require_relative 'test_roms/entry'

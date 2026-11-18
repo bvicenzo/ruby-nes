@@ -1,0 +1,33 @@
+# frozen_string_literal: true
+
+module Nestest
+  # The reference trace nestest ships with (Nintendulator's format), reduced to Ruby::Nes::Debug::Tracer's layout so
+  # the two compare line by line (plan 08, decision 5):
+  #
+  #   C000  4C F5 C5  JMP $C5F5                       A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7
+  #   C000  4C F5 C5  JMP  A:00 X:00 Y:00 P:24 SP:FD CYC:7
+  #
+  # The operand text and the PPU column are dropped (decision 1). Only the official section is kept: the lines before
+  # the first unofficial opcode, marked with `*` just before its mnemonic (plan 09 takes the rest).
+  module Log
+    UNOFFICIAL_MARKER = '*'
+    # The column of the marker, right before the mnemonic: "C6BD  04 A9    *NOP".
+    MARKER_COLUMN = 15
+    # Address, bytes, marker column and the three-letter mnemonic: "C000  4C F5 C5  JMP".
+    INSTRUCTION_WIDTH = 19
+    REGISTERS = /A:\h\h X:\h\h Y:\h\h P:\h\h SP:\h\h/
+    CYCLES = /CYC:\d+/
+
+    def self.official_lines(text)
+      text
+        .each_line(chomp: true)
+        .take_while { |line| line[MARKER_COLUMN] != UNOFFICIAL_MARKER }
+        .map { |line| reduce(line) }
+    end
+
+    def self.reduce(line)
+      "#{line[0, INSTRUCTION_WIDTH]}  #{line[REGISTERS]} #{line[CYCLES]}"
+    end
+    private_class_method :reduce
+  end
+end
