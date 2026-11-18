@@ -189,6 +189,8 @@ MMC3 scanline IRQ. The `Cpu#step` interface stays in every option; only where th
 | `lib/ruby/nes/cli.rb` | — | command line (plan 18) |
 | `spec/support/test_roms.rb`, `spec/support/test_roms/` | `TestRoms`, `TestRoms::Manifest`, `::Fetcher`… | test ROM harness (plan 02): test tooling, not shipped in the gem |
 | `spec/support/nestest.rb`, `spec/support/nestest/` | `Nestest`, `Nestest::Log`, `::Runner`, `::Divergence` | nestest in automation mode compared with its reference trace (plan 08): test tooling, also used by `rake nestest:diff` |
+| `bench/cpu.rb`, `bench/cpu_benchmark.rb`, `bench/cpu_benchmark/` | `CpuBenchmark`, `CpuBenchmark::Workload`, `::Session`, `::Report`… | the CPU benchmark (plan 10): nestest looped under no JIT, YJIT or ZJIT, run by `rake bench:cpu` and `rake bench:variants`; specs in `spec/cpu_benchmark/` |
+| `bench/cpu_benchmark/variants/` | — | hot-path experiments that reopen core classes, each loaded only inside a benchmark process of its own (plan 10, decision 3) |
 
 Rules:
 
@@ -218,7 +220,8 @@ Rules on hot paths:
   YJIT/ZJIT can compile them and Spinel can infer their types.
 - No exceptions for control flow.
 - `Data.define` value objects are fine for configuration (the iNES header), never per cycle.
-- Memory is an `Array` of Integer (decision 2) until plan 10 says otherwise.
+- Memory is an `Array` of Integer (decision 2): plan 10 measured `String` and `IO::Buffer` slower under the default
+  JIT and without one.
 
 ## Readability
 
@@ -241,9 +244,9 @@ production code and specs alike.
 **Exception 1 — hardware acronyms** (decision 4). Documented hardware names are kept in class and constant names
 (`Cpu`, `Ppu`, `Apu`, `Oam`, `Dmc`, `PPUCTRL`) because they are what the reference documentation uses and what a reader
 searches for. Each is expanded in [`GLOSSARY.md`](GLOSSARY.md#hardware-terms), and the class or constant comment
-expands its own. Standard computing acronyms used by the tooling (URL, HTTP, YAML, SHA-256, SSL) are allowed on the
-same terms (decision 5): each is expanded in [`GLOSSARY.md`](GLOSSARY.md#computing-terms). Anything else is spelled
-out.
+expands its own. Standard computing acronyms used by the tooling (URL, HTTP, YAML, SHA-256, SSL, JSON, and the JIT
+names JIT, YJIT, ZJIT) are allowed on the same terms (decision 5): each is expanded in
+[`GLOSSARY.md`](GLOSSARY.md#computing-terms). Anything else is spelled out.
 
 **Exception 2 — inline bit operations on hot paths** (decision 3). On hot paths the operators `&`, `|`, `^`, `~`,
 `<<`, `>>` and the signed-byte idiom are written inline, so no method call is paid per cycle, provided that
@@ -298,20 +301,21 @@ presentation, in a frontend).
 | # | Date | Decision | Reason | Revisit in |
 |---|---|---|---|---|
 | 1 | 2026-11-17 | Clock model: instruction-level catch-up | Simpler, fewer calls per instruction in Ruby | Plan 12 (VBlank/NMI tests), plan 21 (MMC3 IRQ) |
-| 2 | 2026-11-17 | Memory container: `Array` of Integer | Most readable; no evidence yet for the alternatives | Plan 10 (Array vs String vs `IO::Buffer`) |
-| 3 | 2026-11-17 | Hot paths write bit operations inline with named constants and `# glossary:` tags; flag tests always use `anybits?`/`nobits?` | No method call per cycle, meaning still one lookup away; RuboCop enforces the predicates | Plan 10 (`Bits` helpers vs inline operators) |
+| 2 | 2026-11-17 | Memory container: `Array` of Integer | Most readable; plan 10 measured a binary `String` −4% and `IO::Buffer` −24% under YJIT, both slower without a JIT ([benchmarks](benchmarks.md#findings)) | — |
+| 3 | 2026-11-17 | Hot paths write bit operations inline with named constants and `# glossary:` tags; flag tests always use `anybits?`/`nobits?` | No method call per cycle, meaning still one lookup away; RuboCop enforces the predicates. Plan 10: `Bits` helpers on the per-instruction path cost nothing measurable under YJIT and ZJIT but 14% without a JIT, and that path is only a lower bound of a full conversion | Plan 25 (measure the whole hot path converted before narrowing the exception) |
 | 4 | 2026-11-17 | Hardware acronyms kept in names, expanded in the glossary | They match the reference documentation readers search | — |
-| 5 | 2026-11-17 | Standard computing acronyms (URL, HTTP, YAML, SHA-256, SSL) allowed in tooling names, expanded in the glossary | They are what the libraries and protocols call them; spelling them out (`address` for URL) would clash with emulator terms | — |
-| 6 | 2026-11-18 | The status register is a `Cpu::Status` object holding one Integer with bit masks | Matches push/pull and the trace; the object hides the representation, so a benchmark can swap it alone | Plan 10 (Integer vs one ivar per flag) |
+| 5 | 2026-11-17 | Standard computing acronyms (URL, HTTP, YAML, SHA-256, SSL; JSON, JIT, YJIT, ZJIT since plan 10) allowed in tooling names, expanded in the glossary | They are what the libraries and protocols call them; spelling them out (`address` for URL) would clash with emulator terms | — |
+| 6 | 2026-11-18 | The status register is a `Cpu::Status` object holding one boolean ivar per flag; the byte is composed for pushes and the trace, split by pulls | The object hides the representation, so plan 10 could swap it alone: one ivar per flag measured +5% under YJIT, +7% without a JIT and +5% under ZJIT against one Integer with bit masks (the first representation, 2026-11-18) | Plan 25 |
 | 7 | 2026-11-18 | The page-cross cycle of indexed reads is charged by `_for_read` resolvers; write and read-modify-write instructions use the plain ones | Tell, don't ask: no flag to query, no second return value | — |
 | 8 | 2026-11-18 | Dummy reads are not modelled (see Known gaps) | They matter only for registers with read side effects and open bus, which need the PPU | Plan 12 |
-| 9 | 2026-11-18 | Opcode dispatch is one `case opcode` with an integer literal per `when` (`Cpu::Dispatch#execute`), the only method exempt from the size and complexity Metrics cops | Ruby compiles it into `opt_case_dispatch`, one hash lookup with no `Proc#call` or `send` per instruction: the shape YJIT/ZJIT compile best and Spinel can type, with the whole opcode map in one place | Plan 10 (`case` vs a table of lambdas) |
+| 9 | 2026-11-18 | Opcode dispatch is a `case` on the opcode's high nibble whose `when`s each hold a `case opcode` of that row, with an integer literal per `when` (`Cpu::Dispatch#execute`), laid out as the opcode matrix; the only method exempt from the size and complexity Metrics cops | `opt_case_dispatch` with no `Proc#call` or `send` per instruction, a shape Spinel can type, the whole opcode map in one place. Two levels since plan 10: one `case` of 256 `when`s is a linear chain of `Integer#===` under ZJIT; the two-level `case` measured +21% under YJIT and +261% under ZJIT (−6% without a JIT), ahead of a table of lambdas under YJIT | Plan 25 |
 | 10 | 2026-11-18 | Instructions are spelled-out methods (`load_accumulator`) in one `Cpu` mixin per group; mnemonics are data in `Cpu::Opcodes` | The readability rule against abbreviations; the tracer still finds the mnemonic | — |
 | 11 | 2026-11-18 | The read-modify-write double write is not modelled (see Known gaps) | Only devices that react to every write notice it; none exists before MMC1 | Plan 20 |
 | 12 | 2026-11-18 | `Cpu.new` takes one optional keyword per register, `stack_pointer:` included; `Metrics/ParameterLists` is disabled on that method alone | The list is as long as the register file; specs declare the state instead of mutating it. The all-zero defaults are the state before the power-up reset sequence: power-up is `Cpu.new` + `Cpu#reset` (plan 07) | — |
-| 13 | 2026-11-18 | Interrupt lines are levels set with `Cpu#nmi_line=` and `Cpu#irq_line=`; `Cpu::InterruptLines` detects the NMI's rising edge, keeps it pending until taken, and names the vector to take (NMI first, then IRQ unless the status's I is set); reset discards a pending NMI; the console combines the IRQ sources and sets the line after each catch-up (plan 12 decides) | On hardware the edge detector is in the CPU, so enabling NMI in PPUCTRL during VBlank needs no special case and several IRQ sources combine with `\|\|`; one object keeps edge, level, masking and priority out of `Cpu#step` | Plan 10 (the method call it adds per step) |
+| 13 | 2026-11-18 | Interrupt lines are levels set with `Cpu#nmi_line=` and `Cpu#irq_line=`; `Cpu::InterruptLines` detects the NMI's rising edge, keeps it pending until taken, and names the vector to take (NMI first, then IRQ unless the status's I is set); reset discards a pending NMI; the console combines the IRQ sources and sets the line after each catch-up (plan 12 decides) | On hardware the edge detector is in the CPU, so enabling NMI in PPUCTRL during VBlank needs no special case and several IRQ sources combine with `\|\|`; one object keeps edge, level, masking and priority out of `Cpu#step`. Plan 10: inlining the poll in `Cpu#step` measured 0% to +6% under YJIT across runs, no clear winner | — |
 | 14 | 2026-11-18 | An interrupt is a `Cpu#step` of its own: before the opcode fetch, `step` takes the interrupt and returns 7 cycles; reset also costs 7 cycles | Lines raised while the console catches up after an instruction are seen before the next one; the tracer sees an interrupt as one step; reset "goes through the same sequence" | Plan 12 (clock model) |
 | 15 | 2026-11-18 | The interrupt polling point, the `CLI`/`SEI`/`PLP` delay and interrupt hijacking are not modelled (see Known gaps) | They depend on timing inside an instruction, which instruction-level catch-up does not have | Plan 12, with `cpu_interrupts_v2` |
 | 16 | 2026-11-18 | All 256 opcodes have a `Cpu::Opcodes` entry and a dispatch `when`; unofficial entries are marked (`Opcode#official?`) and traced with `*`, as nestest.log marks them; the seven unstable ones follow "No More Secrets" (see Known gaps) | No opcode raises: nestest's full log, `instr_test-v5` and any game that hits an unofficial opcode run on | Plan 12 (`instr_test-v5`) |
 | 17 | 2026-11-18 | A `JAM` opcode puts the CPU in a jammed state (`Cpu#jammed?`) that only `Cpu#reset` clears; a jammed step costs 2 cycles and touches nothing (see Known gaps) | The frontend can show the halt, and the console keeps its clock running as the hardware does | When a source for the jammed behaviour is found |
-| 18 | 2026-11-18 | The 12 `JAM` opcodes are the dispatch's `else`; repeated bodies keep one `when` per opcode (`Lint/DuplicateBranch` disabled on that `case` alone) | With 256 `when`s an `else` is unreachable, and Ruby's branch coverage counts it; the map stays readable byte by byte | Plan 10 (`case` vs a table of lambdas) |
+| 18 | 2026-11-18 | Each row's column 2 is its `case`'s `else` (the `JAM` in 12 rows, the opcode `$x2` in rows 8, A, C and E) and row F is the outer `else`; repeated bodies keep one `when` per opcode (`Lint/DuplicateBranch` disabled on the two rows that need it) | A `when` for every value leaves the implicit `else` unreachable, and Ruby's branch coverage counts it; the map stays readable byte by byte | — |
+| 19 | 2026-11-18 | YJIT is the project's default JIT | Plan 10: fastest with every variant measured, 16.4 emulated MHz (915% of real time) on nestest against 9.0 for ZJIT and 3.7 without a JIT ([benchmarks](benchmarks.md#findings)) | Plan 25 (whole frames) |

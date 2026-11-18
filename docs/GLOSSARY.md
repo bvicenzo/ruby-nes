@@ -56,16 +56,20 @@ only the inline form exists.
 
 ## Computing terms
 
-Standard acronyms used by the tooling around the emulator (the test ROM harness, for now), kept in names because they
-are what the libraries and protocols call them.
+Standard acronyms used by the tooling around the emulator (the test ROM harness and the benchmark), kept in names
+because they are what the libraries and protocols call them.
 
 | Term | Stands for | Meaning | Reference |
 |---|---|---|---|
 | HTTP | Hypertext Transfer Protocol | The protocol the test ROM downloader speaks; a `200` status is a delivered file. | [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) |
+| JIT | Just-In-Time (compiler) | A compiler that turns Ruby methods into machine code while the program runs. Ruby 4.0.9 ships two, YJIT and ZJIT, both off by default; the benchmark (plan 10) measures each against the interpreter. | [YJIT](https://docs.ruby-lang.org/en/master/yjit/yjit_md.html) |
+| JSON | JavaScript Object Notation | The one-line format `bench/cpu.rb` prints its measurement in, for the bench rake tasks to collect. | [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) |
 | SHA-256 | Secure Hash Algorithm, 256-bit | The digest the test ROM manifest records for each file; a matching digest means the bytes are the expected ones. | [FIPS 180-4](https://csrc.nist.gov/pubs/fips/180-4/upd1/final) |
 | SSL | Secure Sockets Layer | Name kept by Ruby `Net::HTTP` (`use_ssl:`) for an encrypted (TLS) connection. | [Net::HTTP](https://docs.ruby-lang.org/en/master/Net/HTTP.html) |
 | URL | Uniform Resource Locator | The address of a file on the web, e.g. a test ROM at one of the manifest sources. | [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986) |
 | YAML | YAML Ain't Markup Language | The format of the test ROM manifest (`spec/fixtures/test_roms.yml`). | [YAML](https://yaml.org/) |
+| YJIT | — (Yet another Ruby JIT, by its authors) | CRuby's lazy basic-block-versioning JIT, enabled with `--yjit`. | [YJIT](https://docs.ruby-lang.org/en/master/yjit/yjit_md.html) |
+| ZJIT | — (the name is not expanded by its documentation) | CRuby's newer method-based JIT, enabled with `--zjit`. | [ZJIT](https://docs.ruby-lang.org/en/master/zjit_md.html) |
 
 ## Bit operations
 
@@ -112,7 +116,8 @@ constant name.
 
 ### high-nibble
 
-- Inline: `(byte >> NIBBLE_WIDTH) & NIBBLE_MASK` (`NIBBLE_WIDTH = 4`, `NIBBLE_MASK = 0x0F`)
+- Inline: `(byte >> NIBBLE_WIDTH) & NIBBLE_MASK` (`NIBBLE_WIDTH = 4`, `NIBBLE_MASK = 0x0F`); `byte >> NIBBLE_WIDTH`
+  alone when the value is already a byte, as the opcode `Cpu::Dispatch` selects its row with
 - Off the hot path: `Bits.high_nibble(byte)`
 - The upper 4 bits of a byte as a number `0-15` (`$4A` → `$4`); the low 4 bits never influence it. The iNES header
   keeps the mapper number's halves in the high nibbles of bytes 6 and 7 ([iNES](https://www.nesdev.org/wiki/INES)).
