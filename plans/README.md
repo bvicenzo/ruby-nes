@@ -31,7 +31,7 @@ Conventions (see also `CLAUDE.md`):
 | 00 | [Project setup](00-project-setup.md) | — | done |
 | 01 | [Architecture and conventions](01-architecture-and-conventions.md) | 00 | done |
 | 02 | [Test ROM harness](02-test-rom-harness.md) | 00 | done |
-| 03 | [iNES cartridge loader](03-ines-cartridge-loader.md) | 01 | todo |
+| 03 | [iNES cartridge loader](03-ines-cartridge-loader.md) | 01 | done |
 | 04 | [CPU bus, mapper interface and NROM](04-cpu-bus-mapper-interface-nrom.md) | 03 | todo |
 | 05 | [CPU registers and addressing modes](05-cpu-registers-and-addressing-modes.md) | 04 | todo |
 | 06 | [CPU official instructions](06-cpu-official-instructions.md) | 05 | todo |
