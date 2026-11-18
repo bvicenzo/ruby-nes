@@ -31,7 +31,8 @@ mirroring mode), `$3000-$3EFF` mirror of `$2000-$2EFF`, `$3F00-$3F1F` palette RA
 ## Scope
 
 In: `Ppu` register reads/writes, `PpuBus`, nametable mirroring (horizontal, vertical, single-screen lower/upper,
-four-screen), palette mirroring, loopy `v/t/x/w` updates on register writes, OAM DMA with CPU stall cycles reported to
+four-screen; the mapper selects the mode — the iNES header's byte 6 bit 3 is an "alternative nametable layout" whose
+meaning is mapper-specific, see plan 03), palette mirroring, loopy `v/t/x/w` updates on register writes, OAM DMA with CPU stall cycles reported to
 the console.
 
 Out: dot timing, VBlank, NMI (plan 12); rendering (plans 13, 14).

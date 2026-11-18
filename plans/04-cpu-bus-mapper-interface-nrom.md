@@ -27,6 +27,13 @@ NROM: PRG-ROM of 16 KiB (mirrored at `$8000` and `$C000`) or 32 KiB; 8 KiB CHR-R
 from the header. Real NROM boards rarely have PRG-RAM, but emulators expose 8 KiB at `$6000-$7FFF` because test ROMs
 (blargg) write their results there.
 
+From plan 03: `Cartridge` gives `prg_rom` and `chr_rom` as frozen `Array`s of Integer (`chr_rom` is empty on CHR-RAM
+boards); the header gives `mapper_number`, `mirroring` (`:horizontal`/`:vertical`), `chr_ram?`, `chr_ram_size`
+(8 KiB on CHR-RAM boards, 0 otherwise) and `alternative_nametables?` (byte 6 bit 3, raw: each mapper decides what it
+means). The header does not interpret byte 8 (PRG-RAM size), so the PRG-RAM decision below is the mapper's. The
+mapper allocates CHR-RAM itself. Plan 03 does not reject a header declaring no PRG ROM (byte 4 = 0): `Mappers.build`
+refuses such a cartridge with a named error, before any mapper indexes an empty `prg_rom`.
+
 ## Scope
 
 In:
