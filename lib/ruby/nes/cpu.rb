@@ -18,19 +18,25 @@ require_relative 'cpu/instructions/shifts'
 require_relative 'cpu/instructions/branches'
 require_relative 'cpu/instructions/flags'
 require_relative 'cpu/instructions/control_flow'
+require_relative 'cpu/interrupt_lines'
+require_relative 'cpu/interrupts'
 require_relative 'cpu/dispatch'
 
 module Ruby
   module Nes
     # The 6502 core of the 2A03 (https://www.nesdev.org/wiki/CPU), without decimal mode. Registers
     # (https://www.nesdev.org/wiki/CPU_registers): A, X and Y are byte-wide, the program counter has 16 bits, S lives in
-    # the Stack and P in the Status. Every register starts at zero until plan 07 defines the power-up state; specs and
-    # tools may give A, X, Y, the program counter and the stack pointer initial values as keywords.
+    # the Stack and P in the Status. Every register starts at zero, the state before the power-up reset sequence
+    # (https://www.nesdev.org/wiki/CPU_power_up_state): power-up is `Cpu.new` followed by #reset. Specs and tools may
+    # give A, X, Y, the program counter and the stack pointer initial values as keywords.
     class Cpu
       # Raised by #step for an opcode outside the official 151 (unofficial opcodes are plan 09).
       class UnknownOpcode < Nes::Error; end
 
-      # IRQ and BRK jump through the little-endian address at $FFFE (https://www.nesdev.org/wiki/CPU_interrupts).
+      # Interrupt vectors, each a little-endian address (https://www.nesdev.org/wiki/CPU_interrupts): NMI at $FFFA,
+      # reset at $FFFC, IRQ and BRK at $FFFE.
+      NMI_VECTOR = 0xFFFA
+      RESET_VECTOR = 0xFFFC
       IRQ_VECTOR = 0xFFFE
 
       include AddressingModes
@@ -45,6 +51,7 @@ module Ruby
       include Instructions::Branches
       include Instructions::Flags
       include Instructions::ControlFlow
+      include Interrupts
       include Dispatch
 
       attr_accessor :accumulator, :index_x, :index_y, :program_counter
@@ -61,6 +68,7 @@ module Ruby
         @status = Status.new
         @shifter = Shifter.new(status: @status)
         @stack = Stack.new(bus:, pointer: stack_pointer)
+        @interrupt_lines = InterruptLines.new(status: @status)
         @cycles = 0
       end
 
@@ -78,13 +86,19 @@ module Ruby
         (high << 8) | low # glossary: combine-bytes
       end
 
-      # Runs the instruction at the program counter and returns the cycles it took: the opcode's base cycles plus any
-      # page-cross or branch cycle charged while it ran. Raises UnknownOpcode for an opcode outside the official 151.
+      # Takes the interrupt InterruptLines names, if any, or else runs the instruction at the program counter; returns
+      # the cycles it took: 7 for an interrupt, or the opcode's base cycles plus any page-cross or branch cycle charged
+      # while it ran. Raises UnknownOpcode for an opcode outside the official 151.
       def step
         cycles_before = @cycles
-        opcode = fetch_byte
-        execute(opcode)
-        @cycles += Opcodes::TABLE[opcode].cycles
+        vector = @interrupt_lines.acknowledge
+        if vector
+          take_interrupt(vector)
+        else
+          opcode = fetch_byte
+          execute(opcode)
+          @cycles += Opcodes::TABLE[opcode].cycles
+        end
         @cycles - cycles_before
       end
 

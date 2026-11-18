@@ -7,9 +7,136 @@
 # branch taken, 4 if page crossed)"; each branch is tried taken and not taken with the other three flags held set, so a
 # branch on the wrong flag or the wrong state fails one of the two. Opcodes outside the official 151 are unofficial
 # (https://www.nesdev.org/wiki/CPU_unofficial_opcodes), left to plan 09.
+#
+# Before the opcode fetch, a step takes the interrupt Cpu::InterruptLines names instead (plan 07, decision 3): it pushes
+# the program counter (high byte first) and the flags with B clear and bit 5 set, sets I, loads the program counter
+# from the vector, NMI $FFFA or IRQ $FFFE, and takes 7 cycles (https://www.nesdev.org/wiki/CPU_interrupts). "The RTI
+# instruction affects IRQ inhibition immediately", so an IRQ line still asserted when the handler returns is taken again.
 RSpec.describe Ruby::Nes::Cpu do
   describe '#step' do
     let(:bus) { FlatBus.new }
+
+    context 'when an NMI is pending' do
+      subject(:cpu) do
+        described_class.new(bus:, program_counter: 0x8123, stack_pointer: 0xFD).tap do |cpu|
+          cpu.status.carry = true
+          cpu.nmi_line = true
+        end
+      end
+
+      before do
+        bus.write(0x8123, 0xE8)
+        bus.write_bytes(0xFFFA, [0x34, 0x12])
+      end
+
+      it 'pushes $8123 and then the flags with break clear', :aggregate_failures do
+        cpu.step
+        expect(bus.read(0x01FD)).to eq(0x81)
+        expect(bus.read(0x01FC)).to eq(0x23)
+        expect(bus.read(0x01FB)).to eq(0x21)
+      end
+
+      it 'moves the stack pointer to $FA' do
+        cpu.step
+        expect(cpu.stack.pointer).to eq(0xFA)
+      end
+
+      it 'sets interrupt disable' do
+        cpu.step
+        expect(cpu.status).to be_interrupt_disable
+      end
+
+      it 'moves the program counter to the address at $FFFA' do
+        cpu.step
+        expect(cpu.program_counter).to eq(0x1234)
+      end
+
+      it 'takes 7 cycles' do
+        expect(cpu.step).to eq(7)
+      end
+    end
+
+    context 'when the IRQ line is asserted' do
+      context 'but interrupt disable is set' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000).tap do |cpu|
+            cpu.status.interrupt_disable = true
+            cpu.irq_line = true
+          end
+        end
+
+        before do
+          bus.write(0x8000, 0xE8)
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'runs the instruction at the program counter', :aggregate_failures do
+          expect(cpu.step).to eq(2)
+          expect(cpu.index_x).to eq(0x01)
+        end
+      end
+
+      context 'and interrupt disable is clear' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8123, stack_pointer: 0xFD).tap do |cpu|
+            cpu.status.carry = true
+            cpu.irq_line = true
+          end
+        end
+
+        before do
+          bus.write(0x8123, 0xE8)
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'pushes $8123 and then the flags with break clear', :aggregate_failures do
+          cpu.step
+          expect(bus.read(0x01FD)).to eq(0x81)
+          expect(bus.read(0x01FC)).to eq(0x23)
+          expect(bus.read(0x01FB)).to eq(0x21)
+        end
+
+        it 'moves the stack pointer to $FA' do
+          cpu.step
+          expect(cpu.stack.pointer).to eq(0xFA)
+        end
+
+        it 'sets interrupt disable' do
+          cpu.step
+          expect(cpu.status).to be_interrupt_disable
+        end
+
+        it 'moves the program counter to the address at $FFFE' do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x1234)
+        end
+
+        it 'takes 7 cycles' do
+          expect(cpu.step).to eq(7)
+        end
+      end
+
+      context 'and its handler returns with RTI while the line stays asserted' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD).tap do |cpu|
+            cpu.irq_line = true
+            cpu.step
+            cpu.step
+          end
+        end
+
+        before do
+          bus.write(0x8000, 0xE8)
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+          bus.write(0x1234, 0x40)
+        end
+
+        it 'takes the IRQ again', :aggregate_failures do
+          expect(cpu.step).to eq(7)
+          expect(cpu.program_counter).to eq(0x1234)
+        end
+      end
+    end
 
     context 'when the opcode is unofficial ($02)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }

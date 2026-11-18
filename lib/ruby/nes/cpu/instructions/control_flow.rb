@@ -30,13 +30,11 @@ module Ruby
           end
 
           # BRK ("Force Interrupt" in the Obelisk reference): "the return address that is pushed to the stack skips the
-          # byte after the BRK opcode"; the flags go with B set, and I is "set to 1 after the old flags are pushed".
-          # Plan 07 finishes the interrupt semantics.
+          # byte after the BRK opcode"; the flags go with B set, and I is "set to 1 after the old flags are pushed": the
+          # interrupt sequence of Cpu::Interrupts, through the IRQ vector.
           def force_interrupt
-            @stack.push_word((@program_counter + 1) & Bits::WORD_MASK) # glossary: wrap-to-word
-            @stack.push(@status.byte_pushed_by_instruction)
-            @status.interrupt_disable = true
-            @program_counter = read_word(IRQ_VECTOR)
+            return_address = (@program_counter + 1) & Bits::WORD_MASK # glossary: wrap-to-word
+            enter_interrupt(return_address, @status.byte_pushed_by_instruction, IRQ_VECTOR)
           end
 
           # NOP
