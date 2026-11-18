@@ -68,10 +68,18 @@ Out: pixels (plan 13).
       names the instruction at the program counter. Once the PPU raises NMI, a trace of a running game needs either
       an interrupt line from the tracer (asking the CPU's interrupt lines without consuming them) or a runner that
       pairs log lines with instruction steps only. Automation-mode nestest is unaffected (no interrupt source).
+      The same applies to a jammed CPU (plan 09): `Cpu#step` runs nothing, but `Tracer#line` names the instruction at
+      the program counter; show the halt instead.
 
 ## Acceptance criteria
 
 - [ ] All `instr_test-v5` single ROMs whose mapper is implemented report "Passed".
+      Besides the official opcodes they exercise every unofficial one except XAA, AHX, TAS, LAS and the jams
+      (readme: "not tested"), including the unstable `$AB`, `$9C` and `$9E` that plan 09 implemented from
+      approximate formulas (plan 09, decision 1): a failure there may mean a formula, not a bug. The first suspect
+      is `$AB`'s magic constant: plan 09 uses $EE, the value "No More Secrets" advises for emulators (a C64 source),
+      while NES emulators are said to use $FF (`A = X = imm`) with no primary source found; next, the Z and N of
+      `$AB`, inferred from the Visual6502 note on `$8B`.
 - [ ] `ppu_vbl_nmi` `01-vbl_basics` and `04-nmi_control` pass; the result of every other ROM in the suite is recorded
       in `docs/test-roms.md` with the reason for each failure.
 - [ ] The nestest trace `PPU:` column now matches too (extend plan 08's comparison: `Debug::Tracer#line` prints the

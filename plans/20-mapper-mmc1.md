@@ -19,7 +19,10 @@ ROMs.
 - Writes on consecutive CPU cycles (read-modify-write instructions) are ignored after the first — a real quirk some
   games depend on. The CPU does not produce them yet: plan 06 (decision 5) leaves the read-modify-write double write
   ("first [write] the original value back to memory") out, listed in `docs/architecture.md` Known gaps. This plan must
-  add it to the CPU (spec first) before the consecutive-cycle rule can be tested end to end.
+  add it to the CPU (spec first) before the consecutive-cycle rule can be tested end to end. Plan 09 added six more
+  read-modify-write instructions that need it too, the unofficial combos in `Cpu::Instructions::ReadModifyWriteCombos`
+  (`SLO`, `RLA`, `SRE`, `RRA`, `DCP`, `ISB`); their bodies repeat the official ones' modify step, so a shared
+  "modify memory, return the new byte" step (one place for the double write) is worth extracting then.
 - Board variants (SNROM, SOROM, SUROM, SXROM) reuse CHR bank bits for PRG-RAM banking or 512 KiB PRG.
 
 ## Scope
