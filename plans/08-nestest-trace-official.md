@@ -16,9 +16,10 @@ The reference log (from Nintendulator) starts:
 C000  4C F5 C5  JMP $C5F5                       A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7
 ```
 
-Initial state for automation mode: `P = $24`, `SP = $FD`, cycle counter 7. Lines whose disassembly starts with `*`
-are unofficial opcodes; the official section is everything before the first of them. Test results are written to
-`$0002` and `$0003` (zero means pass; non-zero codes are listed in the ROM's documentation).
+Initial state for automation mode: `P = $24`, `SP = $FD`, cycle counter 7 — exactly a powered-up CPU (`Cpu.new`
+followed by `Cpu#reset`, plan 07), after which the program counter is set to `$C000`. Lines whose disassembly
+starts with `*` are unofficial opcodes; the official section is everything before the first of them. Test results
+are written to `$0002` and `$0003` (zero means pass; non-zero codes are listed in the ROM's documentation).
 
 `P` in the log is the interrupt-pushed form of `Cpu::Status` (bit 5 set, B clear: `P:24`); the
 [Status flags](https://www.nesdev.org/wiki/Status_flags) page says debuggers have "no convention" for bits 5 and 4,

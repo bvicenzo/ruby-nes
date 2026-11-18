@@ -25,6 +25,17 @@ set suppresses that frame's flag/NMI (race documented on the NMI page).
 The console loop (clock model chosen in plan 01): step the CPU, advance the PPU 3 dots per CPU cycle, deliver NMI to
 the CPU, stop at the end of each frame.
 
+From plan 07: the CPU detects the NMI edge itself, so the PPU calls `cpu.nmi_line = asserted` (a boolean) whenever
+its NMI output (VBlank flag and PPUCTRL's NMI enable) changes; `Cpu#step` services a pending NMI as a step of its own.
+IRQ is a level the CPU receives (`cpu.irq_line =`), while mappers expose a predicate (`irq?`): the console combines
+every source (`mapper.irq? || apu.irq?`, plans 21 and 22) and sets the line after each catch-up, or the CPU polls a
+list of sources — decide here. `Console#reset` calls `Cpu#reset`, which returns its 7 cycles for the PPU and
+discards a pending NMI; power-up is `Cpu.new` + `reset`.
+
+The CPU gaps deferred to this plan (`docs/architecture.md`, Known gaps) are checked here once the PPU exists: dummy
+reads (plan 05, `cpu_dummy_reads`), and the interrupt polling point, the `CLI`/`SEI`/`PLP` IRQ delay and interrupt
+hijacking (plan 07, `cpu_interrupts_v2`). They depend on the clock model decision below.
+
 ## Scope
 
 In: PPU `tick`, frame counter and frame-complete signal, VBlank/NMI, odd-frame skip, `Console#run_frame`,
@@ -36,6 +47,8 @@ Out: pixels (plan 13).
 
 - Whether the suppression/race cases are modelled now. With instruction-level catch-up they likely cannot be exact;
   recommendation: model what the clock model allows and document the rest.
+- Who combines the IRQ sources into `Cpu#irq_line=`: the console after each catch-up, or the CPU polling a list of
+  devices answering `irq?`. Recommendation: the console, so the CPU keeps one boolean per line.
 - If `ppu_vbl_nmi` timing tests reveal the catch-up model is insufficient for later goals (SMB3, plan 21), switch to
   per-bus-access ticking here, before rendering is built on top. Decide with the numbers from the test run.
 
@@ -47,6 +60,9 @@ Out: pixels (plan 13).
 - [ ] Blargg result reader in `spec/support/`, with specs on synthetic memory.
 - [ ] Add `instr_test-v5` and `ppu_vbl_nmi` to the test ROM manifest (check each ROM's mapper with plan 03's loader;
       ROMs whose mapper is not implemented yet move to the acceptance of that mapper's plan).
+- [ ] Add `cpu_dummy_reads` and `cpu_interrupts_v2` to the manifest; after the clock model decision, model the CPU
+      gaps it makes reachable (dummy reads, interrupt polling point, `CLI`/`SEI`/`PLP` delay, hijacking) or record
+      why each stays a gap.
 
 ## Acceptance criteria
 
@@ -54,6 +70,8 @@ Out: pixels (plan 13).
 - [ ] `ppu_vbl_nmi` `01-vbl_basics` and `04-nmi_control` pass; the result of every other ROM in the suite is recorded
       in `docs/test-roms.md` with the reason for each failure.
 - [ ] The nestest trace `PPU:` column now matches too (extend plan 08's comparison).
+- [ ] The result of every `cpu_dummy_reads` and `cpu_interrupts_v2` ROM is recorded in `docs/test-roms.md`; the
+      Known gaps rows of `docs/architecture.md` are updated to match.
 - [ ] 100% branch coverage on the timing code; rubocop clean.
 
 ## References
@@ -63,4 +81,5 @@ Out: pixels (plan 13).
 - NMI — https://www.nesdev.org/wiki/NMI
 - PPU power up state — https://www.nesdev.org/wiki/PPU_power_up_state
 - Cycle reference chart — https://www.nesdev.org/wiki/Cycle_reference_chart
-- `instr_test-v5`, `ppu_vbl_nmi` — https://github.com/christopherpow/nes-test-roms (each suite's `readme.txt`)
+- `instr_test-v5`, `ppu_vbl_nmi`, `cpu_dummy_reads`, `cpu_interrupts_v2` —
+  https://github.com/christopherpow/nes-test-roms (each suite's `readme.txt`)
