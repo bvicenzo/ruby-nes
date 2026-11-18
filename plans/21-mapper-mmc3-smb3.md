@@ -41,7 +41,8 @@ Out: MMC6 specifics; the battery (SMB3 has none).
 
 ## Open decisions
 
-- A12 source: notify the mapper on every PPU pattern-table fetch address (accurate, more calls per dot) vs a
+- A12 source (plan 04 left the mapper interface without a scanline/A12 hook; this decision gives it its shape):
+  notify the mapper on every PPU pattern-table fetch address (accurate, more calls per dot) vs a
   "scanline at dot 260 when rendering" shortcut (fast, breaks games with unusual pattern table setups).
   Recommendation: A12 notification, measure the cost, keep the shortcut as a documented fallback.
 - MMC3 revision behaviour for latch = 0 (revision A vs B). Recommendation: revision B (most common), record it.

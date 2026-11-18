@@ -28,6 +28,9 @@ PPU memory map: `$0000-$1FFF` pattern tables (cartridge), `$2000-$2FFF` nametabl
 mirroring mode), `$3000-$3EFF` mirror of `$2000-$2EFF`, `$3F00-$3F1F` palette RAM mirrored up to `$3FFF`, with
 `$3F10/$3F14/$3F18/$3F1C` mirroring `$3F00/$3F04/$3F08/$3F0C`.
 
+Plan 04's `CpuBus` hands `$2000-$3FFF` to its `ppu_registers:` slot already mirrored down to `$2000-$2007`, as
+`cpu_read(address, data_bus)` (return the value left on the CPU data bus) and `cpu_write(address, value)`.
+
 ## Scope
 
 In: `Ppu` register reads/writes, `PpuBus`, nametable mirroring (horizontal, vertical, single-screen lower/upper,

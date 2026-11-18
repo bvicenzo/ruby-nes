@@ -16,9 +16,15 @@ Three discrete-logic mappers that exercise the mapper interface with bank switch
 
 Many of these boards have **bus conflicts**: the written value is ANDed with the ROM byte at the same address.
 
+Plan 04 left no `Mappers::Base` on purpose: with NROM and these three boards side by side, extract what they share
+(CHR ROM vs CHR-RAM allocation and write protection, PRG-RAM, `mirroring`, `irq?`) into a base class or module, or
+record why not. The interface is `cpu_read(address, data_bus)` (return `data_bus` when the board does not drive the
+bus), `cpu_write`, `ppu_read`, `ppu_write`, `mirroring`, `irq?` (docs/architecture.md).
+
 ## Scope
 
-In: the three mappers, single-screen mirroring changes at runtime (AxROM), bank number masking by ROM size.
+In: the three mappers, the shared base extracted from NROM and them, single-screen mirroring changes at runtime
+(AxROM), bank number masking by ROM size.
 
 Out: variants with oversize banks (UNROM 512 etc.).
 
@@ -31,6 +37,7 @@ Out: variants with oversize banks (UNROM 512 etc.).
 
 - [ ] Specify and test each mapper: bank selection, fixed bank, masking when the selected bank exceeds the ROM,
       mirroring (AxROM), bus conflict as decided.
+- [ ] Extract the shared mapper base (or record why not).
 - [ ] Register them in `Mappers.build`.
 - [ ] Check whether a freely distributable multi-mapper test ROM (e.g. "Holy Mapperel") is in the test ROM collection;
       if so add it to the manifest.
