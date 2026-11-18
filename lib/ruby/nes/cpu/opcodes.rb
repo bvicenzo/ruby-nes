@@ -8,8 +8,34 @@ module Ruby
       # charged while the instruction runs (plan 06). The tracer (plan 08) reads the mnemonic and the mode. The other
       # 105 opcodes are unofficial (plan 09) and have no entry.
       module Opcodes
+        # Operand bytes after the opcode, per addressing mode (https://www.nesdev.org/wiki/CPU_addressing_modes): the
+        # "d" modes, immediate and relative take an 8-bit operand, the "a" modes a 16-bit one; implied has "no address
+        # operand" and accumulator names the A register.
+        OPERAND_SIZES = {
+          implied: 0,
+          accumulator: 0,
+          immediate: 1,
+          zero_page: 1,
+          zero_page_x: 1,
+          zero_page_y: 1,
+          relative: 1,
+          indexed_indirect: 1,
+          indirect_indexed: 1,
+          absolute: 2,
+          absolute_x: 2,
+          absolute_y: 2,
+          indirect: 2
+        }.freeze
+
+        # The opcode byte that selects the instruction, before its operand.
+        OPCODE_SIZE = 1
+
         # Built once, when the file loads; never per instruction.
-        Opcode = Data.define(:mnemonic, :mode, :cycles)
+        Opcode = Data.define(:mnemonic, :mode, :cycles) do
+          # The instruction's length in bytes: the opcode and its operand. Read by the tracer (plan 08), never by
+          # Cpu#step. An unknown mode raises KeyError: modes come from this file only.
+          def size = OPCODE_SIZE + OPERAND_SIZES.fetch(mode)
+        end
 
         OFFICIAL = {
           0x61 => Opcode.new(mnemonic: 'ADC', mode: :indexed_indirect, cycles: 6),
