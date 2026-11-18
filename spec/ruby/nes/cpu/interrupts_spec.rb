@@ -141,5 +141,24 @@ RSpec.describe Ruby::Nes::Cpu::Interrupts do
         expect(cpu.program_counter).to eq(0x1235)
       end
     end
+
+    # The jam opcodes "halt the CPU until reset" (https://www.nesdev.org/wiki/CPU_unofficial_opcodes).
+    context 'when the CPU is jammed' do
+      subject(:cpu) { Ruby::Nes::Cpu.new(bus:).tap(&:jam) }
+
+      let(:bus) { FlatBus.new }
+
+      before do
+        bus.write_bytes(0xFFFC, [0x34, 0x12])
+        bus.write(0x1234, 0xEA)
+      end
+
+      it 'releases it: the next step runs the instruction at the reset vector', :aggregate_failures do
+        cpu.reset
+        expect(cpu).not_to be_jammed
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x1235)
+      end
+    end
   end
 end

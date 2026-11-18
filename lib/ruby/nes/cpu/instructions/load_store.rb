@@ -6,6 +6,7 @@ module Ruby
       module Instructions
         # Loads and stores (https://www.nesdev.org/wiki/Instruction_reference), included in Cpu. Each takes the
         # effective address its addressing mode resolved. Loads set Z and N from the loaded byte; stores change no flag.
+        # LAX and SAX are unofficial (https://www.nesdev.org/wiki/Programming_with_unofficial_opcodes).
         module LoadStore
           # LDA
           def load_accumulator(address)
@@ -38,6 +39,17 @@ module Ruby
           # STY
           def store_index_y(address)
             @bus.write(address, @index_y)
+          end
+
+          # LAX: "Shortcut for LDA value then TAX".
+          def load_accumulator_and_index_x(address)
+            @accumulator = @index_x = @bus.read(address)
+            @status.update_zero_and_negative(@accumulator)
+          end
+
+          # SAX: "Stores the bitwise AND of A and X. As with STA and STX, no flags are affected."
+          def store_accumulator_and_index_x(address)
+            @bus.write(address, @accumulator & @index_x) # glossary: bitwise-and
           end
         end
       end

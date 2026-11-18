@@ -14,8 +14,10 @@ module Ruby
         # Reset, and with a freshly built CPU (every register zero) the power-up state
         # (https://www.nesdev.org/wiki/CPU_power_up_state): S moves down three bytes without writing, I is set and the
         # program counter comes from $FFFC; A, X, Y and the other flags are unchanged. A pending NMI is discarded (plan
-        # 07, decision 6). Returns the cycles it took, 7, as #step does.
+        # 07, decision 6). It also releases a CPU a JAM opcode halted (plan 09). Returns the cycles it took, 7, as #step
+        # does.
         def reset
+          @jammed = false
           @stack.pointer = Bits.wrap_to_byte(@stack.pointer - RESET_SUPPRESSED_PUSHES)
           @status.interrupt_disable = true
           @program_counter = read_word(RESET_VECTOR)

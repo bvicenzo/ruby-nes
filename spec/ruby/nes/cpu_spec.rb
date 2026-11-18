@@ -5,7 +5,7 @@
 RSpec.describe Ruby::Nes::Cpu do
   describe '.new' do
     context 'when only the bus is given' do
-      it 'starts every register at zero', :aggregate_failures do
+      it 'starts every register at zero, not jammed', :aggregate_failures do
         cpu = described_class.new(bus: FlatBus.new)
 
         expect(cpu.accumulator).to eq(0x00)
@@ -15,6 +15,7 @@ RSpec.describe Ruby::Nes::Cpu do
         expect(cpu.stack.pointer).to eq(0x00)
         expect(cpu.status.byte_pushed_by_interrupt).to eq(0x20)
         expect(cpu.cycles).to eq(0)
+        expect(cpu).not_to be_jammed
       end
     end
 

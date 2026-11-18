@@ -6,7 +6,10 @@
 # pushes PC + 2 ("skips the byte after the BRK opcode"), then the flags with B set, then sets I ("set to 1 after the old
 # flags are pushed") and jumps through the IRQ/BRK vector at $FFFE (https://www.nesdev.org/wiki/CPU_interrupts). Words
 # go on the stack high byte first (https://www.nesdev.org/wiki/Stack). Every instruction is called as Cpu#step would:
-# with the program counter past the opcode and the operand.
+# with the program counter past the opcode and the operand. The unofficial reading NOPs "[read] from memory at the
+# specified address and [ignore] the value. Affects no register nor flags"
+# (https://www.nesdev.org/wiki/Programming_with_unofficial_opcodes); the jam opcodes "halt the CPU until reset"
+# (https://www.nesdev.org/wiki/CPU_unofficial_opcodes).
 RSpec.describe Ruby::Nes::Cpu::Instructions::ControlFlow do
   describe '#jump' do
     subject(:cpu) { Ruby::Nes::Cpu.new(bus: FlatBus.new, program_counter: 0x8003) }
@@ -177,6 +180,49 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ControlFlow do
         expect(cpu.accumulator).to eq(0x5A)
         expect(cpu.program_counter).to eq(0x8001)
         expect(cpu.status.byte_pushed_by_interrupt).to eq(0xEF)
+      end
+    end
+  end
+
+  describe '#read_and_ignore' do
+    subject(:cpu) { Ruby::Nes::Cpu.new(bus:, accumulator: 0x5A, program_counter: 0x8002) }
+
+    let(:bus) { FlatBus.new }
+
+    context 'when the flags are $CF' do
+      before do
+        bus.write(0x2002, 0x80)
+        cpu.status.restore(0xCF)
+        allow(bus).to receive(:read).and_call_original
+        allow(bus).to receive(:write).and_call_original
+      end
+
+      it 'reads the address once' do
+        cpu.read_and_ignore(0x2002)
+        expect(bus).to have_received(:read).with(0x2002).once
+      end
+
+      it 'writes nothing' do
+        cpu.read_and_ignore(0x2002)
+        expect(bus).not_to have_received(:write)
+      end
+
+      it 'changes no register or flag', :aggregate_failures do
+        cpu.read_and_ignore(0x2002)
+        expect(cpu.accumulator).to eq(0x5A)
+        expect(cpu.program_counter).to eq(0x8002)
+        expect(cpu.status.byte_pushed_by_interrupt).to eq(0xEF)
+      end
+    end
+  end
+
+  describe '#jam' do
+    subject(:cpu) { Ruby::Nes::Cpu.new(bus: FlatBus.new, program_counter: 0x8001) }
+
+    context 'when the CPU is running' do
+      it 'jams it' do
+        cpu.jam
+        expect(cpu).to be_jammed
       end
     end
   end

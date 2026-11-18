@@ -18,6 +18,9 @@ require_relative 'cpu/instructions/shifts'
 require_relative 'cpu/instructions/branches'
 require_relative 'cpu/instructions/flags'
 require_relative 'cpu/instructions/control_flow'
+require_relative 'cpu/instructions/read_modify_write_combos'
+require_relative 'cpu/instructions/immediate_combos'
+require_relative 'cpu/instructions/unstable'
 require_relative 'cpu/interrupt_lines'
 require_relative 'cpu/interrupts'
 require_relative 'cpu/dispatch'
@@ -30,14 +33,16 @@ module Ruby
     # (https://www.nesdev.org/wiki/CPU_power_up_state): power-up is `Cpu.new` followed by #reset. Specs and tools may
     # give A, X, Y, the program counter and the stack pointer initial values as keywords.
     class Cpu
-      # Raised by #step for an opcode outside the official 151 (unofficial opcodes are plan 09).
-      class UnknownOpcode < Nes::Error; end
-
       # Interrupt vectors, each a little-endian address (https://www.nesdev.org/wiki/CPU_interrupts): NMI at $FFFA,
       # reset at $FFFC, IRQ and BRK at $FFFE.
       NMI_VECTOR = 0xFFFA
       RESET_VECTOR = 0xFFFC
       IRQ_VECTOR = 0xFFFE
+
+      # What a #step costs while a JAM opcode keeps the CPU halted. A convention, not hardware: no reference found gives
+      # the cycles of a jammed CPU nor says whether NMI and IRQ act on it (plan 09, decision 2; docs/architecture.md,
+      # Known gaps). The clock keeps running on hardware, so the console must keep advancing the PPU and APU.
+      JAMMED_STEP_CYCLES = 2
 
       include AddressingModes
       include Instructions::LoadStore
@@ -51,6 +56,9 @@ module Ruby
       include Instructions::Branches
       include Instructions::Flags
       include Instructions::ControlFlow
+      include Instructions::ReadModifyWriteCombos
+      include Instructions::ImmediateCombos
+      include Instructions::Unstable
       include Interrupts
       include Dispatch
 
@@ -70,7 +78,11 @@ module Ruby
         @stack = Stack.new(bus:, pointer: stack_pointer)
         @interrupt_lines = InterruptLines.new(status: @status)
         @cycles = 0
+        @jammed = false
       end
+
+      # Whether a JAM opcode halted the CPU; only #reset releases it (plan 09, decision 2).
+      def jammed? = @jammed
 
       # The byte at the program counter, which then moves to the next byte.
       def fetch_byte
@@ -88,8 +100,10 @@ module Ruby
 
       # Takes the interrupt InterruptLines names, if any, or else runs the instruction at the program counter; returns
       # the cycles it took: 7 for an interrupt, or the opcode's base cycles plus any page-cross or branch cycle charged
-      # while it ran. Raises UnknownOpcode for an opcode outside the official 151.
+      # while it ran. A jammed CPU does neither: it touches no bus and takes JAMMED_STEP_CYCLES.
       def step
+        return stay_jammed if @jammed
+
         cycles_before = @cycles
         vector = @interrupt_lines.acknowledge
         if vector
@@ -103,6 +117,11 @@ module Ruby
       end
 
       private
+
+      def stay_jammed
+        @cycles += JAMMED_STEP_CYCLES
+        JAMMED_STEP_CYCLES
+      end
 
       # The little-endian word at `address`, such as an interrupt vector; the high byte's address wraps past $FFFF.
       def read_word(address)

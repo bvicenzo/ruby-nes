@@ -1,12 +1,16 @@
 # frozen_string_literal: true
 
-# One row per official opcode (https://www.nesdev.org/wiki/Instruction_reference): each runs the instruction at $8000
-# and checks the cycles it took against the reference, plus one effect that only the right instruction with the right
+# One row per opcode, official (https://www.nesdev.org/wiki/Instruction_reference) or not: each runs the instruction
+# at $8000 and checks the cycles it took against the reference, plus one effect that only the right instruction with the right
 # addressing mode produces (the operand sits only at the effective address). Indexed reads take "(5 if page crossed)"
 # or "(6 if page crossed)"; stores and read-modify-write instructions list no such penalty. Branches take "2 (3 if
 # branch taken, 4 if page crossed)"; each branch is tried taken and not taken with the other three flags held set, so a
-# branch on the wrong flag or the wrong state fails one of the two. Opcodes outside the official 151 are unofficial
-# (https://www.nesdev.org/wiki/CPU_unofficial_opcodes), left to plan 09.
+# branch on the wrong flag or the wrong state fails one of the two. The 105 unofficial opcodes
+# (https://www.nesdev.org/wiki/CPU_unofficial_opcodes) follow the same pattern, with the cycles of
+# https://www.nesdev.org/wiki/Programming_with_unofficial_opcodes: the read-modify-write combos "always have a page
+# crossing penalty even if not crossing a page" (fixed counts), LAX, LAS and the absolute,X NOPs read like LDA, and the
+# unstable stores write their value ANDed with the base address's high byte plus one ("No More Secrets",
+# https://csdb.dk/release/?id=198357). A JAM opcode halts the CPU "until reset" (plan 09, decision 2).
 #
 # Before the opcode fetch, a step takes the interrupt Cpu::InterruptLines names instead (plan 07, decision 3): it pushes
 # the program counter (high byte first) and the flags with B clear and bit 5 set, sets I, loads the program counter
@@ -15,6 +19,72 @@
 RSpec.describe Ruby::Nes::Cpu do
   describe '#step' do
     let(:bus) { FlatBus.new }
+
+    # A jammed CPU (a JAM opcode ran) is halted "until reset" (https://www.nesdev.org/wiki/CPU_unofficial_opcodes). No
+    # reference gives what a step costs then, nor whether NMI and IRQ act on it: by convention (plan 09, decision 2) it
+    # touches no bus, takes no interrupt and takes 2 cycles, so the console keeps running the PPU and APU.
+    context 'when the CPU is jammed' do
+      context 'and no interrupt is requested' do
+        subject(:cpu) { described_class.new(bus:, program_counter: 0x8001).tap(&:jam) }
+
+        before do
+          bus.write(0x8001, 0xE8)
+          allow(bus).to receive(:read).and_call_original
+          allow(bus).to receive(:write).and_call_original
+        end
+
+        it 'reads and writes nothing', :aggregate_failures do
+          cpu.step
+          expect(bus).not_to have_received(:read)
+          expect(bus).not_to have_received(:write)
+        end
+
+        it 'runs no instruction', :aggregate_failures do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x8001)
+          expect(cpu.index_x).to eq(0x00)
+        end
+
+        it 'takes 2 cycles, added to the count', :aggregate_failures do
+          expect(cpu.step).to eq(2)
+          expect(cpu.cycles).to eq(2)
+        end
+      end
+
+      context 'and an NMI is pending' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8001, stack_pointer: 0xFD).tap do |cpu|
+            cpu.jam
+            cpu.nmi_line = true
+          end
+        end
+
+        before { bus.write_bytes(0xFFFA, [0x34, 0x12]) }
+
+        it 'takes no interrupt', :aggregate_failures do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x8001)
+          expect(cpu.stack.pointer).to eq(0xFD)
+        end
+      end
+
+      context 'and the IRQ line is asserted with interrupt disable clear' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8001, stack_pointer: 0xFD).tap do |cpu|
+            cpu.jam
+            cpu.irq_line = true
+          end
+        end
+
+        before { bus.write_bytes(0xFFFE, [0x34, 0x12]) }
+
+        it 'takes no interrupt', :aggregate_failures do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x8001)
+          expect(cpu.stack.pointer).to eq(0xFD)
+        end
+      end
+    end
 
     context 'when an NMI is pending' do
       subject(:cpu) do
@@ -138,16 +208,6 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
-    context 'when the opcode is unofficial ($02)' do
-      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
-
-      before { bus.write(0x8000, 0x02) }
-
-      it 'raises UnknownOpcode naming the opcode and its address' do
-        expect { cpu.step }.to raise_error(Ruby::Nes::Cpu::UnknownOpcode, 'unknown opcode $02 at $8000')
-      end
-    end
-
     context 'when the opcode is $00 (BRK)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD) }
 
@@ -180,6 +240,49 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $02 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x02]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $03 (SLO (indirect,X))' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x04) }
+
+      before do
+        bus.write_bytes(0x8000, [0x03, 0x10])
+        bus.write(0x0014, 0x00)
+        bus.write(0x0015, 0x02)
+        bus.write(0x0200, 0x81)
+      end
+
+      it 'writes $02 at $0200 and leaves $12 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0200)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $04 (NOP zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before do
+        bus.write_bytes(0x8000, [0x04, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0010 and moves past the operand in 3 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(3)
+        expect(bus).to have_received(:read).with(0x0010)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $05 (ORA zero page)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xCC) }
 
@@ -206,6 +309,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $02 at $0010 in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(bus.read(0x0010)).to eq(0x02)
+      end
+    end
+
+    context 'when the opcode is $07 (SLO zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10) }
+
+      before do
+        bus.write_bytes(0x8000, [0x07, 0x10])
+        bus.write(0x0010, 0x81)
+      end
+
+      it 'writes $02 at $0010 and leaves $12 in the accumulator in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x0010)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
       end
     end
 
@@ -245,6 +363,33 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $0B (ANC immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF0) }
+
+      before { bus.write_bytes(0x8000, [0x0B, 0x80]) }
+
+      it 'leaves $80 in the accumulator and sets carry in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.accumulator).to eq(0x80)
+        expect(cpu.status).to be_carry
+      end
+    end
+
+    context 'when the opcode is $0C (NOP absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before do
+        bus.write_bytes(0x8000, [0x0C, 0x00, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0200 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0200)
+        expect(cpu.program_counter).to eq(0x8003)
+      end
+    end
+
     context 'when the opcode is $0D (ORA absolute)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xCC) }
 
@@ -271,6 +416,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $02 at $0200 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0200)).to eq(0x02)
+      end
+    end
+
+    context 'when the opcode is $0F (SLO absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10) }
+
+      before do
+        bus.write_bytes(0x8000, [0x0F, 0x00, 0x02])
+        bus.write(0x0200, 0x81)
+      end
+
+      it 'writes $02 at $0200 and leaves $12 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0200)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
       end
     end
 
@@ -334,6 +494,66 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $12 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x12]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $13 (SLO (indirect),Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x13, 0x10])
+        bus.write(0x0010, 0x00)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0205, 0x81)
+      end
+
+      it 'writes $02 at $0205 and leaves $12 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0205)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $13 (SLO (indirect),Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x13, 0x10])
+        bus.write(0x0010, 0xFF)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0300, 0x81)
+      end
+
+      it 'writes $02 at $0300 and leaves $12 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0300)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $14 (NOP zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x14, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0015 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0015)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $15 (ORA zero page,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xCC, index_x: 0x05) }
 
@@ -360,6 +580,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $02 at $0015 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0015)).to eq(0x02)
+      end
+    end
+
+    context 'when the opcode is $17 (SLO zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x17, 0x10])
+        bus.write(0x0015, 0x81)
+      end
+
+      it 'writes $02 at $0015 and leaves $12 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0015)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
       end
     end
 
@@ -402,6 +637,77 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $EE in the accumulator in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(cpu.accumulator).to eq(0xEE)
+      end
+    end
+
+    context 'when the opcode is $1A (NOP)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x1A]) }
+
+      it 'moves past the opcode only in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8001)
+      end
+    end
+
+    context 'when the opcode is $1B (SLO absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x1B, 0x00, 0x02])
+        bus.write(0x0205, 0x81)
+      end
+
+      it 'writes $02 at $0205 and leaves $12 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $1B (SLO absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x1B, 0xFF, 0x02])
+        bus.write(0x0300, 0x81)
+      end
+
+      it 'writes $02 at $0300 and leaves $12 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $1C (NOP absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x1C, 0x00, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0205 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0205)
+        expect(cpu.program_counter).to eq(0x8003)
+      end
+    end
+
+    context 'when the opcode is $1C (NOP absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x1C, 0xFF, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0300 and moves past the operand in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus).to have_received(:read).with(0x0300)
+        expect(cpu.program_counter).to eq(0x8003)
       end
     end
 
@@ -463,6 +769,36 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $1F (SLO absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x1F, 0x00, 0x02])
+        bus.write(0x0205, 0x81)
+      end
+
+      it 'writes $02 at $0205 and leaves $12 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $1F (SLO absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x1F, 0xFF, 0x02])
+        bus.write(0x0300, 0x81)
+      end
+
+      it 'writes $02 at $0300 and leaves $12 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x02)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
     context 'when the opcode is $20 (JSR absolute)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD) }
 
@@ -488,6 +824,35 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $88 in the accumulator in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(cpu.accumulator).to eq(0x88)
+      end
+    end
+
+    context 'when the opcode is $22 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x22]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $23 (RLA (indirect,X))' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_x: 0x04) }
+
+      before do
+        bus.write_bytes(0x8000, [0x23, 0x10])
+        bus.write(0x0014, 0x00)
+        bus.write(0x0015, 0x02)
+        bus.write(0x0200, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0200 and leaves $03 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0200)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
       end
     end
 
@@ -535,6 +900,22 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $27 (RLA zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF) }
+
+      before do
+        bus.write_bytes(0x8000, [0x27, 0x10])
+        bus.write(0x0010, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0010 and leaves $03 in the accumulator in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x0010)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
+      end
+    end
+
     context 'when the opcode is $28 (PLP)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFC) }
 
@@ -571,6 +952,18 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $03 in the accumulator in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.accumulator).to eq(0x03)
+      end
+    end
+
+    context 'when the opcode is $2B (ANC immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF0) }
+
+      before { bus.write_bytes(0x8000, [0x2B, 0x80]) }
+
+      it 'leaves $80 in the accumulator and sets carry in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.accumulator).to eq(0x80)
+        expect(cpu.status).to be_carry
       end
     end
 
@@ -615,6 +1008,22 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $03 at $0200 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0200)).to eq(0x03)
+      end
+    end
+
+    context 'when the opcode is $2F (RLA absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF) }
+
+      before do
+        bus.write_bytes(0x8000, [0x2F, 0x00, 0x02])
+        bus.write(0x0200, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0200 and leaves $03 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0200)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
       end
     end
 
@@ -678,6 +1087,68 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $32 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x32]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $33 (RLA (indirect),Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x33, 0x10])
+        bus.write(0x0010, 0x00)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0205, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0205 and leaves $03 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0205)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
+      end
+    end
+
+    context 'when the opcode is $33 (RLA (indirect),Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x33, 0x10])
+        bus.write(0x0010, 0xFF)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0300, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0300 and leaves $03 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0300)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
+      end
+    end
+
+    context 'when the opcode is $34 (NOP zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x34, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0015 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0015)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $35 (AND zero page,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xCC, index_x: 0x05) }
 
@@ -704,6 +1175,22 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $03 at $0015 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0015)).to eq(0x03)
+      end
+    end
+
+    context 'when the opcode is $37 (RLA zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x37, 0x10])
+        bus.write(0x0015, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0015 and leaves $03 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0015)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
       end
     end
 
@@ -743,6 +1230,79 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $88 in the accumulator in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(cpu.accumulator).to eq(0x88)
+      end
+    end
+
+    context 'when the opcode is $3A (NOP)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x3A]) }
+
+      it 'moves past the opcode only in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8001)
+      end
+    end
+
+    context 'when the opcode is $3B (RLA absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x3B, 0x00, 0x02])
+        bus.write(0x0205, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0205 and leaves $03 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
+      end
+    end
+
+    context 'when the opcode is $3B (RLA absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x3B, 0xFF, 0x02])
+        bus.write(0x0300, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0300 and leaves $03 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
+      end
+    end
+
+    context 'when the opcode is $3C (NOP absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x3C, 0x00, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0205 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0205)
+        expect(cpu.program_counter).to eq(0x8003)
+      end
+    end
+
+    context 'when the opcode is $3C (NOP absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x3C, 0xFF, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0300 and moves past the operand in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus).to have_received(:read).with(0x0300)
+        expect(cpu.program_counter).to eq(0x8003)
       end
     end
 
@@ -804,6 +1364,38 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $3F (RLA absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x3F, 0x00, 0x02])
+        bus.write(0x0205, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0205 and leaves $03 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
+      end
+    end
+
+    context 'when the opcode is $3F (RLA absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x3F, 0xFF, 0x02])
+        bus.write(0x0300, 0x81)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $03 at $0300 and leaves $03 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x03)
+        expect(cpu.accumulator).to eq(0x03)
+      end
+    end
+
     context 'when the opcode is $40 (RTI)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFA) }
 
@@ -836,6 +1428,49 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $42 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x42]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $43 (SRE (indirect,X))' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x04) }
+
+      before do
+        bus.write_bytes(0x8000, [0x43, 0x10])
+        bus.write(0x0014, 0x00)
+        bus.write(0x0015, 0x02)
+        bus.write(0x0200, 0x03)
+      end
+
+      it 'writes $01 at $0200 and leaves $11 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0200)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $44 (NOP zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before do
+        bus.write_bytes(0x8000, [0x44, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0010 and moves past the operand in 3 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(3)
+        expect(bus).to have_received(:read).with(0x0010)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $45 (EOR zero page)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xCC) }
 
@@ -862,6 +1497,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $40 at $0010 in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(bus.read(0x0010)).to eq(0x40)
+      end
+    end
+
+    context 'when the opcode is $47 (SRE zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10) }
+
+      before do
+        bus.write_bytes(0x8000, [0x47, 0x10])
+        bus.write(0x0010, 0x03)
+      end
+
+      it 'writes $01 at $0010 and leaves $11 in the accumulator in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x0010)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
       end
     end
 
@@ -898,6 +1548,18 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $40 in the accumulator in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.accumulator).to eq(0x40)
+      end
+    end
+
+    context 'when the opcode is $4B (ALR immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF) }
+
+      before { bus.write_bytes(0x8000, [0x4B, 0x03]) }
+
+      it 'leaves $01 in the accumulator and sets carry in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.accumulator).to eq(0x01)
+        expect(cpu.status).to be_carry
       end
     end
 
@@ -938,6 +1600,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $40 at $0200 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0200)).to eq(0x40)
+      end
+    end
+
+    context 'when the opcode is $4F (SRE absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10) }
+
+      before do
+        bus.write_bytes(0x8000, [0x4F, 0x00, 0x02])
+        bus.write(0x0200, 0x03)
+      end
+
+      it 'writes $01 at $0200 and leaves $11 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0200)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
       end
     end
 
@@ -1001,6 +1678,66 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $52 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x52]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $53 (SRE (indirect),Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x53, 0x10])
+        bus.write(0x0010, 0x00)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0205, 0x03)
+      end
+
+      it 'writes $01 at $0205 and leaves $11 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0205)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $53 (SRE (indirect),Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x53, 0x10])
+        bus.write(0x0010, 0xFF)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0300, 0x03)
+      end
+
+      it 'writes $01 at $0300 and leaves $11 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0300)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $54 (NOP zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x54, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0015 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0015)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $55 (EOR zero page,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xCC, index_x: 0x05) }
 
@@ -1027,6 +1764,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $40 at $0015 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0015)).to eq(0x40)
+      end
+    end
+
+    context 'when the opcode is $57 (SRE zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x57, 0x10])
+        bus.write(0x0015, 0x03)
+      end
+
+      it 'writes $01 at $0015 and leaves $11 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0015)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
       end
     end
 
@@ -1069,6 +1821,77 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $66 in the accumulator in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(cpu.accumulator).to eq(0x66)
+      end
+    end
+
+    context 'when the opcode is $5A (NOP)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x5A]) }
+
+      it 'moves past the opcode only in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8001)
+      end
+    end
+
+    context 'when the opcode is $5B (SRE absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x5B, 0x00, 0x02])
+        bus.write(0x0205, 0x03)
+      end
+
+      it 'writes $01 at $0205 and leaves $11 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $5B (SRE absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x5B, 0xFF, 0x02])
+        bus.write(0x0300, 0x03)
+      end
+
+      it 'writes $01 at $0300 and leaves $11 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $5C (NOP absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x5C, 0x00, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0205 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0205)
+        expect(cpu.program_counter).to eq(0x8003)
+      end
+    end
+
+    context 'when the opcode is $5C (NOP absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x5C, 0xFF, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0300 and moves past the operand in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus).to have_received(:read).with(0x0300)
+        expect(cpu.program_counter).to eq(0x8003)
       end
     end
 
@@ -1130,6 +1953,36 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $5F (SRE absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x5F, 0x00, 0x02])
+        bus.write(0x0205, 0x03)
+      end
+
+      it 'writes $01 at $0205 and leaves $11 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $5F (SRE absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x5F, 0xFF, 0x02])
+        bus.write(0x0300, 0x03)
+      end
+
+      it 'writes $01 at $0300 and leaves $11 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x11)
+      end
+    end
+
     context 'when the opcode is $60 (RTS)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFB) }
 
@@ -1161,6 +2014,49 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $62 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x62]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $63 (RRA (indirect,X))' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x04) }
+
+      before do
+        bus.write_bytes(0x8000, [0x63, 0x10])
+        bus.write(0x0014, 0x00)
+        bus.write(0x0015, 0x02)
+        bus.write(0x0200, 0x03)
+      end
+
+      it 'writes $01 at $0200 and leaves $12 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0200)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $64 (NOP zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before do
+        bus.write_bytes(0x8000, [0x64, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0010 and moves past the operand in 3 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(3)
+        expect(bus).to have_received(:read).with(0x0010)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $65 (ADC zero page)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10) }
 
@@ -1187,6 +2083,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $C0 at $0010 in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(bus.read(0x0010)).to eq(0xC0)
+      end
+    end
+
+    context 'when the opcode is $67 (RRA zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10) }
+
+      before do
+        bus.write_bytes(0x8000, [0x67, 0x10])
+        bus.write(0x0010, 0x03)
+      end
+
+      it 'writes $01 at $0010 and leaves $12 in the accumulator in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x0010)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
       end
     end
 
@@ -1226,6 +2137,18 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $C0 in the accumulator in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.accumulator).to eq(0xC0)
+      end
+    end
+
+    context 'when the opcode is $6B (ARR immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF) }
+
+      before { bus.write_bytes(0x8000, [0x6B, 0x80]) }
+
+      it 'leaves $40 in the accumulator and sets overflow in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.accumulator).to eq(0x40)
+        expect(cpu.status).to be_overflow
       end
     end
 
@@ -1270,6 +2193,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $C0 at $0200 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0200)).to eq(0xC0)
+      end
+    end
+
+    context 'when the opcode is $6F (RRA absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10) }
+
+      before do
+        bus.write_bytes(0x8000, [0x6F, 0x00, 0x02])
+        bus.write(0x0200, 0x03)
+      end
+
+      it 'writes $01 at $0200 and leaves $12 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0200)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
       end
     end
 
@@ -1333,6 +2271,66 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $72 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x72]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $73 (RRA (indirect),Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x73, 0x10])
+        bus.write(0x0010, 0x00)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0205, 0x03)
+      end
+
+      it 'writes $01 at $0205 and leaves $12 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0205)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $73 (RRA (indirect),Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x73, 0x10])
+        bus.write(0x0010, 0xFF)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0300, 0x03)
+      end
+
+      it 'writes $01 at $0300 and leaves $12 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0300)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $74 (NOP zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x74, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0015 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0015)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $75 (ADC zero page,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x05) }
 
@@ -1359,6 +2357,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'writes $C0 at $0015 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0015)).to eq(0xC0)
+      end
+    end
+
+    context 'when the opcode is $77 (RRA zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x77, 0x10])
+        bus.write(0x0015, 0x03)
+      end
+
+      it 'writes $01 at $0015 and leaves $12 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0015)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
       end
     end
 
@@ -1398,6 +2411,77 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $32 in the accumulator in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(cpu.accumulator).to eq(0x32)
+      end
+    end
+
+    context 'when the opcode is $7A (NOP)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x7A]) }
+
+      it 'moves past the opcode only in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8001)
+      end
+    end
+
+    context 'when the opcode is $7B (RRA absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x7B, 0x00, 0x02])
+        bus.write(0x0205, 0x03)
+      end
+
+      it 'writes $01 at $0205 and leaves $12 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $7B (RRA absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x7B, 0xFF, 0x02])
+        bus.write(0x0300, 0x03)
+      end
+
+      it 'writes $01 at $0300 and leaves $12 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $7C (NOP absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x7C, 0x00, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0205 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0205)
+        expect(cpu.program_counter).to eq(0x8003)
+      end
+    end
+
+    context 'when the opcode is $7C (NOP absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x7C, 0xFF, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0300 and moves past the operand in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus).to have_received(:read).with(0x0300)
+        expect(cpu.program_counter).to eq(0x8003)
       end
     end
 
@@ -1459,6 +2543,47 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $7F (RRA absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0x7F, 0x00, 0x02])
+        bus.write(0x0205, 0x03)
+      end
+
+      it 'writes $01 at $0205 and leaves $12 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $7F (RRA absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x10, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0x7F, 0xFF, 0x02])
+        bus.write(0x0300, 0x03)
+      end
+
+      it 'writes $01 at $0300 and leaves $12 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x01)
+        expect(cpu.accumulator).to eq(0x12)
+      end
+    end
+
+    context 'when the opcode is $80 (NOP immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x80, 0x42]) }
+
+      it 'skips its operand in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $81 (STA (indirect,X))' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x42, index_x: 0x04) }
 
@@ -1471,6 +2596,32 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'stores the accumulator at $0200 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0200)).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $82 (NOP immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x82, 0x42]) }
+
+      it 'skips its operand in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
+    context 'when the opcode is $83 (SAX (indirect,X))' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_x: 0x04) }
+
+      before do
+        bus.write_bytes(0x8000, [0x83, 0x10])
+        bus.write(0x0014, 0x00)
+        bus.write(0x0015, 0x02)
+      end
+
+      it 'stores A AND X, $04, at $0200 in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0200)).to eq(0x04)
       end
     end
 
@@ -1507,6 +2658,17 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $87 (SAX zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF0, index_x: 0x3C) }
+
+      before { bus.write_bytes(0x8000, [0x87, 0x10]) }
+
+      it 'stores A AND X, $30, at $0010 in 3 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(3)
+        expect(bus.read(0x0010)).to eq(0x30)
+      end
+    end
+
     context 'when the opcode is $88 (DEY)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x41) }
 
@@ -1518,6 +2680,17 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $89 (NOP immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x89, 0x42]) }
+
+      it 'skips its operand in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $8A (TXA)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x42) }
 
@@ -1526,6 +2699,17 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'copies $42 into the accumulator in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.accumulator).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $8B (XAA immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF, index_x: 0xF0) }
+
+      before { bus.write_bytes(0x8000, [0x8B, 0x3C]) }
+
+      it 'leaves $30 in the accumulator in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.accumulator).to eq(0x30)
       end
     end
 
@@ -1559,6 +2743,17 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'stores X at $0200 in 4 cycles', :aggregate_failures do
         expect(cpu.step).to eq(4)
         expect(bus.read(0x0200)).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $8F (SAX absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF0, index_x: 0x3C) }
+
+      before { bus.write_bytes(0x8000, [0x8F, 0x00, 0x02]) }
+
+      it 'stores A AND X, $30, at $0200 in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus.read(0x0200)).to eq(0x30)
       end
     end
 
@@ -1620,6 +2815,51 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $92 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0x92]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $93 (AHX (indirect),Y)' do
+      subject(:cpu) do
+        described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF1, index_x: 0xFF, index_y: 0x05)
+      end
+
+      before do
+        bus.write_bytes(0x8000, [0x93, 0x10])
+        bus.write(0x0010, 0xF0)
+        bus.write(0x0011, 0x12)
+      end
+
+      it 'stores A AND X AND $13, $11, at $12F5 in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x12F5)).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $93 (AHX (indirect),Y) and the index crosses a page' do
+      subject(:cpu) do
+        described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF1, index_x: 0xFF, index_y: 0x20)
+      end
+
+      before do
+        bus.write_bytes(0x8000, [0x93, 0x10])
+        bus.write(0x0010, 0xF0)
+        bus.write(0x0011, 0x12)
+      end
+
+      it 'stores A AND X AND $13, $11, on page $11, at $1110 in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x1110)).to eq(0x11)
+      end
+    end
+
     context 'when the opcode is $94 (STY zero page,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05, index_y: 0x42) }
 
@@ -1650,6 +2890,19 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'stores X at $0015 in 4 cycles', :aggregate_failures do
         expect(cpu.step).to eq(4)
         expect(bus.read(0x0015)).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $97 (SAX zero page,Y)' do
+      subject(:cpu) do
+        described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF0, index_x: 0x3C, index_y: 0x05)
+      end
+
+      before { bus.write_bytes(0x8000, [0x97, 0x10]) }
+
+      it 'stores A AND X, $30, at $0015 in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus.read(0x0015)).to eq(0x30)
       end
     end
 
@@ -1697,6 +2950,56 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $9B (TAS absolute,Y)' do
+      subject(:cpu) do
+        described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF0, index_x: 0x3F, index_y: 0x05)
+      end
+
+      before { bus.write_bytes(0x8000, [0x9B, 0xF0, 0x12]) }
+
+      it 'moves $30 into the stack pointer and stores $10 at $12F5 in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(cpu.stack.pointer).to eq(0x30)
+        expect(bus.read(0x12F5)).to eq(0x10)
+      end
+    end
+
+    context 'when the opcode is $9B (TAS absolute,Y) and the index crosses a page' do
+      subject(:cpu) do
+        described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF0, index_x: 0x3F, index_y: 0x20)
+      end
+
+      before { bus.write_bytes(0x8000, [0x9B, 0xF0, 0x12]) }
+
+      it 'moves $30 into the stack pointer and stores $10 on page $10, at $1010 in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(cpu.stack.pointer).to eq(0x30)
+        expect(bus.read(0x1010)).to eq(0x10)
+      end
+    end
+
+    context 'when the opcode is $9C (SHY absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05, index_y: 0xF1) }
+
+      before { bus.write_bytes(0x8000, [0x9C, 0xF0, 0x12]) }
+
+      it 'stores Y AND $13, $11, at $12F5 in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x12F5)).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $9C (SHY absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x20, index_y: 0xF1) }
+
+      before { bus.write_bytes(0x8000, [0x9C, 0xF0, 0x12]) }
+
+      it 'stores Y AND $13, $11, on page $11, at $1110 in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x1110)).to eq(0x11)
+      end
+    end
+
     context 'when the opcode is $9D (STA absolute,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x42, index_x: 0x05) }
 
@@ -1716,6 +3019,54 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'stores the accumulator at $0300 in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(bus.read(0x0300)).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $9E (SHX absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0xF1, index_y: 0x05) }
+
+      before { bus.write_bytes(0x8000, [0x9E, 0xF0, 0x12]) }
+
+      it 'stores X AND $13, $11, at $12F5 in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x12F5)).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $9E (SHX absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0xF1, index_y: 0x20) }
+
+      before { bus.write_bytes(0x8000, [0x9E, 0xF0, 0x12]) }
+
+      it 'stores X AND $13, $11, on page $11, at $1110 in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x1110)).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $9F (AHX absolute,Y)' do
+      subject(:cpu) do
+        described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF1, index_x: 0xFF, index_y: 0x05)
+      end
+
+      before { bus.write_bytes(0x8000, [0x9F, 0xF0, 0x12]) }
+
+      it 'stores A AND X AND $13, $11, at $12F5 in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x12F5)).to eq(0x11)
+      end
+    end
+
+    context 'when the opcode is $9F (AHX absolute,Y) and the index crosses a page' do
+      subject(:cpu) do
+        described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF1, index_x: 0xFF, index_y: 0x20)
+      end
+
+      before { bus.write_bytes(0x8000, [0x9F, 0xF0, 0x12]) }
+
+      it 'stores A AND X AND $13, $11, on page $11, at $1110 in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x1110)).to eq(0x11)
       end
     end
 
@@ -1754,6 +3105,22 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'loads $42 into X in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.index_x).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $A3 (LAX (indirect,X))' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x04) }
+
+      before do
+        bus.write_bytes(0x8000, [0xA3, 0x10])
+        bus.write(0x0014, 0x00)
+        bus.write(0x0015, 0x02)
+        bus.write(0x0200, 0x42)
+      end
+
+      it 'loads $42 into the accumulator and X in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(cpu).to have_attributes(accumulator: 0x42, index_x: 0x42)
       end
     end
 
@@ -1799,6 +3166,20 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $A7 (LAX zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before do
+        bus.write_bytes(0x8000, [0xA7, 0x10])
+        bus.write(0x0010, 0x42)
+      end
+
+      it 'loads $42 into the accumulator and X in 3 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(3)
+        expect(cpu).to have_attributes(accumulator: 0x42, index_x: 0x42)
+      end
+    end
+
     context 'when the opcode is $A8 (TAY)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x42) }
 
@@ -1829,6 +3210,17 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'copies $42 into X in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.index_x).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $AB (LAX immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xFF) }
+
+      before { bus.write_bytes(0x8000, [0xAB, 0x81]) }
+
+      it 'loads $81 into the accumulator and X in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to have_attributes(accumulator: 0x81, index_x: 0x81)
       end
     end
 
@@ -1871,6 +3263,20 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'loads $42 into X in 4 cycles', :aggregate_failures do
         expect(cpu.step).to eq(4)
         expect(cpu.index_x).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $AF (LAX absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before do
+        bus.write_bytes(0x8000, [0xAF, 0x00, 0x02])
+        bus.write(0x0200, 0x42)
+      end
+
+      it 'loads $42 into the accumulator and X in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(cpu).to have_attributes(accumulator: 0x42, index_x: 0x42)
       end
     end
 
@@ -1934,6 +3340,49 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $B2 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0xB2]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $B3 (LAX (indirect),Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xB3, 0x10])
+        bus.write(0x0010, 0x00)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0205, 0x42)
+      end
+
+      it 'loads $42 into the accumulator and X in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(cpu).to have_attributes(accumulator: 0x42, index_x: 0x42)
+      end
+    end
+
+    context 'when the opcode is $B3 (LAX (indirect),Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xB3, 0x10])
+        bus.write(0x0010, 0xFF)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0300, 0x42)
+      end
+
+      it 'loads $42 into the accumulator and X in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(cpu).to have_attributes(accumulator: 0x42, index_x: 0x42)
+      end
+    end
+
     context 'when the opcode is $B4 (LDY zero page,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
 
@@ -1973,6 +3422,20 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'loads $42 into X in 4 cycles', :aggregate_failures do
         expect(cpu.step).to eq(4)
         expect(cpu.index_x).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $B7 (LAX zero page,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xB7, 0x10])
+        bus.write(0x0015, 0x42)
+      end
+
+      it 'loads $42 into the accumulator and X in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(cpu).to have_attributes(accumulator: 0x42, index_x: 0x42)
       end
     end
 
@@ -2026,6 +3489,36 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'copies the stack pointer into X in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.index_x).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $BB (LAS absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x05, stack_pointer: 0x3C) }
+
+      before do
+        bus.write_bytes(0x8000, [0xBB, 0x00, 0x02])
+        bus.write(0x0205, 0xF3)
+      end
+
+      it 'loads $30 into the accumulator, X and the stack pointer in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(cpu).to have_attributes(accumulator: 0x30, index_x: 0x30)
+        expect(cpu.stack.pointer).to eq(0x30)
+      end
+    end
+
+    context 'when the opcode is $BB (LAS absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x01, stack_pointer: 0x3C) }
+
+      before do
+        bus.write_bytes(0x8000, [0xBB, 0xFF, 0x02])
+        bus.write(0x0300, 0xF3)
+      end
+
+      it 'loads $30 into the accumulator, X and the stack pointer in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(cpu).to have_attributes(accumulator: 0x30, index_x: 0x30)
+        expect(cpu.stack.pointer).to eq(0x30)
       end
     end
 
@@ -2113,6 +3606,34 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $BF (LAX absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xBF, 0x00, 0x02])
+        bus.write(0x0205, 0x42)
+      end
+
+      it 'loads $42 into the accumulator and X in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(cpu).to have_attributes(accumulator: 0x42, index_x: 0x42)
+      end
+    end
+
+    context 'when the opcode is $BF (LAX absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xBF, 0xFF, 0x02])
+        bus.write(0x0300, 0x42)
+      end
+
+      it 'loads $42 into the accumulator and X in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(cpu).to have_attributes(accumulator: 0x42, index_x: 0x42)
+      end
+    end
+
     context 'when the opcode is $C0 (CPY immediate)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x42) }
 
@@ -2137,6 +3658,34 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'finds the accumulator equal to the byte in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(cpu.status).to be_zero
+      end
+    end
+
+    context 'when the opcode is $C2 (NOP immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0xC2, 0x42]) }
+
+      it 'skips its operand in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
+    context 'when the opcode is $C3 (DCP (indirect,X))' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_x: 0x04) }
+
+      before do
+        bus.write_bytes(0x8000, [0xC3, 0x10])
+        bus.write(0x0014, 0x00)
+        bus.write(0x0015, 0x02)
+        bus.write(0x0200, 0x11)
+      end
+
+      it 'writes $10 at $0200 and sets carry in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0200)).to eq(0x10)
+        expect(cpu.status).to be_carry
       end
     end
 
@@ -2182,6 +3731,21 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $C7 (DCP zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20) }
+
+      before do
+        bus.write_bytes(0x8000, [0xC7, 0x10])
+        bus.write(0x0010, 0x11)
+      end
+
+      it 'writes $10 at $0010 and sets carry in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x0010)).to eq(0x10)
+        expect(cpu.status).to be_carry
+      end
+    end
+
     context 'when the opcode is $C8 (INY)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_y: 0x41) }
 
@@ -2212,6 +3776,17 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'changes X to $40 in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.index_x).to eq(0x40)
+      end
+    end
+
+    context 'when the opcode is $CB (AXS immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0xF0, index_x: 0x3C) }
+
+      before { bus.write_bytes(0x8000, [0xCB, 0x10]) }
+
+      it 'leaves $20 in X in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.index_x).to eq(0x20)
       end
     end
 
@@ -2257,6 +3832,21 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $CF (DCP absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20) }
+
+      before do
+        bus.write_bytes(0x8000, [0xCF, 0x00, 0x02])
+        bus.write(0x0200, 0x11)
+      end
+
+      it 'writes $10 at $0200 and sets carry in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0200)).to eq(0x10)
+        expect(cpu.status).to be_carry
+      end
+    end
+
     context 'when the opcode is $D0 (BNE) and zero is set' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
 
@@ -2282,6 +3872,17 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'branches to $8012 in 3 cycles', :aggregate_failures do
         expect(cpu.step).to eq(3)
         expect(cpu.program_counter).to eq(0x8012)
+      end
+    end
+
+    context 'when the opcode is $D0 (BNE), zero is clear and the target is on the next page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x80F0) }
+
+      before { bus.write_bytes(0x80F0, [0xD0, 0x10]) }
+
+      it 'branches to $8102 in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(cpu.program_counter).to eq(0x8102)
       end
     end
 
@@ -2317,6 +3918,66 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $D2 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0xD2]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $D3 (DCP (indirect),Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xD3, 0x10])
+        bus.write(0x0010, 0x00)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0205, 0x11)
+      end
+
+      it 'writes $10 at $0205 and sets carry in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0205)).to eq(0x10)
+        expect(cpu.status).to be_carry
+      end
+    end
+
+    context 'when the opcode is $D3 (DCP (indirect),Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xD3, 0x10])
+        bus.write(0x0010, 0xFF)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0300, 0x11)
+      end
+
+      it 'writes $10 at $0300 and sets carry in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0300)).to eq(0x10)
+        expect(cpu.status).to be_carry
+      end
+    end
+
+    context 'when the opcode is $D4 (NOP zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xD4, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0015 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0015)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $D5 (CMP zero page,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x42, index_x: 0x05) }
 
@@ -2342,6 +4003,21 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'changes the byte at $0015 to $40 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0015)).to eq(0x40)
+      end
+    end
+
+    context 'when the opcode is $D7 (DCP zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xD7, 0x10])
+        bus.write(0x0015, 0x11)
+      end
+
+      it 'writes $10 at $0015 and sets carry in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0015)).to eq(0x10)
+        expect(cpu.status).to be_carry
       end
     end
 
@@ -2384,6 +4060,77 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'finds the accumulator equal to the byte in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(cpu.status).to be_zero
+      end
+    end
+
+    context 'when the opcode is $DA (NOP)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0xDA]) }
+
+      it 'moves past the opcode only in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8001)
+      end
+    end
+
+    context 'when the opcode is $DB (DCP absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xDB, 0x00, 0x02])
+        bus.write(0x0205, 0x11)
+      end
+
+      it 'writes $10 at $0205 and sets carry in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x10)
+        expect(cpu.status).to be_carry
+      end
+    end
+
+    context 'when the opcode is $DB (DCP absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xDB, 0xFF, 0x02])
+        bus.write(0x0300, 0x11)
+      end
+
+      it 'writes $10 at $0300 and sets carry in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x10)
+        expect(cpu.status).to be_carry
+      end
+    end
+
+    context 'when the opcode is $DC (NOP absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xDC, 0x00, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0205 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0205)
+        expect(cpu.program_counter).to eq(0x8003)
+      end
+    end
+
+    context 'when the opcode is $DC (NOP absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xDC, 0xFF, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0300 and moves past the operand in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus).to have_received(:read).with(0x0300)
+        expect(cpu.program_counter).to eq(0x8003)
       end
     end
 
@@ -2443,6 +4190,36 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $DF (DCP absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xDF, 0x00, 0x02])
+        bus.write(0x0205, 0x11)
+      end
+
+      it 'writes $10 at $0205 and sets carry in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x10)
+        expect(cpu.status).to be_carry
+      end
+    end
+
+    context 'when the opcode is $DF (DCP absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xDF, 0xFF, 0x02])
+        bus.write(0x0300, 0x11)
+      end
+
+      it 'writes $10 at $0300 and sets carry in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x10)
+        expect(cpu.status).to be_carry
+      end
+    end
+
     context 'when the opcode is $E0 (CPX immediate)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x42) }
 
@@ -2468,6 +4245,35 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $40 in the accumulator in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(cpu.accumulator).to eq(0x40)
+      end
+    end
+
+    context 'when the opcode is $E2 (NOP immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0xE2, 0x42]) }
+
+      it 'skips its operand in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
+    context 'when the opcode is $E3 (ISB (indirect,X))' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_x: 0x04) }
+
+      before do
+        bus.write_bytes(0x8000, [0xE3, 0x10])
+        bus.write(0x0014, 0x00)
+        bus.write(0x0015, 0x02)
+        bus.write(0x0200, 0x0F)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $10 at $0200 and leaves $10 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0200)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
       end
     end
 
@@ -2514,6 +4320,22 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $E7 (ISB zero page)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20) }
+
+      before do
+        bus.write_bytes(0x8000, [0xE7, 0x10])
+        bus.write(0x0010, 0x0F)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $10 at $0010 and leaves $10 in the accumulator in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus.read(0x0010)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
+      end
+    end
+
     context 'when the opcode is $E8 (INX)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x41) }
 
@@ -2547,6 +4369,20 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'moves on to the next byte in 2 cycles', :aggregate_failures do
         expect(cpu.step).to eq(2)
         expect(cpu.program_counter).to eq(0x8001)
+      end
+    end
+
+    context 'when the opcode is $EB (SBC immediate)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20) }
+
+      before do
+        bus.write_bytes(0x8000, [0xEB, 0x10])
+        cpu.status.restore(0x01)
+      end
+
+      it 'leaves $10 in the accumulator in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.accumulator).to eq(0x10)
       end
     end
 
@@ -2593,6 +4429,22 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $EF (ISB absolute)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20) }
+
+      before do
+        bus.write_bytes(0x8000, [0xEF, 0x00, 0x02])
+        bus.write(0x0200, 0x0F)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $10 at $0200 and leaves $10 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0200)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
+      end
+    end
+
     context 'when the opcode is $F0 (BEQ) and zero is clear' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
 
@@ -2618,6 +4470,20 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'branches to $8012 in 3 cycles', :aggregate_failures do
         expect(cpu.step).to eq(3)
         expect(cpu.program_counter).to eq(0x8012)
+      end
+    end
+
+    context 'when the opcode is $F0 (BEQ), zero is set and the target is on the previous page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before do
+        bus.write_bytes(0x8000, [0xF0, 0xF0])
+        cpu.status.restore(0x02)
+      end
+
+      it 'branches to $7FF2 in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(cpu.program_counter).to eq(0x7FF2)
       end
     end
 
@@ -2655,6 +4521,68 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    context 'when the opcode is $F2 (JAM)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0xF2]) }
+
+      it 'jams the CPU in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu).to be_jammed
+      end
+    end
+
+    context 'when the opcode is $F3 (ISB (indirect),Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xF3, 0x10])
+        bus.write(0x0010, 0x00)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0205, 0x0F)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $10 at $0205 and leaves $10 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0205)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
+      end
+    end
+
+    context 'when the opcode is $F3 (ISB (indirect),Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xF3, 0x10])
+        bus.write(0x0010, 0xFF)
+        bus.write(0x0011, 0x02)
+        bus.write(0x0300, 0x0F)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $10 at $0300 and leaves $10 in the accumulator in 8 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(8)
+        expect(bus.read(0x0300)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
+      end
+    end
+
+    context 'when the opcode is $F4 (NOP zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xF4, 0x10])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0015 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0015)
+        expect(cpu.program_counter).to eq(0x8002)
+      end
+    end
+
     context 'when the opcode is $F5 (SBC zero page,X)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x50, index_x: 0x05) }
 
@@ -2681,6 +4609,22 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'changes the byte at $0015 to $42 in 6 cycles', :aggregate_failures do
         expect(cpu.step).to eq(6)
         expect(bus.read(0x0015)).to eq(0x42)
+      end
+    end
+
+    context 'when the opcode is $F7 (ISB zero page,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xF7, 0x10])
+        bus.write(0x0015, 0x0F)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $10 at $0015 and leaves $10 in the accumulator in 6 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(6)
+        expect(bus.read(0x0015)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
       end
     end
 
@@ -2722,6 +4666,79 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'leaves $40 in the accumulator in 5 cycles', :aggregate_failures do
         expect(cpu.step).to eq(5)
         expect(cpu.accumulator).to eq(0x40)
+      end
+    end
+
+    context 'when the opcode is $FA (NOP)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before { bus.write_bytes(0x8000, [0xFA]) }
+
+      it 'moves past the opcode only in 2 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x8001)
+      end
+    end
+
+    context 'when the opcode is $FB (ISB absolute,Y)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_y: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xFB, 0x00, 0x02])
+        bus.write(0x0205, 0x0F)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $10 at $0205 and leaves $10 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
+      end
+    end
+
+    context 'when the opcode is $FB (ISB absolute,Y) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_y: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xFB, 0xFF, 0x02])
+        bus.write(0x0300, 0x0F)
+        cpu.status.restore(0x01)
+      end
+
+      it 'writes $10 at $0300 and leaves $10 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
+      end
+    end
+
+    context 'when the opcode is $FC (NOP absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x05) }
+
+      before do
+        bus.write_bytes(0x8000, [0xFC, 0x00, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0205 and moves past the operand in 4 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(4)
+        expect(bus).to have_received(:read).with(0x0205)
+        expect(cpu.program_counter).to eq(0x8003)
+      end
+    end
+
+    context 'when the opcode is $FC (NOP absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x01) }
+
+      before do
+        bus.write_bytes(0x8000, [0xFC, 0xFF, 0x02])
+        allow(bus).to receive(:read).and_call_original
+      end
+
+      it 'reads $0300 and moves past the operand in 5 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(5)
+        expect(bus).to have_received(:read).with(0x0300)
+        expect(cpu.program_counter).to eq(0x8003)
       end
     end
 
@@ -2783,28 +4800,35 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
-    context 'when the opcode is $D0 (BNE), zero is clear and the target is on the next page' do
-      subject(:cpu) { described_class.new(bus:, program_counter: 0x80F0) }
+    context 'when the opcode is $FF (ISB absolute,X)' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_x: 0x05) }
 
-      before { bus.write_bytes(0x80F0, [0xD0, 0x10]) }
+      before do
+        bus.write_bytes(0x8000, [0xFF, 0x00, 0x02])
+        bus.write(0x0205, 0x0F)
+        cpu.status.restore(0x01)
+      end
 
-      it 'branches to $8102 in 4 cycles', :aggregate_failures do
-        expect(cpu.step).to eq(4)
-        expect(cpu.program_counter).to eq(0x8102)
+      it 'writes $10 at $0205 and leaves $10 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0205)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
       end
     end
 
-    context 'when the opcode is $F0 (BEQ), zero is set and the target is on the previous page' do
-      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+    context 'when the opcode is $FF (ISB absolute,X) and the index crosses a page' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x20, index_x: 0x01) }
 
       before do
-        bus.write_bytes(0x8000, [0xF0, 0xF0])
-        cpu.status.restore(0x02)
+        bus.write_bytes(0x8000, [0xFF, 0xFF, 0x02])
+        bus.write(0x0300, 0x0F)
+        cpu.status.restore(0x01)
       end
 
-      it 'branches to $7FF2 in 4 cycles', :aggregate_failures do
-        expect(cpu.step).to eq(4)
-        expect(cpu.program_counter).to eq(0x7FF2)
+      it 'writes $10 at $0300 and leaves $10 in the accumulator in 7 cycles', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(bus.read(0x0300)).to eq(0x10)
+        expect(cpu.accumulator).to eq(0x10)
       end
     end
 

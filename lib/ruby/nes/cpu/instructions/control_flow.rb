@@ -39,6 +39,20 @@ module Ruby
 
           # NOP
           def no_operation; end
+
+          # The unofficial NOPs with an operand ("IGN" and "SKB" in https://www.nesdev.org/wiki/Programming_with_unofficial_opcodes):
+          # "Reads from memory at the specified address and ignores the value. Affects no register nor flags." The read
+          # is real, so a register with read side effects reacts to it.
+          def read_and_ignore(address)
+            @bus.read(address)
+          end
+
+          # JAM (the wiki's STP): the unofficial opcodes that "halt the CPU until reset"
+          # (https://www.nesdev.org/wiki/CPU_unofficial_opcodes). What a jammed CPU does on each later Cpu#step is in
+          # Cpu#step.
+          def jam
+            @jammed = true
+          end
         end
       end
     end
