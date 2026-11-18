@@ -22,6 +22,7 @@ A plan that introduces a new acronym or a new bit idiom adds it here in the same
 | DMA | Direct Memory Access | The 2A03's two copy units: OAM DMA (started by writing `$4014`) copies sprite data into OAM, and DMC DMA fetches sample bytes for the DMC. The CPU is halted while they run. | [DMA](https://www.nesdev.org/wiki/DMA) |
 | DMC | Delta Modulation Channel | The APU channel that plays 1-bit delta-encoded samples. | [APU DMC](https://www.nesdev.org/wiki/APU_DMC) |
 | Dot | — | One PPU clock; a scanline is 341 dots. | [PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing) |
+| I/O | Input/Output | The non-APU registers in `$4000-$4017`: OAM DMA (`$4014`) and the controller ports (`$4016`, `$4017`). `CpuBus`'s `io_registers:` slot receives the whole APU and I/O range, `$4000-$4017`. | [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
 | iNES | — | The `.nes` file format: a 16-byte header followed by PRG ROM and CHR ROM. | [iNES](https://www.nesdev.org/wiki/INES) |
 | IRQ | Interrupt Request | Maskable, level-sensitive interrupt line (ignored while the I flag is set); vector at `$FFFE`. | [IRQ](https://www.nesdev.org/wiki/IRQ) |
 | Mapper | — | The cartridge board's logic that maps PRG and CHR chips into the address spaces, often with bank switching. | [Mapper](https://www.nesdev.org/wiki/Mapper) |

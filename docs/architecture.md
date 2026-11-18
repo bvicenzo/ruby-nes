@@ -68,6 +68,31 @@ Interrupt vectors, from [CPU interrupts](https://www.nesdev.org/wiki/CPU_interru
 IRQ and BRK at `$FFFE`. Reading an address no device answers returns
 [open bus](https://www.nesdev.org/wiki/Open_bus_behavior), usually the last value on the data bus.
 
+### Devices on the CPU bus
+
+`CpuBus` has three slots, given as keywords to `CpuBus.new` and each defaulting to `CpuBus::Disconnected`:
+`ppu_registers:` (`$2000-$3FFF`, handed the address already mirrored down to `$2000-$2007`), `io_registers:`
+(`$4000-$4017`) and `mapper:` (`$4020-$FFFF`). `$4018-$401F` reach no device. A device answers:
+
+- `cpu_read(address, data_bus)` → the byte left on the data bus after the read. A device that does not drive the bus
+  at that address returns `data_bus` untouched (open bus); a register that drives only some bits keeps the others
+  from `data_bus`. The bus stores every result as the next `data_bus`; writes do not change it (plan 04, decision 1).
+- `cpu_write(address, value)`.
+
+### Mapper interface
+
+Every board in `Ruby::Nes::Mappers` (built by `Mappers.build(cartridge)` from the iNES mapper number) answers the CPU
+device interface above plus:
+
+| Method | Returns |
+|---|---|
+| `ppu_read(address)` | the pattern table byte, for `$0000-$1FFF` (the PPU bus never hands anything else) |
+| `ppu_write(address, value)` | kept by CHR RAM, ignored by CHR ROM |
+| `mirroring` | the nametable arrangement the board selects (`:horizontal`, `:vertical`, …) |
+| `irq?` | whether the board holds the CPU's IRQ line low |
+
+No base class yet (plan 19 extracts one); a scanline/A12 hook for MMC3 is shaped by plan 21.
+
 ### PPU bus
 
 Source: [PPU memory map](https://www.nesdev.org/wiki/PPU_memory_map). The PPU addresses 14 bits (`$0000-$3FFF`).
@@ -147,8 +172,9 @@ MMC3 scanline IRQ. The `Cpu#step` interface stays in every option; only where th
 | `lib/ruby/nes/cartridge.rb` | `Ruby::Nes::Cartridge` | the loaded cartridge (header, PRG, CHR) |
 | `lib/ruby/nes/cartridge/` | `Ruby::Nes::Cartridge::Header`, `::Loader`, errors | iNES parsing |
 | `lib/ruby/nes/mappers.rb` | `Ruby::Nes::Mappers` | `Mappers.build` factory |
-| `lib/ruby/nes/mappers/` | `Ruby::Nes::Mappers::Base`, `::Nrom`, `::Mmc3`… | one file per mapper |
+| `lib/ruby/nes/mappers/` | `Ruby::Nes::Mappers::Nrom`, `::Mmc3`… | one file per mapper (a shared base is extracted in plan 19) |
 | `lib/ruby/nes/cpu_bus.rb` | `Ruby::Nes::CpuBus` | CPU address decoding, RAM, open bus |
+| `lib/ruby/nes/cpu_bus/` | `Ruby::Nes::CpuBus::Disconnected` | the device in an empty slot |
 | `lib/ruby/nes/cpu.rb` | `Ruby::Nes::Cpu` | registers, `step`, interrupts |
 | `lib/ruby/nes/cpu/` | `Ruby::Nes::Cpu::…` | instruction table, addressing modes |
 | `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding, VRAM, palette RAM |
