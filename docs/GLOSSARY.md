@@ -27,6 +27,8 @@ A plan that introduces a new acronym or a new bit idiom adds it here in the same
 | Mapper | — | The cartridge board's logic that maps PRG and CHR chips into the address spaces, often with bank switching. | [Mapper](https://www.nesdev.org/wiki/Mapper) |
 | MMC3 | — (NESdev uses the name without expanding "MMC") | Nintendo's mapper chip with a scanline IRQ; iNES mapper 4. Used by Super Mario Bros. 3. | [MMC3](https://www.nesdev.org/wiki/MMC3) |
 | Nametable | — | 1024-byte background layout: 960 tile indices plus a 64-byte attribute table. | [PPU nametables](https://www.nesdev.org/wiki/PPU_nametables) |
+| NES | Nintendo Entertainment System | The console this project emulates (NTSC model). Also the first three bytes of the iNES magic, `"NES"` + `$1A`. | [NES reference guide](https://www.nesdev.org/wiki/NES_reference_guide) |
+| NES 2.0 | — | The extended successor of the iNES header, recognised by byte 7 bits 3-2 = `%10`; only detected here (`Header#nes2?`), its extended fields are not read. | [NES 2.0](https://www.nesdev.org/wiki/NES_2.0) |
 | NMI | Non-Maskable Interrupt | Interrupt the program cannot mask with the I flag. The PPU raises it at the start of VBlank when NMI generation is enabled in PPUCTRL. Vector at `$FFFA`. | [NMI](https://www.nesdev.org/wiki/NMI) |
 | NTSC | National Television System Committee | The video standard of North American and Japanese consoles; the timing this project emulates. | [Cycle reference chart](https://www.nesdev.org/wiki/Cycle_reference_chart) |
 | OAM | Object Attribute Memory | PPU-internal memory with the sprite display list: 64 sprites × 4 bytes. | [PPU OAM](https://www.nesdev.org/wiki/PPU_OAM) |
@@ -100,6 +102,19 @@ constant name.
 - Inline: `(high << 8) | low`
 - Off the hot path: `Bits.combine_bytes(low: 0xAB, high: 0x12)` → `0x12AB`
 - Builds a 16-bit value from its two halves. Keyword arguments keep the order of the halves explicit.
+
+### high-nibble
+
+- Inline: `(byte >> NIBBLE_WIDTH) & NIBBLE_MASK` (`NIBBLE_WIDTH = 4`, `NIBBLE_MASK = 0x0F`)
+- Off the hot path: `Bits.high_nibble(byte)`
+- The upper 4 bits of a byte as a number `0-15` (`$4A` → `$4`); the low 4 bits never influence it. The iNES header
+  keeps the mapper number's halves in the high nibbles of bytes 6 and 7 ([iNES](https://www.nesdev.org/wiki/INES)).
+
+### combine-nibbles
+
+- Inline: `(high << NIBBLE_WIDTH) | low`
+- Off the hot path: `Bits.combine_nibbles(low: 0x1, high: 0x2)` → `0x21`
+- Builds a byte from its two 4-bit halves. Keyword arguments keep the order of the halves explicit.
 
 ### set-flag
 

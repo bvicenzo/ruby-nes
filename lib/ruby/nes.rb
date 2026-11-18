@@ -8,3 +8,6 @@ module Ruby
     class Error < StandardError; end
   end
 end
+
+require_relative 'nes/bits'
+require_relative 'nes/cartridge'
