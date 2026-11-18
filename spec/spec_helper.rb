@@ -18,6 +18,7 @@ end
 
 require 'ruby/nes'
 require_relative 'support/cartridges'
+require_relative 'support/flat_bus'
 require_relative 'support/hex_dump'
 require_relative 'support/local_roms'
 require_relative 'support/test_roms'
