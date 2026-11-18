@@ -1,6 +1,6 @@
 # 05 — CPU registers and addressing modes
 
-**Status:** in progress (base af6058a)
+**Status:** done (2026-11-18)
 
 **Depends on:** 04
 
@@ -84,6 +84,25 @@ Settled with the user on 2026-11-18.
    and hot-path classes refer to them as `Bits::BYTE_MASK` (no aliases). Reason: the glossary already names them; one
    definition, and each file states where its constants come from.
 8. **Registers start at zero** until plan 07 defines the power-up state.
+
+## What was done
+
+- `Ruby::Nes::Cpu` with A, X, Y and the program counter (keywords for initial values), `cycles`, and
+  `fetch_byte`/`fetch_word` wrapping at `$FFFF`.
+- `Cpu::Status`: six stored flags with named predicates and setters, `update_zero_and_negative`, the bytes pushed by
+  instructions (B and bit 5 set) and by interrupts (bit 5 set), and `restore` dropping B.
+- `Cpu::Stack` on page `$0100`: push/pull with `S` wrapping both ways, words pushed high byte first.
+- `Cpu::AddressingModes`, included in `Cpu`: immediate, zero page (plain, X, Y), absolute (plain, X, Y), indirect with
+  the `$xxFF` bug, `($nn,X)`, `($nn),Y` and relative; `_for_read` variants charge the page-cross cycle.
+- `Bits` holds the shared constants (`BYTE_MASK`, `WORD_MASK`, `PAGE_MASK`, `SIGN_BIT`, `BYTE_RANGE`).
+- `docs/architecture.md`: CPU layout, a Known gaps section (dummy reads), decisions 6-8. `docs/GLOSSARY.md`: the
+  `increment-within-page` idiom, the register names, when `Bits` helpers get written. Plans 06, 07, 08 and 10 aligned.
+- Spec support: `FlatBus`, a 64 KiB bus double refusing addresses outside `$0000-$FFFF` and values outside a byte.
+- 135 new examples, full branch coverage of every new unit; one independent code review. Review follow-ups applied: a
+  leaf that could never fail removed (bit 5 on restore) and the criterion reworded, `FlatBus` value check, aliases
+  replaced by `Bits::` constants, one `word_within_page` for the three indirect modes, the `$FFxx` page-cross cycle
+  justified, comment and glossary fixes. Not applied: moving PC advance out of `immediate_address` and merging
+  `update_zero_and_negative` into one expression (left to plan 10).
 
 ## Tasks
 
