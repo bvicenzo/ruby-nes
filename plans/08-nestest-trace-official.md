@@ -20,6 +20,10 @@ Initial state for automation mode: `P = $24`, `SP = $FD`, cycle counter 7. Lines
 are unofficial opcodes; the official section is everything before the first of them. Test results are written to
 `$0002` and `$0003` (zero means pass; non-zero codes are listed in the ROM's documentation).
 
+`P` in the log is the interrupt-pushed form of `Cpu::Status` (bit 5 set, B clear: `P:24`); the
+[Status flags](https://www.nesdev.org/wiki/Status_flags) page says debuggers have "no convention" for bits 5 and 4,
+so the tracer follows nestest.
+
 ## Scope
 
 In:

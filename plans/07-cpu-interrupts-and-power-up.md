@@ -19,6 +19,10 @@ high, PC low, P (B clear for NMI/IRQ, set for BRK; bit 5 set), set `I`, load PC 
 - Reset: does not write the stack but decrements `SP` by 3; sets `I`; PC from `$FFFC`.
 - Power-up: `A=X=Y=0`, `P=$34` (I set), `SP=$FD` after the reset sequence.
 
+From plan 05: registers start at zero until this plan sets the power-up state; interrupts push PC with
+`Cpu::Stack#push_word` and P with `Cpu::Status`'s interrupt-pushed byte (B clear, bit 5 set); `RTI` uses
+`Status#restore`, which already ignores bits 4 and 5.
+
 ## Scope
 
 In: `Cpu#reset`, `Cpu#nmi!` (edge latch), `Cpu#irq_line` (level), polling between instructions, `BRK`/`RTI` finished.

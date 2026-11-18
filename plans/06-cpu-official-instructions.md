@@ -19,6 +19,14 @@ the full count). The 2A03 ignores decimal mode in `ADC`/`SBC`.
 
 `ADC` overflow: `V = ~(A ^ operand) & (A ^ result) & $80`. `SBC` is `ADC` with the operand inverted.
 
+From plan 05: every addressing mode is a `Cpu` method returning the effective address (`immediate_address`,
+`absolute_x_address`, …). The page-cross cycle of indexed reads is charged by the `_for_read` resolvers
+(`absolute_x_address_for_read`, `absolute_y_address_for_read`, `indirect_indexed_address_for_read`), which add 1 to
+`Cpu#cycles`; the opcode table's page-cross rule is the choice of resolver, and write/read-modify-write opcodes use
+the plain ones. `relative_address` returns the branch target only: the taken and page-cross cycles of branches are
+this plan's. Flags go through `Cpu::Status` (`update_zero_and_negative`, `carry=`, …), the stack through `Cpu::Stack`
+(`push_word` pushes the high byte first). Dummy reads are not modelled (plan 05, decision 3).
+
 ## Scope
 
 In: an opcode table (opcode → mnemonic, mode, base cycles, page-cross rule), the dispatch in `Cpu#step`, every official
