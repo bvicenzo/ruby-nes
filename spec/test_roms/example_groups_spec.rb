@@ -135,64 +135,71 @@ RSpec.describe TestRoms::ExampleGroups do
   end
 
   describe '#test_rom_path' do
-    let(:requirement) { instance_double(TestRoms::Requirement) }
-    let(:install_hook) { ->(config) { described_class.install(config, requirement:) } }
-    let(:read_rom_path) { -> { test_rom_path('other/nestest.nes') } }
+    context 'when the hook is installed in a sandbox with a stand-in requirement' do
+      let(:requirement) { instance_double(TestRoms::Requirement) }
+      let(:install_hook) { ->(config) { described_class.install(config, requirement:) } }
 
-    before do
-      allow(requirement).to receive(:ensure_listed)
-      allow(requirement).to receive(:skip_reason).and_return(nil)
-      allow(requirement).to receive(:path_of).with('other/nestest.nes').and_return('/fixtures/other/nestest.nes')
-    end
-
-    context 'when the path was not declared' do
-      subject(:sandboxed_run) do
-        TestRoms::SandboxedGroup.run(group_metadata: [{ test_rom: 'other/nestest.nes' }], example_body:, &install_hook)
+      before do
+        allow(requirement).to receive(:ensure_listed)
+        allow(requirement).to receive(:skip_reason).and_return(nil)
+        allow(requirement).to receive(:path_of).with('other/nestest.nes').and_return('/fixtures/other/nestest.nes')
       end
 
-      let(:example_body) { -> { test_rom_path('other/nestest.log') } }
-
-      it 'fails the example with an UndeclaredRomError naming the path' do
-        undeclared_rom_error = an_instance_of(TestRoms::UndeclaredRomError)
-          .and(having_attributes(message: /nestest\.log/))
-
-        expect(sandboxed_run.execution_result).to have_attributes(status: :failed, exception: undeclared_rom_error)
-      end
-    end
-
-    context 'when the path was declared on the example' do
-      subject(:sandboxed_run) do
-        TestRoms::SandboxedGroup
-          .run(example_metadata: { test_rom: 'other/nestest.nes' }, example_body: read_rom_path, &install_hook)
-      end
-
-      it { expect(sandboxed_run.example_value).to eq('/fixtures/other/nestest.nes') }
-    end
-
-    context 'when the path was declared on a group' do
-      let(:group_metadata) { [{ test_rom: 'other/nestest.nes' }] }
-
-      context 'and it is read inside an example' do
+      context 'but the path was not declared' do
         subject(:sandboxed_run) do
-          TestRoms::SandboxedGroup.run(group_metadata:, example_body: read_rom_path, &install_hook)
+          TestRoms::SandboxedGroup.run(group_metadata:, example_body:, &install_hook)
         end
+
+        let(:group_metadata) { [{ test_rom: 'other/nestest.nes' }] }
+        let(:example_body) { -> { test_rom_path('other/nestest.log') } }
+
+        it 'fails the example with an UndeclaredRomError naming the path' do
+          undeclared_rom_error = an_instance_of(TestRoms::UndeclaredRomError)
+            .and(having_attributes(message: /nestest\.log/))
+
+          expect(sandboxed_run.execution_result).to have_attributes(status: :failed, exception: undeclared_rom_error)
+        end
+      end
+
+      context 'and the path was declared on the example' do
+        subject(:sandboxed_run) do
+          TestRoms::SandboxedGroup
+            .run(example_metadata: { test_rom: 'other/nestest.nes' }, example_body: read_rom_path, &install_hook)
+        end
+
+        let(:read_rom_path) { -> { test_rom_path('other/nestest.nes') } }
 
         it { expect(sandboxed_run.example_value).to eq('/fixtures/other/nestest.nes') }
       end
 
-      context 'and it is read inside a group hook' do
-        subject(:sandboxed_run) do
-          TestRoms::SandboxedGroup.run(group_metadata:, group_hook_body: read_rom_path, &install_hook)
+      context 'and the path was declared on a group' do
+        let(:group_metadata) { [{ test_rom: 'other/nestest.nes' }] }
+        let(:read_rom_path) { -> { test_rom_path('other/nestest.nes') } }
+
+        context 'and it is read inside an example' do
+          subject(:sandboxed_run) do
+            TestRoms::SandboxedGroup.run(group_metadata:, example_body: read_rom_path, &install_hook)
+          end
+
+          it { expect(sandboxed_run.example_value).to eq('/fixtures/other/nestest.nes') }
         end
 
-        it { expect(sandboxed_run.group_hook_value).to eq('/fixtures/other/nestest.nes') }
+        context 'and it is read inside a group hook' do
+          subject(:sandboxed_run) do
+            TestRoms::SandboxedGroup.run(group_metadata:, group_hook_body: read_rom_path, &install_hook)
+          end
+
+          it { expect(sandboxed_run.group_hook_value).to eq('/fixtures/other/nestest.nes') }
+        end
       end
     end
-  end
 
-  # End to end, with the suite's real manifest and the fetched files: the group runs only after `rake test_roms:fetch`.
-  describe 'a group tagged with a fetched test ROM', test_rom: 'other/nestest.nes' do
-    # Size of other/nestest.nes at the pinned commit, as listed by https://github.com/christopherpow/nes-test-roms.
-    it { expect(File.size(test_rom_path('other/nestest.nes'))).to eq(24_592) }
+    # The suite's real manifest and fetched files: the group runs only after `rake test_roms:fetch`.
+    context 'when the hook is the one the suite installs', test_rom: 'other/nestest.nes' do
+      # Size of other/nestest.nes at the pinned commit, as listed by https://github.com/christopherpow/nes-test-roms.
+      it 'gives the path of the fetched file' do
+        expect(File.size(test_rom_path('other/nestest.nes'))).to eq(24_592)
+      end
+    end
   end
 end

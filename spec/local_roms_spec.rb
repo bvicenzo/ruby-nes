@@ -96,7 +96,6 @@ RSpec.describe LocalRoms do
     let(:directory) { Dir.mktmpdir }
     let(:install_hook) { ->(config) { described_class.install(config, directory:) } }
     let(:group_metadata) { [{ local_rom: 'smb3.nes' }] }
-    let(:read_rom_path) { -> { local_rom_path('smb3.nes') } }
 
     before { File.binwrite(File.join(directory, 'smb3.nes'), 'NES') }
 
@@ -116,6 +115,8 @@ RSpec.describe LocalRoms do
     end
 
     context 'when the name was declared' do
+      let(:read_rom_path) { -> { local_rom_path('smb3.nes') } }
+
       context 'and it is read inside an example' do
         subject(:sandboxed_run) do
           TestRoms::SandboxedGroup.run(group_metadata:, example_body: read_rom_path, &install_hook)
