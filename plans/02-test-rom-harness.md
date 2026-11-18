@@ -1,6 +1,6 @@
 # 02 — Test ROM harness
 
-**Status:** in progress (base 38eaa7e)
+**Status:** done (2026-11-17)
 
 **Depends on:** 00
 
@@ -116,6 +116,21 @@ Second review round (accepted by the user):
 Adding a ROM later (plans 12, 19, 20…): add its path and SHA-256 to the manifest; the code does not change. If a
 path moved in the collection, adjust the manifest, not the code.
 
+## What was done
+
+- Infrastructure: `gh` 2.104.0 installed globally with mise; private repository `bvicenzo/ruby-nes` as `origin`;
+  public fork `bvicenzo/nes-test-roms` serving the same bytes at the pinned commit.
+- `spec/fixtures/test_roms.yml`: commit `95d8f621`, upstream then fork as sources, `other/nestest.nes` and
+  `other/nestest.log` with their SHA-256.
+- `spec/support/test_roms/`: `Entry`, `Manifest`, `Downloader`, `Sources`, `Fetcher`, `Requirement`,
+  `ExampleGroups` (the `test_rom:` metadata and `test_rom_path`) and `SandboxedGroup` for the hook's own spec;
+  54 examples, full branch coverage of the tooling.
+- `rakelib/test_roms.rake`: `test_roms:fetch` and `spec:test_roms`.
+- `.github/workflows/ci.yml`: first run downloaded the ROMs and saved the cache (32 s); the re-run restored it and
+  the fetch reported both files up to date (13 s).
+- `docs/GLOSSARY.md`: ROM, RAM and a "Computing terms" section; `docs/architecture.md`: decision 5 and the
+  `TestRoms` layout row. Two independent code reviews; their follow-ups are listed above.
+
 ## Tasks
 
 - [x] Install `gh` with mise; create the private `ruby-nes` repository as `origin` and push.
@@ -139,7 +154,7 @@ path moved in the collection, adjust the manifest, not the code.
       absent from the manifest fails.
 - [x] `bundle exec rake spec:test_roms` runs only the tagged groups.
 - [x] No test ROM is tracked by git.
-- [ ] CI is green on GitHub; a second run restores the cache and the fetch downloads nothing.
+- [x] CI is green on GitHub; a second run restores the cache and the fetch downloads nothing.
 - [x] `bundle exec rake` green; full branch coverage of the units.
 
 ## References
