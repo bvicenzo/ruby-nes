@@ -5,7 +5,9 @@ uses them, standard computing acronyms used by the tooling, and inline bit opera
 all three. See
 [`architecture.md`](architecture.md#readability) for when each is allowed.
 
-A plan that introduces a new acronym or a new bit idiom adds it here in the same change.
+A plan that introduces a new acronym or a new bit idiom adds it here in the same change. A `Bits` helper named under
+[Bit operations](#bit-operations) is written by the first change whose code off the hot path needs it; until then
+only the inline form exists.
 
 ## Hardware terms
 
@@ -13,6 +15,7 @@ A plan that introduces a new acronym or a new bit idiom adds it here in the same
 |---|---|---|---|
 | 2A03 | Ricoh RP2A03 | The NTSC console's main chip: the CPU core and the APU together. | [CPU](https://www.nesdev.org/wiki/CPU) |
 | 2C02 | Ricoh RP2C02 | The NTSC PPU chip. | [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes) |
+| A, X, Y, S, P, PC | Accumulator, index X, index Y, stack pointer, processor status, program counter | The 6502 registers: A, X, Y, S and P are byte-wide, PC has 16 bits. Code spells them out (`accumulator`, `index_x`, `index_y`, `Stack#pointer`, `Status`, `program_counter`); the letters stay in addressing mode names (`zero_page_x_address`) because NESdev names the modes after them. | [CPU registers](https://www.nesdev.org/wiki/CPU_registers) |
 | APU | Audio Processing Unit | Programmable sound generator inside the 2A03, with 5 sound channels. | [APU](https://www.nesdev.org/wiki/APU) |
 | Attribute table | — | 64 bytes at the end of each nametable choosing which palette each part of the background uses. | [PPU attribute tables](https://www.nesdev.org/wiki/PPU_attribute_tables) |
 | BRK | Break | The 6502 software interrupt instruction; it uses the IRQ vector at `$FFFE` and pushes the B flag as 1. | [CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts) |
@@ -167,6 +170,14 @@ constant name.
 - Off the hot path: `Bits.mirror_down(address, MIRROR_MASK)`
 - Folds a mirrored range onto its base copy: `$0800`, `$1000` and `$1800` all reach RAM address `$0000`
   ([CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map)).
+
+### increment-within-page
+
+- Inline: `(address & PAGE_MASK) | ((address + 1) & BYTE_MASK)`
+- Off the hot path: `Bits.increment_within_page(address)`
+- The next address without carrying into the next page: `$10FF` → `$1000`, not `$1100`. Indirect `JMP` reads its
+  pointer's high byte this way: "JMP ($03FF) reads $03FF and $0300 instead of $0400"
+  ([Instruction reference](https://www.nesdev.org/wiki/Instruction_reference)). In page zero it is plain wrap-to-byte.
 
 ### page-crossed
 

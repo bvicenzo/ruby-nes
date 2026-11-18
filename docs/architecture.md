@@ -175,15 +175,15 @@ MMC3 scanline IRQ. The `Cpu#step` interface stays in every option; only where th
 | `lib/ruby/nes/mappers/` | `Ruby::Nes::Mappers::Nrom`, `::Mmc3`… | one file per mapper (a shared base is extracted in plan 19) |
 | `lib/ruby/nes/cpu_bus.rb` | `Ruby::Nes::CpuBus` | CPU address decoding, RAM, open bus |
 | `lib/ruby/nes/cpu_bus/` | `Ruby::Nes::CpuBus::Disconnected` | the device in an empty slot |
-| `lib/ruby/nes/cpu.rb` | `Ruby::Nes::Cpu` | registers, `step`, interrupts |
-| `lib/ruby/nes/cpu/` | `Ruby::Nes::Cpu::…` | instruction table, addressing modes |
+| `lib/ruby/nes/cpu.rb` | `Ruby::Nes::Cpu` | registers, operand fetch, `step`, interrupts |
+| `lib/ruby/nes/cpu/` | `Ruby::Nes::Cpu::Status`, `::Stack`, `::AddressingModes`… | status flags, stack, addressing modes (a mixin of `Cpu`), instruction table |
 | `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding, VRAM, palette RAM |
 | `lib/ruby/nes/ppu.rb`, `ppu/` | `Ruby::Nes::Ppu`, `Ruby::Nes::Ppu::…` | registers, timing, renderer pieces |
 | `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller` | controllers |
 | `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Headless`… | headless, raylib/sdl2 (later) |
 | `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer`, `::FrameDump`… | tooling off the hot path |
-| `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | readable bit helpers for code off the hot path |
+| `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | the bit constants hot paths use inline (`BYTE_MASK`, `PAGE_MASK`…) and readable bit helpers for code off the hot path |
 | `lib/ruby/nes/cli.rb` | — | command line (plan 18) |
 | `spec/support/test_roms.rb`, `spec/support/test_roms/` | `TestRoms`, `TestRoms::Manifest`, `::Fetcher`… | test ROM harness (plan 02): test tooling, not shipped in the gem |
 
@@ -262,6 +262,14 @@ address = (high << 8) | low # glossary: combine-bytes
   entirely a comment).
 - `grep -rn 'glossary:' lib` finds every use. A new idiom or acronym gets its glossary entry in the same change.
 
+## Known gaps
+
+Hardware behaviour deliberately not modelled yet, each with the plan that revisits it.
+
+| Gap | Hardware | Revisit in |
+|---|---|---|
+| Dummy reads | On a page cross an indexed read "reads an incorrect location first, a location that is smaller by one page", and indexed writes always read before writing ([6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)). The emulator reads only the effective address, so a dummy read of a register with read side effects (`$2002`, `$2007`) or its effect on open bus is missing. | Plan 12, with the `cpu_dummy_reads` test ROM once the PPU exists |
+
 ## Frame buffer contract
 
 - The PPU writes **palette indices** (0–63; a 6-bit value selects one of the 64 colours, see
@@ -285,3 +293,6 @@ presentation, in a frontend).
 | 3 | 2026-11-17 | Hot paths write bit operations inline with named constants and `# glossary:` tags; flag tests always use `anybits?`/`nobits?` | No method call per cycle, meaning still one lookup away; RuboCop enforces the predicates | Plan 10 (`Bits` helpers vs inline operators) |
 | 4 | 2026-11-17 | Hardware acronyms kept in names, expanded in the glossary | They match the reference documentation readers search | — |
 | 5 | 2026-11-17 | Standard computing acronyms (URL, HTTP, YAML, SHA-256, SSL) allowed in tooling names, expanded in the glossary | They are what the libraries and protocols call them; spelling them out (`address` for URL) would clash with emulator terms | — |
+| 6 | 2026-11-18 | The status register is a `Cpu::Status` object holding one Integer with bit masks | Matches push/pull and the trace; the object hides the representation, so a benchmark can swap it alone | Plan 10 (Integer vs one ivar per flag) |
+| 7 | 2026-11-18 | The page-cross cycle of indexed reads is charged by `_for_read` resolvers; write and read-modify-write instructions use the plain ones | Tell, don't ask: no flag to query, no second return value | — |
+| 8 | 2026-11-18 | Dummy reads are not modelled (see Known gaps) | They matter only for registers with read side effects and open bus, which need the PPU | Plan 12 |
