@@ -11,3 +11,4 @@ end
 
 require_relative 'nes/bits'
 require_relative 'nes/cartridge'
+require_relative 'nes/mappers'
