@@ -28,6 +28,8 @@ only the inline form exists.
 | I/O | Input/Output | The non-APU registers in `$4000-$4017`: OAM DMA (`$4014`) and the controller ports (`$4016`, `$4017`). `CpuBus`'s `io_registers:` slot receives the whole APU and I/O range, `$4000-$4017`. | [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
 | iNES | — | The `.nes` file format: a 16-byte header followed by PRG ROM and CHR ROM. | [iNES](https://www.nesdev.org/wiki/INES) |
 | IRQ | Interrupt Request | Maskable, level-sensitive interrupt line (ignored while the I flag is set); vector at `$FFFE`. | [IRQ](https://www.nesdev.org/wiki/IRQ) |
+| JAM | — (6502_cpu.txt: "Jams the machine"; the wiki's matrix calls it STP) | The 12 unofficial opcodes (`$02`, `$12`, … `$F2`) that "halt the CPU until reset"; `Cpu#jammed?` reports it. | [CPU unofficial opcodes](https://www.nesdev.org/wiki/CPU_unofficial_opcodes) |
+| Magic constant | — | The chip- and temperature-dependent byte that the unstable ANE (`$8B`) and LAX #imm (`$AB`) OR into A; the emulator uses the values "No More Secrets" advises for emulators. | ["No More Secrets"](https://csdb.dk/release/?id=198357) |
 | Mapper | — | The cartridge board's logic that maps PRG and CHR chips into the address spaces, often with bank switching. | [Mapper](https://www.nesdev.org/wiki/Mapper) |
 | MMC3 | — (NESdev uses the name without expanding "MMC") | Nintendo's mapper chip with a scanline IRQ; iNES mapper 4. Used by Super Mario Bros. 3. | [MMC3](https://www.nesdev.org/wiki/MMC3) |
 | Nametable | — | 1024-byte background layout: 960 tile indices plus a 64-byte attribute table. | [PPU nametables](https://www.nesdev.org/wiki/PPU_nametables) |
@@ -44,6 +46,7 @@ only the inline form exists.
 | PPUCTRL … PPUDATA | PPU registers | `$2000` PPUCTRL, `$2001` PPUMASK, `$2002` PPUSTATUS, `$2003` OAMADDR, `$2004` OAMDATA, `$2005` PPUSCROLL, `$2006` PPUADDR, `$2007` PPUDATA; `$4014` OAMDMA. | [PPU registers](https://www.nesdev.org/wiki/PPU_registers) |
 | PRG | Program (memory) | The cartridge memory on the CPU side: PRG ROM (16 KiB units in iNES) with the program, and PRG RAM (also called WRAM), usually at `$6000-$7FFF`. | [iNES](https://www.nesdev.org/wiki/INES), [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
 | RAM | Random-Access Memory | Readable and writable memory: the console's 2 KiB internal RAM at `$0000-$07FF`, and on some cartridges PRG RAM and CHR RAM. | [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
+| RDY | Ready | The 6502 input that halts the CPU while low; DMA pulls it. It changes what the unstable unofficial opcodes store, which the emulator does not model. | [CPU pinout](https://www.nesdev.org/wiki/CPU_pinout) |
 | ROM | Read-Only Memory | The cartridge's PRG ROM and CHR ROM. By extension, a dumped cartridge image (an iNES file), as in "test ROM". | [iNES](https://www.nesdev.org/wiki/INES) |
 | Scanline | — | One row of the frame; 262 per NTSC frame. | [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering) |
 | Sprite 0 hit | — | A PPUSTATUS flag set when sprite 0 overlaps the background; games poll it to time mid-frame effects such as a fixed status bar. | [PPU registers](https://www.nesdev.org/wiki/PPU_registers) |
