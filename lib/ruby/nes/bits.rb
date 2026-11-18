@@ -6,6 +6,16 @@ module Ruby
     # the same operations inline with a `# glossary:` tag; each helper is documented under its anchor in
     # docs/GLOSSARY.md, "Bit operations".
     module Bits
+      # The constants the glossary's inline idioms use; hot-path classes refer to them by name.
+      BYTE_MASK = 0xFF
+      WORD_MASK = 0xFFFF
+      # Selects the page (high byte) of an address: indexed reads that change it cost a cycle
+      # (https://www.nesdev.org/wiki/CPU_addressing_modes).
+      PAGE_MASK = 0xFF00
+      # Bit 7: the sign of a two's complement byte.
+      SIGN_BIT = 0x80
+      # The number of values a byte holds.
+      BYTE_RANGE = 0x100
       NIBBLE_WIDTH = 4
       NIBBLE_MASK = 0x0F
 
