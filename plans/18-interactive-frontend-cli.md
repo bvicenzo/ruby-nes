@@ -32,7 +32,7 @@ Out: audio (plan 24), save states (backlog).
 
 ## Open decisions
 
-- Default JIT for the CLI: the winner of plan 10 (revisit after plan 25).
+- Default JIT for the CLI: YJIT, plan 10's winner (decision 19 of `docs/architecture.md`; revisit after plan 25).
 - Gamepad support now or later. Recommendation: later, if the backend makes it trivial.
 
 ## Tasks

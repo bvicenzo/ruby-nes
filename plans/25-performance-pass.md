@@ -22,6 +22,13 @@ In:
   configuration (no JIT, YJIT, ZJIT) — appended to `docs/benchmarks.md`.
 - Profiling with a sampling profiler (vernier or stackprof — check which supports Ruby 4.0.9) and JIT stats.
 - Optimisations, one at a time, each measured and kept only if it pays.
+- Plan 10's leads (`docs/benchmarks.md`, Findings): the `Bits` helpers cost nothing measurable under YJIT on the
+  per-instruction path, so measure the whole hot path converted before narrowing the hot-path exception (decision 3);
+  re-run the CPU variants (`rake bench:variants`, `bench/cpu_benchmark/variants/`) after the core changes. A frame
+  benchmark can reuse `CpuBenchmark::Session`, `::Summary` and `::Report`.
+- Hot-path micro-changes earlier plans left to plan 10, which did not measure them: moving the program counter's
+  advance out of `immediate_address` and merging `Status#update_zero_and_negative` into one expression (plan 05), and
+  a `BASE_CYCLES` array instead of `Opcodes::TABLE[opcode].cycles` per step (plan 06). Each can be a CPU variant.
 
 Out: changing behaviour. Every optimisation keeps the whole suite (including test ROMs) green.
 
