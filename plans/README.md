@@ -29,7 +29,7 @@ Conventions (see also `CLAUDE.md`):
 | # | Plan | Depends on | Status |
 |---|---|---|---|
 | 00 | [Project setup](00-project-setup.md) | — | done |
-| 01 | [Architecture and conventions](01-architecture-and-conventions.md) | 00 | todo |
+| 01 | [Architecture and conventions](01-architecture-and-conventions.md) | 00 | done |
 | 02 | [Test ROM harness](02-test-rom-harness.md) | 00 | todo |
 | 03 | [iNES cartridge loader](03-ines-cartridge-loader.md) | 01 | todo |
 | 04 | [CPU bus, mapper interface and NROM](04-cpu-bus-mapper-interface-nrom.md) | 03 | todo |
