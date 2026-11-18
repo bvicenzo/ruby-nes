@@ -114,7 +114,8 @@ own file layout; shared contexts are kept for shared production code).
 - [x] Same cycle for `Cartridge::Loader`; `Ruby::Nes::Cartridge` (`lib/ruby/nes/cartridge.rb`) with the errors,
       per the layout in `docs/architecture.md`.
 - [x] `local_rom:` metadata in `spec/support/local_roms.rb`, installed in `spec/spec_helper.rb`.
-- [x] One integration example (`local_rom: 'smb3.nes'`) that loads SMB3 and checks the values above.
+- [x] One example (`local_rom: 'smb3.nes'`), a context of `Loader.from_file` when the file exists, that loads SMB3
+      and checks the values above.
 
 ## Acceptance criteria
 
