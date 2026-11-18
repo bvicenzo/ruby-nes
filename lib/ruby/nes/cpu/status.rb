@@ -7,6 +7,10 @@ module Ruby
       # are stored; bit 4 (B) and bit 5 have "No CPU effect" and exist only in the copy pushed to the stack. The
       # decimal flag does nothing on the 2A03 but "still exists and can be observed and modified, as normal".
       #
+      # Each flag is a boolean ivar: instructions read and set flags far more often than the byte is pushed or pulled,
+      # and plan 10 measured this representation 5% faster than one Integer with bit masks under YJIT (7% without a
+      # JIT). The byte is composed only for PHP, BRK, interrupts and the trace, and split only by PLP and RTI.
+      #
       # Callers are the CPU's own instructions, so values are trusted: setters take a boolean, `restore` and
       # `update_zero_and_negative` take a byte (0-255). Nothing is checked on this hot path. Bit 5 is not stored: both
       # pushed forms force it to 1.
@@ -25,70 +29,64 @@ module Ruby
         NO_CPU_EFFECT_BITS = BREAK_FLAG | UNUSED_FLAG
 
         def initialize
-          @flags = 0
+          @carry = false
+          @zero = false
+          @interrupt_disable = false
+          @decimal = false
+          @overflow = false
+          @negative = false
         end
 
-        def carry? = @flags.anybits?(CARRY_FLAG)
+        def carry? = @carry
 
-        def zero? = @flags.anybits?(ZERO_FLAG)
+        def zero? = @zero
 
-        def interrupt_disable? = @flags.anybits?(INTERRUPT_DISABLE_FLAG)
+        def interrupt_disable? = @interrupt_disable
 
-        def decimal? = @flags.anybits?(DECIMAL_FLAG)
+        def decimal? = @decimal
 
-        def overflow? = @flags.anybits?(OVERFLOW_FLAG)
+        def overflow? = @overflow
 
-        def negative? = @flags.anybits?(NEGATIVE_FLAG)
+        def negative? = @negative
 
-        def carry=(enabled)
-          assign(CARRY_FLAG, enabled)
-        end
-
-        def zero=(enabled)
-          assign(ZERO_FLAG, enabled)
-        end
-
-        def interrupt_disable=(enabled)
-          assign(INTERRUPT_DISABLE_FLAG, enabled)
-        end
-
-        def decimal=(enabled)
-          assign(DECIMAL_FLAG, enabled)
-        end
-
-        def overflow=(enabled)
-          assign(OVERFLOW_FLAG, enabled)
-        end
-
-        def negative=(enabled)
-          assign(NEGATIVE_FLAG, enabled)
-        end
+        attr_writer :carry, :zero, :interrupt_disable, :decimal, :overflow, :negative
 
         # Zero when the byte is 0, negative when its bit 7 is set; the other flags stay as they are.
         def update_zero_and_negative(value)
-          assign(ZERO_FLAG, value.zero?)
-          assign(NEGATIVE_FLAG, value.anybits?(NEGATIVE_FLAG))
+          @zero = value.zero?
+          @negative = value.anybits?(NEGATIVE_FLAG)
         end
 
         # The byte PHP and BRK push: B and bit 5 set.
         def byte_pushed_by_instruction
-          @flags | NO_CPU_EFFECT_BITS # glossary: set-flag
+          flags_byte | NO_CPU_EFFECT_BITS # glossary: set-flag
         end
 
         # The byte NMI and IRQ push: bit 5 set, B clear. Also the form nestest's trace log shows.
         def byte_pushed_by_interrupt
-          @flags | UNUSED_FLAG # glossary: set-flag
+          flags_byte | UNUSED_FLAG # glossary: set-flag
         end
 
         # PLP and RTI: the six flags take the byte's bits; B and bit 5 are dropped.
         def restore(byte)
-          @flags = byte & ~NO_CPU_EFFECT_BITS # glossary: clear-flag
+          @carry = byte.anybits?(CARRY_FLAG)
+          @zero = byte.anybits?(ZERO_FLAG)
+          @interrupt_disable = byte.anybits?(INTERRUPT_DISABLE_FLAG)
+          @decimal = byte.anybits?(DECIMAL_FLAG)
+          @overflow = byte.anybits?(OVERFLOW_FLAG)
+          @negative = byte.anybits?(NEGATIVE_FLAG)
         end
 
         private
 
-        def assign(flag, enabled)
-          @flags = enabled ? @flags | flag : @flags & ~flag # glossary: set-flag, clear-flag
+        # The six stored flags at their bit positions.
+        def flags_byte
+          (@carry ? CARRY_FLAG : 0) | # glossary: set-flag
+            (@zero ? ZERO_FLAG : 0) | # glossary: set-flag
+            (@interrupt_disable ? INTERRUPT_DISABLE_FLAG : 0) | # glossary: set-flag
+            (@decimal ? DECIMAL_FLAG : 0) | # glossary: set-flag
+            (@overflow ? OVERFLOW_FLAG : 0) | # glossary: set-flag
+            (@negative ? NEGATIVE_FLAG : 0) # glossary: set-flag
         end
       end
     end
