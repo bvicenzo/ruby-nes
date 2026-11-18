@@ -6,11 +6,18 @@ if ENV['COVERAGE']
   SimpleCov.start do
     enable_coverage :branch
     primary_coverage :branch
-    add_filter '/spec/'
+    # The default "test_frameworks" profile skips all of spec/. Specs are not measured, but the test tooling in
+    # spec/support/ is, so the other default profiles are reloaded and spec/ is skipped except for support/.
+    filters.clear
+    load_profile 'bundler_filter'
+    load_profile 'hidden_filter'
+    load_profile 'root_filter'
+    add_filter %r{\Aspec/(?!support/)}
   end
 end
 
 require 'ruby/nes'
+require_relative 'support/test_roms'
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure
@@ -18,6 +25,10 @@ RSpec.configure do |config|
 
   # Disable RSpec exposing methods globally on `Module` and `main`
   config.disable_monkey_patching!
+
+  # Groups tagged with `test_rom:` are skipped when their ROMs have not been fetched (`rake test_roms:fetch`).
+  test_rom_requirement = TestRoms::Requirement.new(manifest: TestRoms.manifest, directory: TestRoms::DIRECTORY)
+  TestRoms::ExampleGroups.install(config, requirement: test_rom_requirement)
 
   config.expect_with :rspec do |expectations|
     expectations.syntax = :expect

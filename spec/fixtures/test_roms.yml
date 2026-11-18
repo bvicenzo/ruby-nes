@@ -1,0 +1,14 @@
+# Test ROMs used by the suite (plans/02-test-rom-harness.md). `bundle exec rake test_roms:fetch` downloads each file
+# into spec/fixtures/test_roms/ (gitignored) from the first source that serves it with the expected SHA-256.
+#
+# commit:  the pinned commit of the collection https://github.com/christopherpow/nes-test-roms
+# sources: raw-file base URLs, tried in order; a file is fetched from <source>/<commit>/<path>. The second one is a
+#          public fork kept as a fallback in case the upstream collection disappears.
+# files:   path inside the collection => SHA-256 (lowercase hex). Adding a ROM means adding its path and checksum.
+commit: 95d8f621ae55cee0d09b91519a8989ae0e64753b
+sources:
+  - https://raw.githubusercontent.com/christopherpow/nes-test-roms
+  - https://raw.githubusercontent.com/bvicenzo/nes-test-roms
+files:
+  other/nestest.nes: f67d55fd6b3cf0bad1cc85f1df0d739c65b53e79cecb7fea8f77ec0eadab0004
+  other/nestest.log: 442c4dd5539c7e88b3fd73c7b732a7eadbd22b47c2cd9e58397ef147f64f6f8f

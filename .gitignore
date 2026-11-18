@@ -13,3 +13,6 @@
 # ROM images are copyrighted: never commit them
 /roms/
 *.nes
+
+# Test ROMs are fetched by `rake test_roms:fetch`, never committed
+/spec/fixtures/test_roms/

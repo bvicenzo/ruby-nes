@@ -20,9 +20,10 @@ Gem::Specification.new do |spec|
   # Specify which files should be added to the gem when it is released.
   # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
   gemspec = File.basename(__FILE__)
+  development_files = %w[bin/ Gemfile .gitignore .rspec spec/ .rubocop.yml plans/ CLAUDE.md .github/ rakelib/]
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |listing|
     listing.readlines("\x0", chomp: true).reject do |file|
-      (file == gemspec) || file.start_with?(*%w[bin/ Gemfile .gitignore .rspec spec/ .rubocop.yml plans/ CLAUDE.md])
+      (file == gemspec) || file.start_with?(*development_files)
     end
   end
   spec.bindir = 'exe'
