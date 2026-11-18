@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The Ruby version comes from mise.toml.
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      # Keyed on the manifest: a new ROM or checksum makes a new cache. The fetch below checks every checksum even on
+      # a cache hit, downloading a damaged file again for the run, and a cache is saved only after a successful job,
+      # so a bad copy is never stored.
+      - name: Cache test ROMs
+        uses: actions/cache@v6
+        with:
+          path: spec/fixtures/test_roms
+          key: test-roms-${{ hashFiles('spec/fixtures/test_roms.yml') }}
+
+      - name: Fetch test ROMs
+        run: bundle exec rake test_roms:fetch
+
+      - name: Tests and lint
+        run: bundle exec rake
