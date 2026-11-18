@@ -60,8 +60,11 @@ summary below is a reminder; read the document before writing code.
 
 A large spec tree from `specify-behavior` (more than ~10–12 leaves for one unit, contexts nested deeper than 3, or a
 combinatorial repetition of the same condition) means the unit makes too many decisions: split it before writing the
-tests. Tell-don't-ask, strategy/polymorphism and lookup tables are the preferred tools, not mandatory ones. A long but
-flat tree of data rows (one example per opcode) is not a design smell.
+tests. The tree only shrinks through a change in the code: never flatten it cosmetically (two conditions merged into
+one `context`, a condition moved into the `it` sentence) to fit the heuristic. When nothing can reduce the code's
+complexity (a hardware rule, for instance), keep the tree as deep and wide as it is: it exists to expose that
+complexity. Tell-don't-ask, strategy/polymorphism and lookup tables are the preferred tools, not mandatory ones. A long
+but flat tree of data rows (one example per opcode) is not a design smell.
 
 ## Implementing a plan
 
