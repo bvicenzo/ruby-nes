@@ -17,6 +17,14 @@ RSpec.describe Ruby::Nes::Cpu do
         expect(cpu.cycles).to eq(0)
       end
     end
+
+    context 'with a stack pointer' do
+      it 'starts the stack at that pointer' do
+        cpu = described_class.new(bus: FlatBus.new, stack_pointer: 0xFD)
+
+        expect(cpu.stack.pointer).to eq(0xFD)
+      end
+    end
   end
 
   describe '#fetch_byte' do
