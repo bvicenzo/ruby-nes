@@ -63,13 +63,19 @@ Out: pixels (plan 13).
 - [ ] Add `cpu_dummy_reads` and `cpu_interrupts_v2` to the manifest; after the clock model decision, model the CPU
       gaps it makes reachable (dummy reads, interrupt polling point, `CLI`/`SEI`/`PLP` delay, hijacking) or record
       why each stays a gap.
+- [ ] Teach `Debug::Tracer` (plan 08) about interrupts: `Cpu#step` takes a pending NMI or IRQ instead of the opcode
+      (decision 14 of `docs/architecture.md`: "the tracer sees an interrupt as one step"), but `Tracer#line` still
+      names the instruction at the program counter. Once the PPU raises NMI, a trace of a running game needs either
+      an interrupt line from the tracer (asking the CPU's interrupt lines without consuming them) or a runner that
+      pairs log lines with instruction steps only. Automation-mode nestest is unaffected (no interrupt source).
 
 ## Acceptance criteria
 
 - [ ] All `instr_test-v5` single ROMs whose mapper is implemented report "Passed".
 - [ ] `ppu_vbl_nmi` `01-vbl_basics` and `04-nmi_control` pass; the result of every other ROM in the suite is recorded
       in `docs/test-roms.md` with the reason for each failure.
-- [ ] The nestest trace `PPU:` column now matches too (extend plan 08's comparison).
+- [ ] The nestest trace `PPU:` column now matches too (extend plan 08's comparison: `Debug::Tracer#line` prints the
+      PPU scanline and dot, and `Nestest::Log` keeps the column instead of dropping it).
 - [ ] The result of every `cpu_dummy_reads` and `cpu_interrupts_v2` ROM is recorded in `docs/test-roms.md`; the
       Known gaps rows of `docs/architecture.md` are updated to match.
 - [ ] 100% branch coverage on the timing code; rubocop clean.

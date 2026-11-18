@@ -21,7 +21,8 @@ measures, not what it assumes.
 
 In:
 
-- `bench/cpu.rb`: runs a fixed CPU workload (nestest in automation mode, looped from a fresh state until N million
+- `bench/cpu.rb`: runs a fixed CPU workload (nestest in automation mode — built by plan 08's
+  `Nestest::Runner.automation_mode` in `spec/support/nestest/` — looped from a fresh state until N million
   cycles) and reports emulated cycles per second and the ratio to real time.
 - Warm-up runs before measuring; median of several runs; `ruby -v`, JIT flags and machine info in the output.
 - `rake bench:cpu` running the three configurations and writing `docs/benchmarks.md` (appending a dated section).

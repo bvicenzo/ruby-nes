@@ -36,8 +36,11 @@ Out (decision): the unstable group.
 
 - [ ] Specify and test each unofficial opcode (they share the addressing modes from plan 05; reuse those leaves'
       structure, not their code).
-- [ ] Extend the nestest integration spec to the full log.
-- [ ] Opcode table spec: all 256 opcodes are defined.
+- [ ] Extend the nestest integration spec to the full log: `Nestest::Log` (plan 08, `spec/support/nestest/`) stops
+      at the first `*` line today; it must keep the unofficial lines and the `*` marker before the mnemonic, and
+      `Debug::Tracer` must print the same marker for unofficial opcodes.
+- [ ] Opcode table spec: all 256 opcodes are defined. Then remove the tracer's `???` branch for an opcode outside the
+      table (plan 08, decision 3): it becomes unreachable.
 
 ## Acceptance criteria
 
