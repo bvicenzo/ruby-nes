@@ -17,7 +17,9 @@ ROMs.
   fix first bank at `$8000`, fix last bank at `$C000`), CHR mode (bit 4: 8 KiB or two 4 KiB banks).
 - PRG bank register bit 4 disables PRG-RAM (on most revisions).
 - Writes on consecutive CPU cycles (read-modify-write instructions) are ignored after the first — a real quirk some
-  games depend on.
+  games depend on. The CPU does not produce them yet: plan 06 (decision 5) leaves the read-modify-write double write
+  ("first [write] the original value back to memory") out, listed in `docs/architecture.md` Known gaps. This plan must
+  add it to the CPU (spec first) before the consecutive-cycle rule can be tested end to end.
 - Board variants (SNROM, SOROM, SUROM, SXROM) reuse CHR bank bits for PRG-RAM banking or 512 KiB PRG.
 
 ## Scope

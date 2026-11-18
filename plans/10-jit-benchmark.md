@@ -26,8 +26,9 @@ In:
 - Warm-up runs before measuring; median of several runs; `ruby -v`, JIT flags and machine info in the output.
 - `rake bench:cpu` running the three configurations and writing `docs/benchmarks.md` (appending a dated section).
 - Variant experiments for the open decisions, each behind a flag in the harness (not in the core):
-  dispatch strategy, memory container (Array vs String vs IO::Buffer), status register representation (Integer vs
-  one ivar per flag, swapped inside `Cpu::Status`, plan 05), and
+  dispatch strategy (plan 06's `case opcode` vs a table of lambdas), memory container (Array vs String vs
+  IO::Buffer), status register representation (Integer vs one ivar per flag, swapped inside `Cpu::Status`, plan 05),
+  and
   `Ruby::Nes::Bits` helpers (`Bits.wrap_to_byte(value)`) vs inline operators with `# glossary:` tags (decision 3 in
   `docs/architecture.md`). If a JIT makes the helpers free, narrow the hot-path exception in `docs/architecture.md`
   (the single source of truth) and its Decisions log; `CLAUDE.md` only summarises it.
