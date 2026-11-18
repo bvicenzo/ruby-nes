@@ -1,25 +1,61 @@
 # frozen_string_literal: true
 
 # The official opcodes (https://www.nesdev.org/wiki/Instruction_reference): 56 instructions over 151 opcodes. The other
-# 105 bytes are unofficial opcodes (https://www.nesdev.org/wiki/CPU_unofficial_opcodes), left to plan 09.
+# 105 bytes are unofficial opcodes (https://www.nesdev.org/wiki/CPU_unofficial_opcodes), named after the wiki's opcode
+# matrix except ISB (nestest.log's name) and JAM (6502_cpu.txt: "Jams the machine"); their cycles come from
+# https://www.nesdev.org/wiki/Programming_with_unofficial_opcodes ("LAX d" and "SBC #i" among them).
 RSpec.describe Ruby::Nes::Cpu::Opcodes do
   describe '::TABLE' do
-    context 'when indexed by an unofficial opcode ($02)' do
-      it 'has no entry' do
-        expect(described_class::TABLE[0x02]).to be_nil
+    context 'when indexed by an official opcode ($BD)' do
+      it 'describes LDA, absolute,X, in 4 base cycles, official' do
+        expect(described_class::TABLE[0xBD])
+          .to have_attributes(mnemonic: 'LDA', mode: :absolute_x, cycles: 4, official?: true)
       end
     end
 
-    context 'when indexed by an official opcode ($BD)' do
-      it 'describes LDA, absolute,X, in 4 base cycles' do
-        expect(described_class::TABLE[0xBD]).to have_attributes(mnemonic: 'LDA', mode: :absolute_x, cycles: 4)
+    context 'when indexed by an unofficial opcode that reads ($A7)' do
+      it 'describes LAX, zero page, in 3 base cycles, unofficial' do
+        expect(described_class::TABLE[0xA7])
+          .to have_attributes(mnemonic: 'LAX', mode: :zero_page, cycles: 3, official?: false)
+      end
+    end
+
+    context 'when indexed by the unofficial twin of an official opcode ($EB)' do
+      it 'describes SBC, immediate, in 2 base cycles, unofficial' do
+        expect(described_class::TABLE[0xEB])
+          .to have_attributes(mnemonic: 'SBC', mode: :immediate, cycles: 2, official?: false)
+      end
+    end
+
+    context 'when indexed by a jam opcode ($02)' do
+      it 'describes JAM, implied, unofficial' do
+        expect(described_class::TABLE[0x02]).to have_attributes(mnemonic: 'JAM', mode: :implied, official?: false)
       end
     end
 
     context 'when every entry is counted' do
-      it 'holds 256 entries, 151 of them official', :aggregate_failures do
-        expect(described_class::TABLE.size).to eq(256)
-        expect(described_class::TABLE.compact.size).to eq(151)
+      it 'holds 256 entries, 151 official and 105 unofficial', :aggregate_failures do
+        expect(described_class::TABLE.compact.size).to eq(256)
+        expect(described_class::TABLE.count(&:official?)).to eq(151)
+        expect(described_class::TABLE.count { |opcode| !opcode.official? }).to eq(105)
+      end
+    end
+  end
+
+  describe 'Opcode#official?' do
+    context 'when the opcode is built without saying whether it is official' do
+      subject(:opcode) { described_class::Opcode.new(mnemonic: 'NOP', mode: :implied, cycles: 2) }
+
+      it 'is official' do
+        expect(opcode).to be_official
+      end
+    end
+
+    context 'when the opcode is built as unofficial' do
+      subject(:opcode) { described_class::Opcode.new(mnemonic: 'NOP', mode: :zero_page, cycles: 3, official: false) }
+
+      it 'is not official' do
+        expect(opcode).not_to be_official
       end
     end
   end
@@ -144,11 +180,11 @@ RSpec.describe Ruby::Nes::Cpu::Opcodes do
       end
     end
 
-    context 'when asked of every official opcode' do
-      let(:official_modes) { described_class::OFFICIAL.values.map(&:mode).uniq }
+    context 'when asked of every table entry' do
+      let(:table_modes) { described_class::TABLE.map(&:mode).uniq }
 
       it 'finds an operand size for each one' do
-        expect(described_class::OPERAND_SIZES.keys).to include(*official_modes)
+        expect(described_class::OPERAND_SIZES.keys).to include(*table_modes)
       end
     end
   end

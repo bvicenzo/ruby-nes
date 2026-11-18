@@ -18,17 +18,18 @@ RSpec.describe Ruby::Nes::Debug::Tracer do
       cpu.status.restore(0x85)
     end
 
-    context 'when the opcode at the program counter has no table entry' do
+    # nestest.log marks an unofficial opcode with `*` in the column before the mnemonic: "C6BD  04 A9    *NOP".
+    context 'when the opcode at the program counter is unofficial' do
       let(:reset_vector) { [0x00, 0xC0] }
 
-      before { bus.write_bytes(0xC000, [0x02, 0x34, 0x12]) }
+      before { bus.write_bytes(0xC000, [0xA7, 0x42, 0x12]) }
 
-      it 'shows the opcode byte alone, with ??? as the mnemonic' do
-        expect(tracer.line).to eq('C000  02        ???  A:0A X:B1 Y:2C P:A5 SP:3D CYC:7')
+      it 'marks its mnemonic with *' do
+        expect(tracer.line).to eq('C000  A7 42    *LAX  A:0A X:B1 Y:2C P:A5 SP:3D CYC:7')
       end
     end
 
-    context 'when the opcode has a table entry' do
+    context 'when the opcode is official' do
       context 'and the instruction is one byte' do
         let(:reset_vector) { [0x00, 0xC0] }
 

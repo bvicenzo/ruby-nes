@@ -3,10 +3,11 @@
 module Ruby
   module Nes
     class Cpu
-      # The 151 official opcodes (https://www.nesdev.org/wiki/Instruction_reference): mnemonic, addressing mode and
-      # base cycles. Cpu#step charges the base cycles; the page-cross cycle of indexed reads and the branch cycles are
-      # charged while the instruction runs (plan 06). The tracer (plan 08) reads the mnemonic and the mode. The other
-      # 105 opcodes are unofficial (plan 09) and have no entry.
+      # Every opcode byte: mnemonic, addressing mode, base cycles and whether it is one of the 151 official opcodes
+      # (https://www.nesdev.org/wiki/Instruction_reference) or one of the 105 unofficial ones
+      # (https://www.nesdev.org/wiki/CPU_unofficial_opcodes, plan 09). Cpu#step charges the base cycles; the page-cross
+      # cycle of indexed reads and the branch cycles are charged while the instruction runs (plan 06). The tracer (plan
+      # 08) reads the mnemonic, the mode and the official mark.
       module Opcodes
         # Operand bytes after the opcode, per addressing mode (https://www.nesdev.org/wiki/CPU_addressing_modes): the
         # "d" modes, immediate and relative take an 8-bit operand, the "a" modes a 16-bit one; implied has "no address
@@ -30,8 +31,12 @@ module Ruby
         # The opcode byte that selects the instruction, before its operand.
         OPCODE_SIZE = 1
 
-        # Built once, when the file loads; never per instruction.
-        Opcode = Data.define(:mnemonic, :mode, :cycles) do
+        # Built once, when the file loads; never per instruction. An opcode is official unless built as unofficial.
+        Opcode = Data.define(:mnemonic, :mode, :cycles, :official) do
+          def initialize(mnemonic:, mode:, cycles:, official: true) = super
+
+          def official? = official
+
           # The instruction's length in bytes: the opcode and its operand. Read by the tracer (plan 08), never by
           # Cpu#step. An unknown mode raises KeyError: modes come from this file only.
           def size = OPCODE_SIZE + OPERAND_SIZES.fetch(mode)
@@ -191,8 +196,124 @@ module Ruby
           0x98 => Opcode.new(mnemonic: 'TYA', mode: :implied, cycles: 2)
         }.freeze
 
-        # Indexed by opcode, 256 entries: nil where the opcode is unofficial.
-        TABLE = Array.new(Bits::BYTE_RANGE) { |opcode| OFFICIAL[opcode] }.freeze
+        # The 105 unofficial opcodes, by mnemonic as OFFICIAL is. Mnemonics follow the wiki's opcode matrix except ISB (the wiki's
+        # ISC; nestest.log, which the trace is compared with, says ISB) and JAM (the wiki's STP, also the name of a real
+        # 65C02 instruction; 6502_cpu.txt: "Jams the machine"). Cycles, from
+        # https://www.nesdev.org/wiki/Programming_with_unofficial_opcodes: the read-modify-write combos (SLO, RLA, SRE,
+        # RRA, DCP, ISB) "always have a page crossing penalty even if not crossing a page", so their counts are fixed;
+        # the immediate column "has no extra cycles"; the reading NOPs and LAX take a read's cycles. The unstable AHX,
+        # TAS, SHX and SHY take an indexed store's cycles and LAS an indexed read's (6502_cpu.txt groups them so; plan
+        # 09, decision 1: approximate). JAM's 2 cycles are a convention: no reference gives them (plan 09, decision 2).
+        UNOFFICIAL = {
+          0x93 => Opcode.new(mnemonic: 'AHX', mode: :indirect_indexed, cycles: 6, official: false),
+          0x9F => Opcode.new(mnemonic: 'AHX', mode: :absolute_y, cycles: 5, official: false),
+          0x4B => Opcode.new(mnemonic: 'ALR', mode: :immediate, cycles: 2, official: false),
+          0x0B => Opcode.new(mnemonic: 'ANC', mode: :immediate, cycles: 2, official: false),
+          0x2B => Opcode.new(mnemonic: 'ANC', mode: :immediate, cycles: 2, official: false),
+          0x6B => Opcode.new(mnemonic: 'ARR', mode: :immediate, cycles: 2, official: false),
+          0xCB => Opcode.new(mnemonic: 'AXS', mode: :immediate, cycles: 2, official: false),
+          0xC3 => Opcode.new(mnemonic: 'DCP', mode: :indexed_indirect, cycles: 8, official: false),
+          0xC7 => Opcode.new(mnemonic: 'DCP', mode: :zero_page, cycles: 5, official: false),
+          0xCF => Opcode.new(mnemonic: 'DCP', mode: :absolute, cycles: 6, official: false),
+          0xD3 => Opcode.new(mnemonic: 'DCP', mode: :indirect_indexed, cycles: 8, official: false),
+          0xD7 => Opcode.new(mnemonic: 'DCP', mode: :zero_page_x, cycles: 6, official: false),
+          0xDB => Opcode.new(mnemonic: 'DCP', mode: :absolute_y, cycles: 7, official: false),
+          0xDF => Opcode.new(mnemonic: 'DCP', mode: :absolute_x, cycles: 7, official: false),
+          0xE3 => Opcode.new(mnemonic: 'ISB', mode: :indexed_indirect, cycles: 8, official: false),
+          0xE7 => Opcode.new(mnemonic: 'ISB', mode: :zero_page, cycles: 5, official: false),
+          0xEF => Opcode.new(mnemonic: 'ISB', mode: :absolute, cycles: 6, official: false),
+          0xF3 => Opcode.new(mnemonic: 'ISB', mode: :indirect_indexed, cycles: 8, official: false),
+          0xF7 => Opcode.new(mnemonic: 'ISB', mode: :zero_page_x, cycles: 6, official: false),
+          0xFB => Opcode.new(mnemonic: 'ISB', mode: :absolute_y, cycles: 7, official: false),
+          0xFF => Opcode.new(mnemonic: 'ISB', mode: :absolute_x, cycles: 7, official: false),
+          0x02 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0x12 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0x22 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0x32 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0x42 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0x52 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0x62 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0x72 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0x92 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0xB2 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0xD2 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0xF2 => Opcode.new(mnemonic: 'JAM', mode: :implied, cycles: 2, official: false),
+          0xBB => Opcode.new(mnemonic: 'LAS', mode: :absolute_y, cycles: 4, official: false),
+          0xA3 => Opcode.new(mnemonic: 'LAX', mode: :indexed_indirect, cycles: 6, official: false),
+          0xA7 => Opcode.new(mnemonic: 'LAX', mode: :zero_page, cycles: 3, official: false),
+          0xAB => Opcode.new(mnemonic: 'LAX', mode: :immediate, cycles: 2, official: false),
+          0xAF => Opcode.new(mnemonic: 'LAX', mode: :absolute, cycles: 4, official: false),
+          0xB3 => Opcode.new(mnemonic: 'LAX', mode: :indirect_indexed, cycles: 5, official: false),
+          0xB7 => Opcode.new(mnemonic: 'LAX', mode: :zero_page_y, cycles: 4, official: false),
+          0xBF => Opcode.new(mnemonic: 'LAX', mode: :absolute_y, cycles: 4, official: false),
+          0x04 => Opcode.new(mnemonic: 'NOP', mode: :zero_page, cycles: 3, official: false),
+          0x0C => Opcode.new(mnemonic: 'NOP', mode: :absolute, cycles: 4, official: false),
+          0x14 => Opcode.new(mnemonic: 'NOP', mode: :zero_page_x, cycles: 4, official: false),
+          0x1A => Opcode.new(mnemonic: 'NOP', mode: :implied, cycles: 2, official: false),
+          0x1C => Opcode.new(mnemonic: 'NOP', mode: :absolute_x, cycles: 4, official: false),
+          0x34 => Opcode.new(mnemonic: 'NOP', mode: :zero_page_x, cycles: 4, official: false),
+          0x3A => Opcode.new(mnemonic: 'NOP', mode: :implied, cycles: 2, official: false),
+          0x3C => Opcode.new(mnemonic: 'NOP', mode: :absolute_x, cycles: 4, official: false),
+          0x44 => Opcode.new(mnemonic: 'NOP', mode: :zero_page, cycles: 3, official: false),
+          0x54 => Opcode.new(mnemonic: 'NOP', mode: :zero_page_x, cycles: 4, official: false),
+          0x5A => Opcode.new(mnemonic: 'NOP', mode: :implied, cycles: 2, official: false),
+          0x5C => Opcode.new(mnemonic: 'NOP', mode: :absolute_x, cycles: 4, official: false),
+          0x64 => Opcode.new(mnemonic: 'NOP', mode: :zero_page, cycles: 3, official: false),
+          0x74 => Opcode.new(mnemonic: 'NOP', mode: :zero_page_x, cycles: 4, official: false),
+          0x7A => Opcode.new(mnemonic: 'NOP', mode: :implied, cycles: 2, official: false),
+          0x7C => Opcode.new(mnemonic: 'NOP', mode: :absolute_x, cycles: 4, official: false),
+          0x80 => Opcode.new(mnemonic: 'NOP', mode: :immediate, cycles: 2, official: false),
+          0x82 => Opcode.new(mnemonic: 'NOP', mode: :immediate, cycles: 2, official: false),
+          0x89 => Opcode.new(mnemonic: 'NOP', mode: :immediate, cycles: 2, official: false),
+          0xC2 => Opcode.new(mnemonic: 'NOP', mode: :immediate, cycles: 2, official: false),
+          0xD4 => Opcode.new(mnemonic: 'NOP', mode: :zero_page_x, cycles: 4, official: false),
+          0xDA => Opcode.new(mnemonic: 'NOP', mode: :implied, cycles: 2, official: false),
+          0xDC => Opcode.new(mnemonic: 'NOP', mode: :absolute_x, cycles: 4, official: false),
+          0xE2 => Opcode.new(mnemonic: 'NOP', mode: :immediate, cycles: 2, official: false),
+          0xF4 => Opcode.new(mnemonic: 'NOP', mode: :zero_page_x, cycles: 4, official: false),
+          0xFA => Opcode.new(mnemonic: 'NOP', mode: :implied, cycles: 2, official: false),
+          0xFC => Opcode.new(mnemonic: 'NOP', mode: :absolute_x, cycles: 4, official: false),
+          0x23 => Opcode.new(mnemonic: 'RLA', mode: :indexed_indirect, cycles: 8, official: false),
+          0x27 => Opcode.new(mnemonic: 'RLA', mode: :zero_page, cycles: 5, official: false),
+          0x2F => Opcode.new(mnemonic: 'RLA', mode: :absolute, cycles: 6, official: false),
+          0x33 => Opcode.new(mnemonic: 'RLA', mode: :indirect_indexed, cycles: 8, official: false),
+          0x37 => Opcode.new(mnemonic: 'RLA', mode: :zero_page_x, cycles: 6, official: false),
+          0x3B => Opcode.new(mnemonic: 'RLA', mode: :absolute_y, cycles: 7, official: false),
+          0x3F => Opcode.new(mnemonic: 'RLA', mode: :absolute_x, cycles: 7, official: false),
+          0x63 => Opcode.new(mnemonic: 'RRA', mode: :indexed_indirect, cycles: 8, official: false),
+          0x67 => Opcode.new(mnemonic: 'RRA', mode: :zero_page, cycles: 5, official: false),
+          0x6F => Opcode.new(mnemonic: 'RRA', mode: :absolute, cycles: 6, official: false),
+          0x73 => Opcode.new(mnemonic: 'RRA', mode: :indirect_indexed, cycles: 8, official: false),
+          0x77 => Opcode.new(mnemonic: 'RRA', mode: :zero_page_x, cycles: 6, official: false),
+          0x7B => Opcode.new(mnemonic: 'RRA', mode: :absolute_y, cycles: 7, official: false),
+          0x7F => Opcode.new(mnemonic: 'RRA', mode: :absolute_x, cycles: 7, official: false),
+          0x83 => Opcode.new(mnemonic: 'SAX', mode: :indexed_indirect, cycles: 6, official: false),
+          0x87 => Opcode.new(mnemonic: 'SAX', mode: :zero_page, cycles: 3, official: false),
+          0x8F => Opcode.new(mnemonic: 'SAX', mode: :absolute, cycles: 4, official: false),
+          0x97 => Opcode.new(mnemonic: 'SAX', mode: :zero_page_y, cycles: 4, official: false),
+          0xEB => Opcode.new(mnemonic: 'SBC', mode: :immediate, cycles: 2, official: false),
+          0x9E => Opcode.new(mnemonic: 'SHX', mode: :absolute_y, cycles: 5, official: false),
+          0x9C => Opcode.new(mnemonic: 'SHY', mode: :absolute_x, cycles: 5, official: false),
+          0x03 => Opcode.new(mnemonic: 'SLO', mode: :indexed_indirect, cycles: 8, official: false),
+          0x07 => Opcode.new(mnemonic: 'SLO', mode: :zero_page, cycles: 5, official: false),
+          0x0F => Opcode.new(mnemonic: 'SLO', mode: :absolute, cycles: 6, official: false),
+          0x13 => Opcode.new(mnemonic: 'SLO', mode: :indirect_indexed, cycles: 8, official: false),
+          0x17 => Opcode.new(mnemonic: 'SLO', mode: :zero_page_x, cycles: 6, official: false),
+          0x1B => Opcode.new(mnemonic: 'SLO', mode: :absolute_y, cycles: 7, official: false),
+          0x1F => Opcode.new(mnemonic: 'SLO', mode: :absolute_x, cycles: 7, official: false),
+          0x43 => Opcode.new(mnemonic: 'SRE', mode: :indexed_indirect, cycles: 8, official: false),
+          0x47 => Opcode.new(mnemonic: 'SRE', mode: :zero_page, cycles: 5, official: false),
+          0x4F => Opcode.new(mnemonic: 'SRE', mode: :absolute, cycles: 6, official: false),
+          0x53 => Opcode.new(mnemonic: 'SRE', mode: :indirect_indexed, cycles: 8, official: false),
+          0x57 => Opcode.new(mnemonic: 'SRE', mode: :zero_page_x, cycles: 6, official: false),
+          0x5B => Opcode.new(mnemonic: 'SRE', mode: :absolute_y, cycles: 7, official: false),
+          0x5F => Opcode.new(mnemonic: 'SRE', mode: :absolute_x, cycles: 7, official: false),
+          0x9B => Opcode.new(mnemonic: 'TAS', mode: :absolute_y, cycles: 5, official: false),
+          0x8B => Opcode.new(mnemonic: 'XAA', mode: :immediate, cycles: 2, official: false)
+        }.freeze
+
+        # Indexed by opcode, all 256 entries. A byte missing from both tables raises KeyError when this file loads.
+        TABLE = Array.new(Bits::BYTE_RANGE) { |opcode| OFFICIAL[opcode] || UNOFFICIAL.fetch(opcode) }.freeze
       end
     end
   end
