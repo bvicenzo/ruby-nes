@@ -75,4 +75,23 @@ RSpec.describe FlatBus do
       end
     end
   end
+
+  describe '#write_bytes' do
+    subject(:bus) { described_class.new }
+
+    context 'when one of the values is not a byte' do
+      it 'raises ArgumentError naming the value' do
+        expect { bus.write_bytes(0x8000, [0xA9, 0x100]) }.to raise_error(ArgumentError, /value \$100/)
+      end
+    end
+
+    context 'when the values are $A9, $42 and $EA' do
+      it 'writes them at consecutive addresses from the first', :aggregate_failures do
+        bus.write_bytes(0x8000, [0xA9, 0x42, 0xEA])
+        expect(bus.read(0x8000)).to eq(0xA9)
+        expect(bus.read(0x8001)).to eq(0x42)
+        expect(bus.read(0x8002)).to eq(0xEA)
+      end
+    end
+  end
 end

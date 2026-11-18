@@ -8,6 +8,7 @@
 #   bus = FlatBus.new
 #   bus.write(0x10FF, 0x34)
 #   bus.read(0x10FF) # => 0x34
+#   bus.write_bytes(0x8000, [0xA9, 0x42]) # a program: LDA #$42
 class FlatBus
   SIZE = 0x10000
   BYTE_VALUES = (0x00..0xFF)
@@ -24,6 +25,10 @@ class FlatBus
     raise ArgumentError, "value #{hexadecimal(value, digits: 2)} is not a byte" unless BYTE_VALUES.cover?(value)
 
     @memory[checked_address(address)] = value
+  end
+
+  def write_bytes(address, bytes)
+    bytes.each_with_index { |byte, offset| write(address + offset, byte) }
   end
 
   private
