@@ -40,22 +40,21 @@ in the plan when a spec rests on a quirk.
 Follow the `ruby-code-style` skill. RuboCop config inherits `rubocop-vicenzo: config/style.yml`. Never run
 `rubocop -A` to fix `Layout/LineLength`.
 
-Hot paths (CPU step, PPU dot, APU tick) have their own rules, set in plan 01: integers and preallocated arrays, no
-allocation per cycle, no metaprogramming that would defeat the JIT or an AOT compiler.
+**[`docs/architecture.md`](docs/architecture.md) is the single source of truth** for the architecture and the
+conventions: components, buses, clock model, layout (constant → path), hot paths and their rules, readability, frame
+buffer contract, decisions log. Acronyms and bit-operation tags are in [`docs/GLOSSARY.md`](docs/GLOSSARY.md). The
+summary below is a reminder; read the document before writing code.
 
-### Readability
+### Readability (summary of `docs/architecture.md` § Readability)
 
-The code mirrors hardware but must read like prose to someone who does not know the NES by heart:
-
-- No single-letter or meaningless names (`a`, `x`, `tmp`, `val`), block parameters and loop indices included
-  (`accumulator`, `index_x`, not `a`, `x`).
-- No abbreviations or acronyms in names. When one is unavoidable (the documented hardware name: `OAM`, `PPUCTRL`,
-  `DMC`), a comment at its definition expands it and says what it is.
-- Prefer named methods to operator-like ones when Ruby offers them: `first.intersection(second)` over
-  `first & second`; `union`, `difference`; `Integer#anybits?`/`allbits?`/`nobits?` for flag tests.
-- Bit masks, addresses and magic numbers are named constants, citing the NESdev page they come from.
-- Raw bitwise arithmetic (`&`, `|`, `<<`, `>>`) is fine where no named method exists, wrapped in a method whose
-  name states the intent (`wrap_to_byte(value)`, `high_byte(address)`).
+- No single-letter or meaningless names; no abbreviations or acronyms, except documented hardware names (`Cpu`, `Ppu`,
+  `Oam`, `PPUCTRL`) expanded in `docs/GLOSSARY.md`.
+- Named methods over operator-like ones (`first.intersection(second)`); flag tests always with
+  `anybits?`/`allbits?`/`nobits?`; magic numbers as named constants citing NESdev.
+- Bit arithmetic off hot paths goes through `Ruby::Nes::Bits` helpers. On hot paths it is inline, with named constants
+  and a tag naming the readable operation: `value & BYTE_MASK # glossary: wrap-to-byte`.
+- A hot path is anything called per CPU instruction, bus access, PPU dot or APU tick: integers, preallocated arrays, no
+  allocation per cycle, no metaprogramming.
 
 ### Design
 
