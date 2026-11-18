@@ -17,6 +17,8 @@ if ENV['COVERAGE']
 end
 
 require 'ruby/nes'
+require_relative 'support/hex_dump'
+require_relative 'support/local_roms'
 require_relative 'support/test_roms'
 
 RSpec.configure do |config|
@@ -29,6 +31,9 @@ RSpec.configure do |config|
   # Groups tagged with `test_rom:` are skipped when their ROMs have not been fetched (`rake test_roms:fetch`).
   test_rom_requirement = TestRoms::Requirement.new(manifest: TestRoms.manifest, directory: TestRoms::DIRECTORY)
   TestRoms::ExampleGroups.install(config, requirement: test_rom_requirement)
+
+  # Groups tagged with `local_rom:` are skipped when the user's own dump is not under roms/.
+  LocalRoms.install(config, directory: LocalRoms::DIRECTORY)
 
   config.expect_with :rspec do |expectations|
     expectations.syntax = :expect
