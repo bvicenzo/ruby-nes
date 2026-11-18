@@ -27,8 +27,8 @@ In:
 - `Debug::Tracer` (`lib/ruby/nes/debug/tracer.rb`, off the hot path per `docs/architecture.md`): formats the state
   *before* each instruction in nestest's format (PC, raw bytes, A, X, Y, P, SP, CYC; disassembly and PPU columns
   optional — see decision).
-- A `:test_rom` integration spec comparing our trace to the log until the first `*` line, failing on the first
-  divergence with both lines and the line number.
+- An integration spec declaring `test_rom: ['other/nestest.nes', 'other/nestest.log']` (plan 02) comparing our trace
+  to the log until the first `*` line, failing on the first divergence with both lines and the line number.
 - A rake task `nestest:diff` that prints the first divergence (debugging aid).
 
 Out: unofficial opcodes (plan 09).

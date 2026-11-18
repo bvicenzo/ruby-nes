@@ -47,8 +47,8 @@ Out: sprites (plan 14), colour emphasis (applied by frontends later), the formal
 ## Acceptance criteria
 
 - [ ] A dumped frame of nestest (run from its reset vector) shows its text menu correctly.
-- [ ] A golden digest of that frame is stored and checked by a `:test_rom` spec (regression guard after human
-      inspection).
+- [ ] A golden digest of that frame is stored and checked by a spec declaring `test_rom: 'other/nestest.nes'`
+      (regression guard after human inspection).
 - [ ] Scrolling leaves: coarse X wrap switches horizontal nametable, coarse Y wraps at 29 (and at 31 without
       switching), fine Y carry.
 - [ ] 100% branch coverage on the background pipeline; rubocop clean.
