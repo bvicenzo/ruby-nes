@@ -41,7 +41,7 @@ Conventions (see also `CLAUDE.md`):
 | 10 | [JIT benchmark: interpreter vs YJIT vs ZJIT](10-jit-benchmark.md) | 09 | done |
 | 11 | [PPU registers and VRAM](11-ppu-registers-and-vram.md) | 04 | done |
 | 12 | [PPU timing, VBlank/NMI and the console loop](12-ppu-timing-vblank-nmi.md) | 07, 11 | done |
-| 13 | [PPU background rendering](13-ppu-background-rendering.md) | 12 | todo |
+| 13 | [PPU background rendering](13-ppu-background-rendering.md) | 12 | done |
 | 14 | [PPU sprites](14-ppu-sprites.md) | 13 | todo |
 | 15 | [Controllers](15-controllers.md) | 04 | todo |
 | 16 | [Frontend interface and headless backend](16-frontend-interface-headless.md) | 13 | todo |
