@@ -12,6 +12,10 @@ The community test ROMs the suite runs, fetched by `bundle exec rake test_roms:f
   `$6001-$6003`, text from `$6004`. `Blargg::Runner` (`spec/support/blargg/`) runs a console frame by frame, presses
   reset 7 frames (116 ms) after a `$81` request, and stops at a result or after 3600 frames.
   `rake 'blargg:run[<path>]'` prints one ROM's outcome.
+- **blargg's 2005 suites** (`sprite_hit_tests_2005.10.05`, `sprite_overflow_tests`) report "on screen and by beeping";
+  their source keeps the result at `$F8` (1 passed, otherwise the failing test's number) and ends in `exit: jmp exit`.
+  `Blargg::LegacyReport` reads it once the CPU sits on that loop (plan 14); `rake blargg:run` picks it for those
+  suites.
 - The ROMs that must pass are examples of `spec/blargg/runner_spec.rb`, tagged `slow: true`: they run with `SLOW=1`
   and always in CI's `test-roms` job, under YJIT (plan 12, decision 6). The others are recorded here.
 
@@ -61,3 +65,25 @@ Plan 12, 2026-11-19, after the review's fixes. Frames are emulated frames until 
 | `cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes` | Failed (1) | 70 | Needs the APU frame IRQ (plan 22). |
 | `cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes` | Timed out | 3600 | Stays at "test_jmp" waiting for an IRQ: needs the APU frame IRQ (plan 22). |
 | `ppu_open_bus/ppu_open_bus.nes` | Failed (3) | 73 | "Decay value should become zero by one second": the I/O latch does not decay (plan 12, decision 9). |
+
+Plan 14, 2026-11-19, sprite suites (code `$01` is passed). Frames until the result; times under YJIT, one ROM at a
+time, on the machine of [benchmarks](benchmarks.md) (about 1.5 s each).
+
+| ROM | Result | Frames | Notes |
+|---|---|---|---|
+| `sprite_hit_tests_2005.10.05/01.basics.nes` | Passed | 46 | |
+| `sprite_hit_tests_2005.10.05/02.alignment.nes` | Passed | 44 | |
+| `sprite_hit_tests_2005.10.05/03.corners.nes` | Passed | 34 | |
+| `sprite_hit_tests_2005.10.05/04.flip.nes` | Passed | 32 | |
+| `sprite_hit_tests_2005.10.05/05.left_clip.nes` | Passed | 42 | |
+| `sprite_hit_tests_2005.10.05/06.right_edge.nes` | Passed | 36 | |
+| `sprite_hit_tests_2005.10.05/07.screen_bottom.nes` | Passed | 38 | |
+| `sprite_hit_tests_2005.10.05/08.double_height.nes` | Passed | 34 | |
+| `sprite_hit_tests_2005.10.05/09.timing_basics.nes` | Passed | 83 | Timing to "within 12 or so PPU clocks"; passes with the hit set on dot x + 1 (plan 14, decision 9). |
+| `sprite_hit_tests_2005.10.05/10.timing_order.nes` | Passed | 79 | |
+| `sprite_hit_tests_2005.10.05/11.edge_timing.nes` | Passed | 59 | |
+| `sprite_overflow_tests/1.Basics.nes` | Passed | 29 | |
+| `sprite_overflow_tests/2.Details.nes` | Passed | 37 | |
+| `sprite_overflow_tests/3.Timing.nes` | Failed (5) | 116 | "Set too late for first scanline": the evaluation runs whole at dot 257 (Known gaps: sprite overflow timing). |
+| `sprite_overflow_tests/4.Obscure.nes` | Passed | 36 | Needs the diagonal scan of the overflow search. |
+| `sprite_overflow_tests/5.Emulator.nes` | Passed | 27 | |

@@ -148,17 +148,31 @@ PPUDATA: the read buffer, the palette exception and the increment of v. `Ppu` te
 bit 2) and the greyscale (PPUMASK bit 0) when those registers are written. `Ppu#cpu_read` ignores the CPU's data bus:
 the PPU answers from its own latch.
 
-### Background rendering
+### Rendering
 
-On every dot `Ppu#catch_up` runs `Ppu::BackgroundRenderer#run_dot` after the frame timing advances (plan 13). The
-renderer asks `Ppu::BackgroundSchedule` for the dot's steps, a set of flags from constant tables per kind of scanline
+On every dot `Ppu#catch_up` runs `Ppu::Renderer#run_dot` after the frame timing advances (plans 13 and 14). The
+renderer asks `Ppu::RenderSchedule` for the dot's steps, a set of flags from constant tables per kind of scanline
 (visible, pre-render, forced blank, idle), and tells each part: `Ppu::BackgroundFetcher` makes the nametable, attribute
 and pattern fetches from v, `Ppu::BackgroundShifters` holds the two tiles in flight and gives the 4-bit pixel under
-fine X, `Ppu::ScrollRegisters` increments and copies v, `Ppu::BackgroundVisibility` turns a pixel into its palette
-entry (background disabled, left 8 columns hidden, transparent pixel) and `Ppu::Picture` looks the entry up in palette
-RAM and stores it in the frame buffer, with greyscale and the forced blank's backdrop override. `Ppu` decodes PPUCTRL
-bit 4 and PPUMASK bits 0, 1, 3 and 4 and tells the renderer, which passes each setting to its part. The pixel of dot
-1-256 goes to x = dot − 1. `Debug::FrameDump` writes a frame as a PPM image with NESdev's `2C02G_U_wiki.pal`;
+fine X, `Ppu::ScrollRegisters` increments and copies v, and `Ppu::Picture` looks a palette entry up in palette RAM and
+stores it in the frame buffer, with greyscale and the forced blank's backdrop override. The pixel of dot 1-256 goes to
+x = dot − 1.
+
+Sprites (plan 14): the renderer hands the sprite steps to `Ppu::SpriteRenderer`. At dot 257 of each visible line it
+clears `Ppu::SpriteLine` and `Ppu::SpriteEvaluation` selects the next line's sprites from OAM into `Ppu::SecondaryOam`
+(up to 8, `Ppu::SpriteRows` deciding "in range"); with 8 found, `Ppu::OverflowSearch` scans for a ninth with the
+hardware's diagonal bug and `Ppu::SpriteStatus` keeps the flag. The pre-render line evaluates nothing, and lines
+with rendering disabled only clear the line buffer, since nothing is fetched for them. Dots 261 + 8k and
+263 + 8k fetch each slot's pattern bytes (`Ppu::SpriteFetcher`, through `Ppu::SpritePatternAddress::EightByEight` or
+`::EightBySixteen`, the strategy `SpriteRenderer#tall_sprites=` selects, which also gives the evaluation its height;
+empty slots fetch tile `$FF`), and on visible lines the row
+goes into the line buffer, front to back, the first opaque pixel of each column kept with its priority and a sprite 0
+mark. OAMADDR is 0 on dots 257-320. Each pixel, the background's and the sprites' entries pass through their
+`Ppu::LayerVisibility` (layer disabled, leftmost 8 columns hidden, transparent pixel) and `Ppu::PriorityMultiplexer`
+picks one by NESdev's decision table; where both are opaque it asks `Ppu::SpriteZeroHit` (sprite 0, not x = 255). `Ppu`
+decodes PPUCTRL bits 3, 4 and 5 and PPUMASK bits 0-4 and tells the renderer and the sprite renderer, which pass each
+setting to its part; PPUSTATUS bits 6-5 are `SpriteStatus`'s, cleared at dot 1 of the pre-render line.
+`Debug::FrameDump` writes a frame as a PPM image with NESdev's `2C02G_U_wiki.pal`;
 `rake debug:frame[rom,frame_count,output]` runs a ROM and dumps its last frame.
 
 ## Clock
@@ -238,7 +252,7 @@ most calls.
 | `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding |
 | `lib/ruby/nes/ppu_bus/` | `Ruby::Nes::PpuBus::Nametables`, `::PaletteRam` | VRAM through the mirroring, palette RAM |
 | `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder, the PPU's I/O latch, the catch-up to a CPU cycle, reset and the writes it ignores; the PPUCTRL and PPUMASK settings told to the renderer |
-| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`, `::BackgroundRenderer`, `::BackgroundSchedule`, `::BackgroundFetcher`, `::BackgroundShifters`, `::BackgroundVisibility`, `::Picture` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; the background pipeline and the frame buffer (see Background rendering) |
+| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::BackgroundShifters`, `::LayerVisibility`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
 | `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller` | controllers |
 | `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Headless`… | headless, raylib/sdl2 (later) |
@@ -246,7 +260,7 @@ most calls.
 | `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | the bit constants hot paths use inline (`BYTE_MASK`, `PAGE_MASK`…) and readable bit helpers for code off the hot path |
 | `lib/ruby/nes/cli.rb` | — | command line (plan 18) |
 | `spec/support/test_roms.rb`, `spec/support/test_roms/` | `TestRoms`, `TestRoms::Manifest`, `::Fetcher`… | test ROM harness (plan 02): test tooling, not shipped in the gem |
-| `spec/support/blargg.rb`, `spec/support/blargg/` | `Blargg`, `Blargg::Report`, `::Runner`, `::Programs` | blargg's "Output at $6000" protocol and a runner that presses reset when asked (plan 12): test tooling, also used by `rake blargg:run`; specs in `spec/blargg/`, the real ROMs tagged `slow: true` |
+| `spec/support/blargg.rb`, `spec/support/blargg/` | `Blargg`, `Blargg::Report`, `::LegacyReport`, `::Runner`, `::Programs` | blargg's "Output at $6000" protocol, the 2005 ROMs' result at `$F8` (plan 14), and a runner that presses reset when asked (plan 12): test tooling, also used by `rake blargg:run`; specs in `spec/blargg/`, the real ROMs tagged `slow: true` |
 | `spec/support/nestest.rb`, `spec/support/nestest/` | `Nestest`, `Nestest::Log`, `::Runner`, `::Divergence` | nestest in automation mode compared with its reference trace (plan 08): test tooling, also used by `rake nestest:diff` |
 | `bench/cpu.rb`, `bench/cpu_benchmark.rb`, `bench/cpu_benchmark/` | `CpuBenchmark`, `CpuBenchmark::Workload`, `::Session`, `::Report`… | the CPU benchmark (plan 10): nestest looped under no JIT, YJIT or ZJIT, run by `rake bench:cpu` and `rake bench:variants`; specs in `spec/cpu_benchmark/` |
 | `bench/cpu_benchmark/variants/` | — | hot-path experiments that reopen core classes, each loaded only inside a benchmark process of its own (plan 10, decision 3) |
@@ -345,8 +359,11 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | VBlank flag at power | "The VBL flag (PPUSTATUS bit 7) is random at power" ([PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state)). It starts clear, a convention (plan 12, decision 8); reset leaves it as it is, as the hardware does. | — |
 | PPU registers ignored at power | The page gives the window of ignored writes to PPUCTRL, PPUMASK, PPUSCROLL and PPUADDR for the reset signal, "set on reset and cleared at the end of VBlank" ([PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state)). The emulator opens the same window at power-up, since `Console.new` resets the PPU (plan 12, decision 8); a plain `Ppu.new` accepts writes at once, for specs. | — |
 | Rendering toggle delay | "Toggling rendering takes effect approximately 3-4 dots after the write" ([PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing)). The frame timing sees PPUMASK's rendering bits at once, when it decides the odd-frame skip at dot 339 of the pre-render scanline. `ppu_vbl_nmi/10-even_odd_timing` fails #3, "Clock is skipped too late, relative to enabling BG". | A later PPU pass (no plan yet; plan 13, decision 4) |
-| OAMDATA during rendering | OAMDATA writes during rendering "do perform a glitchy increment of OAMADDR", its reads "expose internal OAM accesses" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). They behave as outside rendering. PPUDATA's coarse X and Y increment during rendering is modelled since plan 13. | Plan 14 |
-| Background fetches with no visible effect | The nametable fetches of dots 257-320 and the two of 337-340 ("only used by MMC5", [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)) are not made (plan 13, decision 6); a mapper that counts PPU reads would miss them. The sprite pattern fetches of 257-320, which clock MMC3's A12, belong to plan 14. | Plans 14 and 21 (MMC3), MMC5 if ever |
+| OAMDATA during rendering | OAMDATA writes during rendering "do not modify values in OAM, but do perform a glitchy increment of OAMADDR"; its reads "expose internal OAM accesses during sprite evaluation and loading" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). Writes are ignored completely, as the page advises for emulators (plan 14, decision 4); reads return OAM at OAMADDR, as outside rendering. | A later PPU pass (no plan yet) |
+| Sprite overflow timing | The flag is set on the dot the evaluation finds the ninth sprite (2 dots per OAM read from dot 65, [PPU sprite evaluation](https://www.nesdev.org/wiki/PPU_sprite_evaluation)). The evaluation runs whole at dot 257 (plan 14, decision 2), so the flag shows up to ~190 dots late: `sprite_overflow_tests/3.Timing` fails #5, "Set too late for first scanline". | A later PPU pass (no plan yet) |
+| OAMADDR at the start of evaluation | "The value of OAMADDR at this tick determines the starting address for sprite evaluation for this scanline, which can cause the sprite at OAMADDR to be treated as it was sprite 0"; on the 2C02 a non-zero OAMADDR when rendering starts copies "the eight bytes starting at OAMADDR & 0xF8" over the first eight, and OAMADDR writes "corrupt OAM" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). The evaluation always starts at sprite 0 and OAM is never corrupted (plan 14, decision 5). | A later PPU pass (no plan yet) |
+| Sprite 0 hit dot | "Sprite 0 hit acts as if the image starts at cycle 2" ([PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)); the flag is set on the dot the pixel is composed, x + 1, one dot earlier (plan 14, decision 9). `sprite_hit_tests_2005.10.05` 09-11 pass with it. | — |
+| Background fetches with no visible effect | The nametable fetches of dots 257-320 and the two of 337-340 ("only used by MMC5", [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)) are not made (plan 13, decision 6); a mapper that counts PPU reads would miss them. The sprite pattern fetches of 257-320 are made on their dots since plan 14 (decision 3); an empty slot's dummy fetch takes its row from Y `$FF`, where the hardware's first empty slot keeps sprite 63's Y. | Plan 21 (MMC3), MMC5 if ever |
 | Byte under a palette read | A PPUDATA read of the palette fills the buffer from "a normal read from PPU memory at the specified address, "underneath" the palette data" ("usually mirrored nametables"). The emulator reads the nametable byte `$1000` below (the `$2F00-$2FFF` mirror), an inference from "$3000-3EFF is usually a mirror of" `$2000-$2EFF`. | When a board maps `$3000-$3FFF` differently |
 
 ## Frame buffer contract
@@ -401,3 +418,6 @@ presentation, in a frontend).
 | 29 | 2026-11-19 | `LAX #imm` ORs $FF into A (A and X get the operand), not "No More Secrets"' $EE | blargg's `instr_test-v5/03-immediate`, whose checksum comes from the console, passes only with $FF | — |
 | 30 | 2026-11-19 | The background is rendered per dot: `Ppu::BackgroundSchedule` maps each dot to step flags from constant tables, `Ppu::BackgroundRenderer` runs them on the fetcher, shifters, scroll registers, visibility and picture | Mid-scanline register writes (SMB3's status bar) land on the right dot; tables, not nested conditions, carry the NESdev timing (plan 13, decision 1) | Plan 25 (a measured fast path) |
 | 31 | 2026-11-19 | A PPUDATA access during rendering increments coarse X and Y instead of adding 1 or 32; `Ppu::DataPort` asks `FrameTiming#rendering_in_progress?` on each access | "During rendering [...] triggering a coarse X increment and a Y increment simultaneously" ([PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling)); the frame timing knows the scanline and the rendering flags (plan 13, decision 7) | — |
+| 32 | 2026-11-19 | Sprites are evaluated once per visible scanline at dot 257 and composed through a 256-entry line buffer filled front to back at the sprite fetches (dots 261 + 8k and 263 + 8k); the overflow search follows the hardware's diagonal scan | OAMDATA writes are ignored during rendering, so OAM cannot change mid-evaluation; one lookup per pixel; NESdev's "buffer" model of priority; the fetches on their dots feed MMC3's A12 (plan 14, decisions 1-3 and 6) | A later PPU pass (overflow timing, Known gaps) |
+| 33 | 2026-11-19 | `BackgroundSchedule`, `BackgroundRenderer` and `BackgroundVisibility` became `RenderSchedule`, `Renderer` and `LayerVisibility`; the sprite steps go to `SpriteRenderer`, the sprite pattern address is a strategy per sprite size, and sprite 0 hit is its own `SpriteZeroHit` | One visibility rule serves both layers; each unit decides one thing (plan 14, decision 7) | — |
+| 34 | 2026-11-19 | Composing the sprites costs about 28% of the frame rate under YJIT on nestest (26.6 to 19.2 frames per second, 300 frames after 30) | Three calls per pixel more (sprite pixel, its visibility, the multiplexer) and the sprite steps of dots 257-320 | Plan 25 |
