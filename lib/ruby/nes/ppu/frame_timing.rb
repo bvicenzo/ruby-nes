@@ -59,11 +59,13 @@ module Ruby
           @vertical_blank_cancelled = true if @scanline == VERTICAL_BLANK_SCANLINE && @dot.zero?
         end
 
-        # Back to the top of the picture, on an even frame; the frame count goes on.
+        # Back to the top of the picture, on an even frame; the frame count goes on, and a pending read race no longer
+        # applies.
         def reset
           @scanline = 0
           @dot = 0
           @odd_frame = false
+          @vertical_blank_cancelled = false
         end
 
         private

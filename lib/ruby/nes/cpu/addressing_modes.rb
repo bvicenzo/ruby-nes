@@ -9,8 +9,8 @@ module Ruby
       # resolve.
       #
       # Indexed reads cost one more cycle when the index carries into the next page ("+ means add a cycle for write
-      # instructions or for page wrapping on read instructions"): the `_for_read` resolvers add it to `cycles`; write and
-      # read-modify-write instructions use the plain ones, whose extra cycle is part of their base count (plan 05,
+      # instructions or for page wrapping on read instructions"): the `_for_read` resolvers add it to `cycles`; write
+      # and read-modify-write instructions use the plain ones, whose extra cycle is part of their base count (plan 05,
       # decision 2).
       #
       # Both read the address whose high byte is not fixed yet, as the 6502 does
@@ -80,12 +80,13 @@ module Ruby
           (high << 8) | low # glossary: combine-bytes
         end
 
-        # A read pays the page-cross cycle, and only then the dummy read at the address whose high byte is not fixed.
+        # On a page cross a read makes the dummy read at the address whose high byte is not fixed, a cycle before its
+        # data access, then pays the extra cycle: the register sync then puts each on its own cycle.
         def indexed_for_read(base, index)
           address = (base + index) & Bits::WORD_MASK # glossary: wrap-to-word
           if (base & Bits::PAGE_MASK) != (address & Bits::PAGE_MASK) # glossary: page-crossed
-            @cycles += 1
             @bus.read((base & Bits::PAGE_MASK) | (address & Bits::BYTE_MASK)) # glossary: add-within-page
+            @cycles += 1
           end
           address
         end

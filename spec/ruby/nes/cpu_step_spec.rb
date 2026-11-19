@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 # One row per opcode, official (https://www.nesdev.org/wiki/Instruction_reference) or not: each runs the instruction
-# at $8000 and checks the cycles it took against the reference, plus one effect that only the right instruction with the right
-# addressing mode produces (the operand sits only at the effective address). Indexed reads take "(5 if page crossed)"
-# or "(6 if page crossed)"; stores and read-modify-write instructions list no such penalty. Branches take "2 (3 if
-# branch taken, 4 if page crossed)"; each branch is tried taken and not taken with the other three flags held set, so a
-# branch on the wrong flag or the wrong state fails one of the two. The 105 unofficial opcodes
+# at $8000 and checks the cycles it took against the reference, plus one effect that only the right instruction with the
+# right addressing mode produces (the operand sits only at the effective address). Indexed reads take "(5 if page
+# crossed)" or "(6 if page crossed)"; stores and read-modify-write instructions list no such penalty. Branches take "2
+# (3 if branch taken, 4 if page crossed)"; each branch is tried taken and not taken with the other three flags held set,
+# so a branch on the wrong flag or the wrong state fails one of the two. The 105 unofficial opcodes
 # (https://www.nesdev.org/wiki/CPU_unofficial_opcodes) follow the same pattern, with the cycles of
 # https://www.nesdev.org/wiki/Programming_with_unofficial_opcodes: the read-modify-write combos "always have a page
 # crossing penalty even if not crossing a page" (fixed counts), LAX, LAS and the absolute,X NOPs read like LDA, and the
@@ -15,7 +15,8 @@
 # Before the opcode fetch, a step takes the interrupt Cpu::InterruptLines names instead (plan 07, decision 3): it pushes
 # the program counter (high byte first) and the flags with B clear and bit 5 set, sets I, loads the program counter
 # from the vector, NMI $FFFA or IRQ $FFFE, and takes 7 cycles (https://www.nesdev.org/wiki/CPU_interrupts). "The RTI
-# instruction affects IRQ inhibition immediately", so an IRQ line still asserted when the handler returns is taken again.
+# instruction affects IRQ inhibition immediately", so an IRQ line still asserted when the handler returns is taken
+# again.
 RSpec.describe Ruby::Nes::Cpu do
   describe '#step' do
     let(:bus) { FlatBus.new }
@@ -86,8 +87,8 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
-    # The polling point (plan 12, decision 2): the CPU sees "the line status at the end of the second-to-last cycle", so an
-    # NMI edge on an instruction's last cycle waits for the next instruction.
+    # The polling point (plan 12, decision 2): the CPU sees "the status of the interrupt lines at the end of the
+    # second-to-last cycle", so an NMI edge on an instruction's last cycle waits for the next instruction.
     context 'when an NMI is pending' do
       context 'but its edge came on the last cycle of the previous instruction' do
         subject(:cpu) do
@@ -267,17 +268,23 @@ RSpec.describe Ruby::Nes::Cpu do
       context 'and it is an indexed read crossing a page' do
         subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x01, cycles: 10) }
 
-        let(:probe) { double(cycles_seen: 0x00) }
+        let(:probe) { double(cycles_seen: 0x00, dummy_read_at: 0x00) }
 
         before do
           bus.write_bytes(0x8000, [0xBD, 0xFF, 0x02])
           allow(bus).to receive(:read).and_call_original
+          allow(bus).to receive(:read).with(0x0200).and_invoke(->(_address) { probe.dummy_read_at(cpu.cycles) })
           allow(bus).to receive(:read).with(0x0300).and_invoke(->(_address) { probe.cycles_seen(cpu.cycles) })
         end
 
         it 'counts the base and page-cross cycles before the read' do
           cpu.step
           expect(probe).to have_received(:cycles_seen).with(15).once
+        end
+
+        it 'makes the dummy read a cycle earlier, before the page-cross cycle counts' do
+          cpu.step
+          expect(probe).to have_received(:dummy_read_at).with(14).once
         end
       end
     end

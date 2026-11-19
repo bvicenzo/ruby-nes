@@ -24,7 +24,8 @@ module Ruby
             @status.update_zero_and_negative(@accumulator)
           end
 
-          # LAX #imm (LXA, ATX): "A,X = (A | {CONST}) & #{imm}"; Z and N as ANE, inferred: no source states them.
+          # LAX #imm (LXA, ATX): "A,X = (A | {CONST}) & #{imm}"; Z and N follow the result, as ANE's: no document
+          # states them, and instr_test-v5 03-immediate, which checks the flags, passes so (plan 12).
           def and_operand_into_accumulator_and_index_x(address)
             magic_accumulator = @accumulator | OPERAND_LOAD_MAGIC_CONSTANT # glossary: bitwise-or
             @accumulator = @index_x = magic_accumulator & @bus.read(address) # glossary: bitwise-and

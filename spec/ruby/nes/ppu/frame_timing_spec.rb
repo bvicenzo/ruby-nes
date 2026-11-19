@@ -281,21 +281,39 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
   end
 
   describe '#reset' do
-    subject(:frame_timing) { described_class.new(events:, scanline: 120, dot: 200, odd_frame: true, frame_number: 5) }
+    context 'when no status read is waiting to cancel vertical blank' do
+      subject(:frame_timing) { described_class.new(events:, scanline: 120, dot: 200, odd_frame: true, frame_number: 5) }
 
-    let(:events) { instance_double(Ruby::Nes::Ppu) }
+      let(:events) { instance_double(Ruby::Nes::Ppu) }
 
-    it 'moves to dot 0 of scanline 0' do
-      frame_timing.reset
-      expect(frame_timing).to have_attributes(scanline: 0, dot: 0)
+      it 'moves to dot 0 of scanline 0' do
+        frame_timing.reset
+        expect(frame_timing).to have_attributes(scanline: 0, dot: 0)
+      end
+
+      it 'makes the frame even' do
+        expect { frame_timing.reset }.to change(frame_timing, :odd_frame?).from(true).to(false)
+      end
+
+      it 'keeps the frame number' do
+        expect { frame_timing.reset }.not_to change(frame_timing, :frame_number).from(5)
+      end
     end
 
-    it 'makes the frame even' do
-      expect { frame_timing.reset }.to change(frame_timing, :odd_frame?).from(true).to(false)
-    end
+    context 'when the status was just read on dot 0 of scanline 241' do
+      subject(:frame_timing) { described_class.new(events:, scanline: 241, dot: 0) }
 
-    it 'keeps the frame number' do
-      expect { frame_timing.reset }.not_to change(frame_timing, :frame_number).from(5)
+      let(:events) { instance_double(Ruby::Nes::Ppu, vertical_blank_started: nil, vertical_blank_ended: nil) }
+
+      before do
+        frame_timing.status_read
+        frame_timing.reset
+      end
+
+      it 'lets vertical blank start in the next frame' do
+        82_182.times { frame_timing.advance }
+        expect(events).to have_received(:vertical_blank_started).once
+      end
     end
   end
 end

@@ -3,7 +3,8 @@
 # "The PPU pulls /NMI low if and only if both vblank_flag and NMI_output are true" (https://www.nesdev.org/wiki/NMI).
 # "Changing NMI enable from 0 to 1 while the vblank flag in PPUSTATUS is 1 will immediately trigger an NMI"; reading
 # PPUSTATUS clears the VBlank flag (https://www.nesdev.org/wiki/PPU_registers). The flag is clear at power by
-# convention (plan 12, decision 8); the /NMI level is told to the output only when it changes (plan 12, unit 2).
+# convention (plan 12, decision 8); the /NMI level is told to the output only when it changes (plan 12, the
+# `Ppu::VerticalBlank` task).
 RSpec.describe Ruby::Nes::Ppu::VerticalBlank do
   describe '.new' do
     let(:nmi_output) { instance_double(Ruby::Nes::Ppu) }
