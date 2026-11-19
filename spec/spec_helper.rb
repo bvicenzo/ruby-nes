@@ -20,6 +20,8 @@ require 'ruby/nes'
 require_relative 'support/cartridges'
 require_relative 'support/flat_bus'
 require_relative 'support/hex_dump'
+# After hex_dump: the blargg programs are written as hex dumps.
+require_relative 'support/blargg'
 require_relative 'support/local_roms'
 require_relative 'support/nestest'
 require_relative 'support/test_roms'
@@ -36,6 +38,10 @@ RSpec.configure do |config|
 
   # Groups tagged with `local_rom:` are skipped when the user's own dump is not under roms/.
   LocalRoms.install(config, directory: LocalRoms::DIRECTORY)
+
+  # Examples tagged `slow: true` run a test ROM for seconds; they run only with SLOW=1, which CI always sets (plan 12,
+  # decision 6).
+  config.filter_run_excluding(slow: true) unless ENV['SLOW']
 
   config.expect_with :rspec do |expectations|
     expectations.syntax = :expect
