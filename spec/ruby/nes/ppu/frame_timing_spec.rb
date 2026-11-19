@@ -19,7 +19,9 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
   describe '#advance' do
     subject(:frame_timing) { described_class.new(events:, scanline:, dot:, odd_frame:, rendering_enabled:) }
 
-    let(:events) { instance_double(Ruby::Nes::Ppu, vertical_blank_started: nil, vertical_blank_ended: nil) }
+    let(:events) do
+      instance_double(Ruby::Nes::Ppu, vertical_blank_started: nil, vertical_blank_ended: nil, picture_completed: nil)
+    end
 
     context 'when the position is dot 339 of the pre-render scanline' do
       let(:scanline) { 261 }
@@ -79,6 +81,7 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
             frame_timing.advance
             expect(events).not_to have_received(:vertical_blank_started)
             expect(events).not_to have_received(:vertical_blank_ended)
+            expect(events).not_to have_received(:picture_completed)
           end
         end
       end
@@ -87,7 +90,50 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
     context 'when the position is the last dot of a scanline' do
       let(:dot) { 340 }
 
-      context 'and the scanline is before the pre-render one' do
+      # The last visible pixel is drawn at dot 256 of scanline 239: entering the post-render scanline 240 completes the
+      # picture (plan 16, decision 1), whether it was rendered or drawn in forced blank.
+      context 'and the scanline is the last visible one' do
+        let(:scanline) { 239 }
+        let(:odd_frame) { false }
+
+        context 'and rendering is disabled' do
+          let(:rendering_enabled) { false }
+
+          it 'moves to dot 0 of the post-render scanline' do
+            frame_timing.advance
+            expect(frame_timing).to have_attributes(scanline: 240, dot: 0)
+          end
+
+          it 'keeps the frame number' do
+            expect { frame_timing.advance }.not_to change(frame_timing, :frame_number)
+          end
+
+          it 'tells the events the picture is complete' do
+            frame_timing.advance
+            expect(events).to have_received(:picture_completed).once
+          end
+        end
+
+        context 'and rendering is enabled' do
+          let(:rendering_enabled) { true }
+
+          it 'moves to dot 0 of the post-render scanline' do
+            frame_timing.advance
+            expect(frame_timing).to have_attributes(scanline: 240, dot: 0)
+          end
+
+          it 'keeps the frame number' do
+            expect { frame_timing.advance }.not_to change(frame_timing, :frame_number)
+          end
+
+          it 'tells the events the picture is complete' do
+            frame_timing.advance
+            expect(events).to have_received(:picture_completed).once
+          end
+        end
+      end
+
+      context 'and the scanline is another one before the pre-render one' do
         let(:scanline) { 260 }
         let(:odd_frame) { false }
         let(:rendering_enabled) { false }
@@ -99,6 +145,13 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
 
         it 'keeps the frame number' do
           expect { frame_timing.advance }.not_to change(frame_timing, :frame_number)
+        end
+
+        it 'tells the events nothing', :aggregate_failures do
+          frame_timing.advance
+          expect(events).not_to have_received(:vertical_blank_started)
+          expect(events).not_to have_received(:vertical_blank_ended)
+          expect(events).not_to have_received(:picture_completed)
         end
       end
 
@@ -122,6 +175,7 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
             frame_timing.advance
             expect(events).not_to have_received(:vertical_blank_started)
             expect(events).not_to have_received(:vertical_blank_ended)
+            expect(events).not_to have_received(:picture_completed)
           end
 
           it 'makes the frame odd' do
@@ -146,6 +200,7 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
             frame_timing.advance
             expect(events).not_to have_received(:vertical_blank_started)
             expect(events).not_to have_received(:vertical_blank_ended)
+            expect(events).not_to have_received(:picture_completed)
           end
 
           it 'makes the frame even' do
@@ -175,6 +230,7 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
             frame_timing.advance
             expect(events).not_to have_received(:vertical_blank_started)
             expect(events).not_to have_received(:vertical_blank_ended)
+            expect(events).not_to have_received(:picture_completed)
           end
         end
 
@@ -264,6 +320,7 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
           frame_timing.advance
           expect(events).not_to have_received(:vertical_blank_started)
           expect(events).not_to have_received(:vertical_blank_ended)
+          expect(events).not_to have_received(:picture_completed)
         end
       end
 
@@ -275,6 +332,7 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
           frame_timing.advance
           expect(events).not_to have_received(:vertical_blank_started)
           expect(events).not_to have_received(:vertical_blank_ended)
+          expect(events).not_to have_received(:picture_completed)
         end
       end
     end
@@ -303,7 +361,9 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
     context 'when the status was just read on dot 0 of scanline 241' do
       subject(:frame_timing) { described_class.new(events:, scanline: 241, dot: 0) }
 
-      let(:events) { instance_double(Ruby::Nes::Ppu, vertical_blank_started: nil, vertical_blank_ended: nil) }
+      let(:events) do
+        instance_double(Ruby::Nes::Ppu, vertical_blank_started: nil, vertical_blank_ended: nil, picture_completed: nil)
+      end
 
       before do
         frame_timing.status_read

@@ -63,6 +63,9 @@ module Ruby
       SPRITES_FLAG = 0x10
       # PPUMASK bits 3-4: show the background, show the sprites; either one is "rendering" for the frame timing.
       RENDERING_FLAGS = 0x18
+      # PPUMASK bits 5-7: "Emphasize red", "Emphasize green", "Emphasize blue" on NTSC
+      # (https://www.nesdev.org/wiki/Colour_emphasis); the picture puts them in every pixel (plan 16, decision 2).
+      EMPHASIS_FLAGS = 0xE0
       # PPUSTATUS bits 4-0 are "PPU open bus"; bit 7 is the VBlank flag; bits 6-5, sprite 0 hit and overflow, come from
       # the SpriteStatus.
       STATUS_OPEN_BUS_BITS = 0x1F
@@ -109,7 +112,8 @@ module Ruby
 
       def frame_number = @frame_timing.frame_number
 
-      # The picture drawn so far, 256 × 240 palette indices row by row (docs/architecture.md, Frame buffer contract).
+      # The last complete frame, 256 × 240 pixels row by row (docs/architecture.md, Frame buffer contract). One of two
+      # buffers the picture swaps: valid until the next frame completes, then drawn over; copy it to keep it.
       def frame_buffer = @renderer.frame_buffer
 
       # Advances the PPU to the start of the given CPU cycle: 3 dots per cycle; a cycle already reached advances
@@ -138,6 +142,11 @@ module Ruby
 
       def vertical_blank_started
         @vertical_blank.vertical_blank_started
+      end
+
+      # The frame timing entered the post-render scanline: the last visible pixel is drawn (plan 16, decision 1).
+      def picture_completed
+        @renderer.complete_picture
       end
 
       # The end of VBlank, dot 1 of the pre-render scanline, also clears the reset signal and the sprite flags, which
@@ -211,6 +220,7 @@ module Ruby
         rendering_enabled = value.anybits?(RENDERING_FLAGS)
         @data_port.greyscale = greyscale
         @renderer.greyscale = greyscale
+        @renderer.emphasis = value & EMPHASIS_FLAGS # glossary: bitwise-and
         @renderer.left_columns_shown = value.anybits?(LEFT_BACKGROUND_FLAG)
         @renderer.background_enabled = value.anybits?(BACKGROUND_FLAG)
         @sprite_renderer.left_columns_shown = value.anybits?(LEFT_SPRITES_FLAG)

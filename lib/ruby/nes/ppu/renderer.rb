@@ -35,6 +35,16 @@ module Ruby
           @picture.greyscale = enabled
         end
 
+        # PPUMASK's emphasis bits, 5-7, in place.
+        def emphasis=(flags)
+          @picture.emphasis = flags
+        end
+
+        # The PPU entered the post-render scanline: the frame drawn becomes the frame buffer (plan 16, decision 1).
+        def complete_picture
+          @picture.complete_frame
+        end
+
         def background_enabled=(enabled)
           @background_visibility.enabled = enabled
         end

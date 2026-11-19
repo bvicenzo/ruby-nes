@@ -245,6 +245,7 @@ RSpec.describe Ruby::Nes::Ppu do
           instance_double(
             Ruby::Nes::Ppu::Renderer,
             :greyscale= => nil,
+            :emphasis= => nil,
             :left_columns_shown= => nil,
             :background_enabled= => nil,
             :rendering_enabled= => nil
@@ -371,6 +372,24 @@ RSpec.describe Ruby::Nes::Ppu do
 
           it 'enables the sprites' do
             expect(sprite_renderer).to have_received(:enabled=).with(true)
+          end
+        end
+
+        # PPUMASK bits 5-7: "Emphasize red", "Emphasize green", "Emphasize blue" on NTSC; the picture puts them in the
+        # pixel (plan 16, decision 2).
+        context 'and bits 7-5 are clear' do
+          before { ppu.cpu_write(0x2001, 0x1F) }
+
+          it 'emphasizes no colour' do
+            expect(renderer).to have_received(:emphasis=).with(0x00)
+          end
+        end
+
+        context 'and bits 7 and 5 are set' do
+          before { ppu.cpu_write(0x2001, 0xBF) }
+
+          it 'emphasizes red and blue' do
+            expect(renderer).to have_received(:emphasis=).with(0xA0)
           end
         end
       end
@@ -737,6 +756,19 @@ RSpec.describe Ruby::Nes::Ppu do
     end
   end
 
+  describe '#picture_completed' do
+    subject(:ppu) { described_class.new(bus:, renderer:) }
+
+    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, complete_picture: nil) }
+
+    before { ppu.picture_completed }
+
+    it 'tells the renderer to complete the picture' do
+      expect(renderer).to have_received(:complete_picture).once
+    end
+  end
+
   describe '#vertical_blank_ended' do
     context 'when the PPU was reset' do
       subject(:ppu) { described_class.new(bus:, scroll_registers:, frame_timing:, vertical_blank:, sprite_status:) }
@@ -989,7 +1021,7 @@ RSpec.describe Ruby::Nes::Ppu do
     let(:bus) { instance_double(Ruby::Nes::PpuBus) }
     let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, frame_buffer: [0x0F] * 4) }
 
-    it 'is the picture the renderer draws' do
+    it 'is the last frame the renderer completed' do
       expect(ppu.frame_buffer).to eq([0x0F] * 4)
     end
   end

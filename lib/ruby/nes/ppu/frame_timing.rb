@@ -9,8 +9,10 @@ module Ruby
       # With rendering enabled, odd frames jump "directly from (339,261) ... to (0,0)"; rendering is sampled at dot
       # 339 of the pre-render scanline, so "Turning rendering on late causes the dot at the end of pre-render to never
       # be skipped" (the 3-4 dot delay of a PPUMASK write is a Known gap). Tells `events` when VBlank starts (dot 1 of
-      # scanline 241) and ends (dot 1 of the pre-render scanline). "The PPU comes out of power and reset at the top of
-      # the picture" (https://www.nesdev.org/wiki/PPU_power_up_state); specs may give the position as keywords.
+      # scanline 241) and ends (dot 1 of the pre-render scanline), and when the picture is complete: on entering the
+      # post-render scanline, after the last visible pixel (plan 16, decision 1). "The PPU comes out of power and reset
+      # at the top of the picture" (https://www.nesdev.org/wiki/PPU_power_up_state); specs may give the position as
+      # keywords.
       #
       # It also owns the PPUSTATUS read race, since it knows the position (plan 12, decision 5): a read "on the dot
       # before it is set (scanline 241, dot 0)" means "the flag is not set and the NMI is not generated for that frame"
@@ -84,6 +86,7 @@ module Ruby
           else
             @scanline += 1
             @dot = 0
+            @events.picture_completed if @scanline == POST_RENDER_SCANLINE
           end
         end
 

@@ -326,6 +326,36 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     end
   end
 
+  describe '#emphasis=' do
+    subject(:renderer) { described_class.new(scroll_registers:, fetcher:, picture:, sprite_renderer:, multiplexer:) }
+
+    let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
+    let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
+    let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, :emphasis= => nil) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer) }
+    let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
+
+    it 'tells the picture' do
+      renderer.emphasis = 0xA0
+      expect(picture).to have_received(:emphasis=).with(0xA0)
+    end
+  end
+
+  describe '#complete_picture' do
+    subject(:renderer) { described_class.new(scroll_registers:, fetcher:, picture:, sprite_renderer:, multiplexer:) }
+
+    let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
+    let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
+    let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, complete_frame: nil) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer) }
+    let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
+
+    it 'tells the picture to complete the frame' do
+      renderer.complete_picture
+      expect(picture).to have_received(:complete_frame).once
+    end
+  end
+
   describe '#background_enabled=' do
     subject(:renderer) do
       described_class.new(scroll_registers:, fetcher:, picture:, sprite_renderer:, multiplexer:, background_visibility:)

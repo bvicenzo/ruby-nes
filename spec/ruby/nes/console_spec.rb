@@ -196,10 +196,12 @@ RSpec.describe Ruby::Nes::Console do
 
       before { 10.times { console.run_frame } }
 
-      # The digest of the frame inspected with `rake debug:frame` (plan 13): nestest's text menu.
+      # The digest of the frame inspected in plan 13, nestest's text menu, over 16-bit pixels as the headless frontend
+      # hashes them (plan 16, decision 6): `exe/ruby-nes ROM --headless --frames 10` prints the same one, and
+      # `--screenshot 10:menu.png` shows the frame.
       it 'draws its menu' do
-        expect(Digest::SHA256.hexdigest(console.ppu.frame_buffer.pack('C*')))
-          .to eq('5459d329572148703205cf288595cd2908e50593af454c300e9610bac07c15dd')
+        expect(Digest::SHA256.hexdigest(console.ppu.frame_buffer.pack('S<*')))
+          .to eq('7ec33df3f7ab4bd0ad88bf4d809d2c9a4ad88993b294a12d55b8e569d4f8610e')
       end
     end
   end
