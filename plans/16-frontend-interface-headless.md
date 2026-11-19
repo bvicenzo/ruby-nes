@@ -19,7 +19,8 @@ In:
 
 - `Frontends::Base` contract (documented in the class):
   - `present(frame_buffer)` once per frame;
-  - `button_states` → bitmasks for both controllers;
+  - `button_states` → bitmasks for both controllers (plan 15: each bitmask goes to `Console#controllers[n].buttons=`,
+    bit 0 = A … bit 7 = Right; `Input::Controller::BUTTONS` maps button names to bits);
   - `queue_audio(samples)` (no-op until plan 24);
   - `running?`.
 - Shared RGB conversion (palette table moved from plan 13's dumper, `Debug::FrameDump`, NESdev's `2C02G_U_wiki.pal`;

@@ -23,7 +23,8 @@ In:
 
 - Window with integer scaling, aspect option (8:7 pixel aspect vs square pixels), overscan crop option.
 - Keyboard mapping with defaults (arrows, Z = B, X = A, Enter = Start, Right Shift = Select) and a config file
-  (`~/.config/ruby-nes/config.yml`); opposite directions filtered (plan 15 decision).
+  (`~/.config/ruby-nes/config.yml`); opposite directions filtered here (plan 15, decision 2: the core does not
+  filter them).
 - Keys: pause, reset, quit, toggle FPS overlay (or window-title FPS).
 - Frame pacing with drift correction.
 - CLI: `ruby-nes ROM [--scale N] [--jit=none|yjit|zjit] [--headless …]`.
