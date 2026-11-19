@@ -69,6 +69,8 @@ Settled during implementation:
    result ("N and Z flags are set according to the result of XAA", Visual6502 wiki), and LAX #imm's are inferred
    from ANE's: no source states them for `$AB`. "No More Secrets" says both follow A before the instruction —
    recorded in Known gaps for plan 12 to settle with `instr_test-v5`.
+   *Revised by plan 12 (2026-11-19):* LAX #imm uses $FF, not $EE: blargg's `instr_test-v5/03-immediate`, whose
+   checksum comes from the console, passes only with $FF (it fails with $EE and $00).
 8. **Instruction names:** `read_and_ignore` (reading NOPs), `jam`, `load_accumulator_and_index_x` /
    `store_accumulator_and_index_x` (LAX, SAX), `shift_left_then_or` and siblings for the combos,
    `and_then_copy_sign_to_carry` / `and_then_shift_right` / `and_then_rotate_right` / `and_index_x_then_subtract`

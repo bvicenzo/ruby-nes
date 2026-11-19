@@ -10,9 +10,10 @@ module Ruby
         # decision 1). blargg's instr_test-v5 checks LAX #imm, SHX and SHY against a real NES (plan 12).
         module Unstable
           # "CONST is chip- and/or temperature dependent"; "For Emulation the best compromise [...] seems to be to use a
-          # 'magic contant' of $EF in regular cycles" for ANE, and "emulators are advised to use $EE" for LAX #imm.
+          # 'magic contant' of $EF in regular cycles" for ANE. For LAX #imm the document advises $EE, but blargg's
+          # instr_test-v5 03-immediate, whose checksum comes from the console, passes only with $FF (plan 12).
           INDEX_X_AND_OPERAND_MAGIC_CONSTANT = 0xEF
-          OPERAND_LOAD_MAGIC_CONSTANT = 0xEE
+          OPERAND_LOAD_MAGIC_CONSTANT = 0xFF
 
           # ANE (the wiki's XAA): "A = (A | {CONST}) & X & #{imm}". Z and N follow the result, as the Visual6502 wiki
           # says ("N and Z flags are set according to the result of XAA"); No More Secrets says they follow the

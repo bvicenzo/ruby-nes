@@ -4,9 +4,10 @@
 # https://csdb.dk/release/?id=198357), approximate by nature (plan 09, decision 1):
 #
 # - ANE (the wiki's XAA): "A = (A | {CONST}) & X & #{imm}"; LAX #imm: "A,X = (A | {CONST}) & #{imm}". CONST is "chip-
-#   and/or temperature dependent"; the document advises emulators to use $EF for ANE ("$EF in regular cycles") and
-#   "$EE for the 'magic constant'" for LAX #imm. Z and N follow the result ("N and Z flags are set according to the
-#   result of XAA", https://www.nesdev.org/wiki/Visual6502wiki/6502_Opcode_8B_(XAA,_ANE)).
+#   and/or temperature dependent"; the document advises emulators to use $EF for ANE ("$EF in regular cycles"). For LAX
+#   #imm it advises $EE, but blargg's instr_test-v5 03-immediate, whose checksum comes from the console, passes only
+#   with $FF, so A and X get the operand (plan 12). Z and N follow the result ("N and Z flags are set according to
+#   the result of XAA", https://www.nesdev.org/wiki/Visual6502wiki/6502_Opcode_8B_(XAA,_ANE)).
 # - SHA (the wiki's AHX) "{addr} = A & X & {H+1}", SHX "{addr} = X & {H+1}", SHY "{addr} = Y & {H+1}", TAS "SP = A & X,
 #   {addr} = A & X & {H+1}": H is "the high byte of the target address of the argument", before the index is added.
 #   When the index crosses a page, "the highbyte of the target address is incremented by one (as expected), and then
@@ -87,9 +88,9 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::Unstable do
 
       before { bus.write(0x0200, 0xFF) }
 
-      it 'loads the magic constant, $EE, into the accumulator and index X' do
+      it 'loads the operand, $FF, into the accumulator and index X' do
         cpu.and_operand_into_accumulator_and_index_x(0x0200)
-        expect(cpu).to have_attributes(accumulator: 0xEE, index_x: 0xEE)
+        expect(cpu).to have_attributes(accumulator: 0xFF, index_x: 0xFF)
       end
     end
 
