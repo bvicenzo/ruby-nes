@@ -4,116 +4,109 @@
 # instead of the reset vector, on a powered-up CPU (https://www.nesdev.org/wiki/CPU_power_up_state: P reads $24 when
 # pushed, S is $FD, and the reset sequence took 7 cycles). The official opcodes' result is written to $0002 and the
 # unofficial opcodes' result to $0003, zero meaning every test passed (other/nestest.txt in the test ROM collection).
+# The runner steps a whole console, so the trace's PPU column moves with the CPU (plan 12); a powered-up console
+# stands at the reset vector with P $24, S $FD and the PPU 21 dots into scanline 0 after the 7 cycles of reset.
 RSpec.describe Nestest::Runner do
   describe '.automation_mode' do
     let(:cartridge) { Cartridges.build }
 
     it 'starts at $C000 with the power-up state', :aggregate_failures do
-      automation_cpu = described_class.automation_mode(cartridge).cpu
-      expect(automation_cpu).to have_attributes(program_counter: 0xC000, cycles: 7)
-      expect(automation_cpu.stack.pointer).to eq(0xFD)
-      expect(automation_cpu.status.byte_pushed_by_interrupt).to eq(0x24)
+      automation_console = described_class.automation_mode(cartridge).console
+      expect(automation_console.cpu).to have_attributes(program_counter: 0xC000, cycles: 7)
+      expect(automation_console.cpu.stack.pointer).to eq(0xFD)
+      expect(automation_console.cpu.status.byte_pushed_by_interrupt).to eq(0x24)
+      expect(automation_console.ppu).to have_attributes(scanline: 0, dot: 21)
     end
   end
 
   describe '#first_divergence' do
     context 'when there are no expected lines' do
-      subject(:runner) { described_class.new(cpu:, bus:) }
+      subject(:runner) { described_class.new(console:) }
 
-      let(:bus) { FlatBus.new }
-      let(:cpu) { Ruby::Nes::Cpu.new(bus:, program_counter: 0xC000) }
-
-      before { bus.write_bytes(0xC000, [0xEA, 0xEA]) }
+      let(:console) { Ruby::Nes::Console.new(Cartridges.with_program([0xEA, 0xEA])) }
 
       it 'finds none' do
         expect(runner.first_divergence([])).to be_nil
       end
 
       it 'runs nothing' do
-        expect { runner.first_divergence([]) }.not_to(change { [cpu.program_counter, cpu.cycles] })
+        expect { runner.first_divergence([]) }.not_to(change { [console.cpu.program_counter, console.cpu.cycles] })
       end
     end
 
     context 'when there are expected lines' do
       context 'but the first one differs from the trace' do
-        subject(:runner) { described_class.new(cpu:, bus:) }
+        subject(:runner) { described_class.new(console:) }
 
-        let(:bus) { FlatBus.new }
-        let(:cpu) { Ruby::Nes::Cpu.new(bus:, program_counter: 0xC000) }
+        let(:console) { Ruby::Nes::Console.new(Cartridges.with_program([0xEA, 0xEA])) }
         let(:expected_lines) do
           [
-            'C000  EA        NOP  A:01 X:00 Y:00 P:20 SP:00 CYC:0',
-            'C001  EA        NOP  A:00 X:00 Y:00 P:20 SP:00 CYC:2'
+            '8000  EA        NOP  A:01 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7',
+            '8001  EA        NOP  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 27 CYC:9'
           ]
         end
-
-        before { bus.write_bytes(0xC000, [0xEA, 0xEA]) }
 
         it 'reports line 1 with both lines' do
           expect(runner.first_divergence(expected_lines)).to have_attributes(
             line_number: 1,
-            expected: 'C000  EA        NOP  A:01 X:00 Y:00 P:20 SP:00 CYC:0',
-            actual: 'C000  EA        NOP  A:00 X:00 Y:00 P:20 SP:00 CYC:0'
+            expected: '8000  EA        NOP  A:01 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7',
+            actual: '8000  EA        NOP  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7'
           )
         end
 
         it 'runs nothing' do
-          expect { runner.first_divergence(expected_lines) }.not_to(change { [cpu.program_counter, cpu.cycles] })
+          expect { runner.first_divergence(expected_lines) }
+            .not_to(change { [console.cpu.program_counter, console.cpu.cycles] })
         end
       end
 
       context 'and the first one matches' do
         context 'but a later one differs' do
-          subject(:runner) { described_class.new(cpu:, bus:) }
+          subject(:runner) { described_class.new(console:) }
 
-          let(:bus) { FlatBus.new }
-          let(:cpu) { Ruby::Nes::Cpu.new(bus:, program_counter: 0xC000) }
+          let(:console) { Ruby::Nes::Console.new(Cartridges.with_program([0xEA, 0xEA, 0xEA])) }
           let(:expected_lines) do
             [
-              'C000  EA        NOP  A:00 X:00 Y:00 P:20 SP:00 CYC:0',
-              'C001  EA        NOP  A:00 X:00 Y:00 P:20 SP:00 CYC:3',
-              'C002  EA        NOP  A:00 X:00 Y:00 P:20 SP:00 CYC:4'
+              '8000  EA        NOP  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7',
+              '8001  EA        NOP  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 27 CYC:10',
+              '8002  EA        NOP  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 33 CYC:11'
             ]
           end
-
-          before { bus.write_bytes(0xC000, [0xEA, 0xEA, 0xEA]) }
 
           it 'reports that line with both lines' do
             expect(runner.first_divergence(expected_lines)).to have_attributes(
               line_number: 2,
-              expected: 'C001  EA        NOP  A:00 X:00 Y:00 P:20 SP:00 CYC:3',
-              actual: 'C001  EA        NOP  A:00 X:00 Y:00 P:20 SP:00 CYC:2'
+              expected: '8001  EA        NOP  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 27 CYC:10',
+              actual: '8001  EA        NOP  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 27 CYC:9'
             )
           end
 
           it 'stops before its instruction' do
             runner.first_divergence(expected_lines)
-            expect(cpu).to have_attributes(program_counter: 0xC001, cycles: 2)
+            expect(console.cpu).to have_attributes(program_counter: 0x8001, cycles: 9)
           end
         end
 
         context 'and every one matches' do
           context 'and they trace a synthetic program' do
-            subject(:runner) { described_class.new(cpu:, bus:) }
+            subject(:runner) { described_class.new(console:) }
 
-            let(:bus) { FlatBus.new }
-            let(:cpu) { Ruby::Nes::Cpu.new(bus:, program_counter: 0xC000) }
+            let(:console) { Ruby::Nes::Console.new(Cartridges.with_program([0xA9, 0x42, 0xEA])) }
             let(:expected_lines) do
               [
-                'C000  A9 42     LDA  A:00 X:00 Y:00 P:20 SP:00 CYC:0',
-                'C002  EA        NOP  A:42 X:00 Y:00 P:20 SP:00 CYC:2'
+                '8000  A9 42     LDA  A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7',
+                '8002  EA        NOP  A:42 X:00 Y:00 P:24 SP:FD PPU:  0, 27 CYC:9'
               ]
             end
-
-            before { bus.write_bytes(0xC000, [0xA9, 0x42, 0xEA]) }
 
             it 'finds none' do
               expect(runner.first_divergence(expected_lines)).to be_nil
             end
 
-            it "runs the last line's instruction too" do
+            it "runs the last line's instruction too, the PPU along", :aggregate_failures do
               runner.first_divergence(expected_lines)
-              expect(cpu).to have_attributes(program_counter: 0xC003, cycles: 4)
+              expect(console.cpu).to have_attributes(program_counter: 0x8003, cycles: 11)
+              expect(console.ppu).to have_attributes(scanline: 0, dot: 33)
             end
           end
 
@@ -140,12 +133,11 @@ RSpec.describe Nestest::Runner do
 
   describe '#official_result' do
     context 'when $0002 holds an error code' do
-      subject(:runner) { described_class.new(cpu:, bus:) }
+      subject(:runner) { described_class.new(console:) }
 
-      let(:bus) { FlatBus.new }
-      let(:cpu) { Ruby::Nes::Cpu.new(bus:) }
+      let(:console) { Ruby::Nes::Console.new(Cartridges.with_program([0xEA])) }
 
-      before { bus.write(0x0002, 0x4E) }
+      before { console.cpu_bus.write(0x0002, 0x4E) }
 
       it 'is that code' do
         expect(runner.official_result).to eq(0x4E)
@@ -168,12 +160,11 @@ RSpec.describe Nestest::Runner do
 
   describe '#unofficial_result' do
     context 'when $0003 holds an error code' do
-      subject(:runner) { described_class.new(cpu:, bus:) }
+      subject(:runner) { described_class.new(console:) }
 
-      let(:bus) { FlatBus.new }
-      let(:cpu) { Ruby::Nes::Cpu.new(bus:) }
+      let(:console) { Ruby::Nes::Console.new(Cartridges.with_program([0xEA])) }
 
-      before { bus.write(0x0003, 0x4E) }
+      before { console.cpu_bus.write(0x0003, 0x4E) }
 
       it 'is that code' do
         expect(runner.unofficial_result).to eq(0x4E)
