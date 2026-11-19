@@ -99,10 +99,12 @@ module Ruby
         @data_bus =
           if address < PPU_REGISTERS_START
             @ram[Bits.mirror_down(address, mirror_mask: RAM_MIRROR_MASK)]
-          elsif address < IO_REGISTERS_START
+          elsif address < APU_REGISTERS_START
             @ppu_registers.cpu_read(Bits.mirror_down(address, mirror_mask: PPU_REGISTER_MIRROR_MASK), @data_bus)
+          elsif address < CONTROLLER_PORTS_START
+            @apu_registers.cpu_read(address, @data_bus)
           elsif address < TEST_MODE_START
-            @io_registers.cpu_read(address, @data_bus)
+            @controller_ports.cpu_read(address, @data_bus)
           elsif address < CARTRIDGE_START
             @data_bus
           else
@@ -113,12 +115,14 @@ module Ruby
       def write(address, value)
         if address < PPU_REGISTERS_START
           @ram[Bits.mirror_down(address, mirror_mask: RAM_MIRROR_MASK)] = value
-        elsif address < IO_REGISTERS_START
+        elsif address < APU_REGISTERS_START
           @ppu_registers.cpu_write(Bits.mirror_down(address, mirror_mask: PPU_REGISTER_MIRROR_MASK), value)
         elsif address == OAMDMA
           @oam_dma.start(value)
+        elsif address == CONTROLLER_STROBE
+          @controller_ports.cpu_write(address, value)
         elsif address < TEST_MODE_START
-          @io_registers.cpu_write(address, value)
+          @apu_registers.cpu_write(address, value)
         elsif address >= CARTRIDGE_START
           @mapper.cpu_write(address, value)
         end

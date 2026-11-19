@@ -22,6 +22,9 @@ class FlatBus
     @memory[checked_address(address)]
   end
 
+  # What OAM DMA reads through; CpuBus keeps $4000-$401F as open bus there, a flat bus has no registers to skip.
+  def read_for_dma(address) = read(address)
+
   def write(address, value)
     raise ArgumentError, "value #{hexadecimal(value, digits: 2)} is not a byte" unless BYTE_VALUES.cover?(value)
 

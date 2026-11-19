@@ -32,7 +32,7 @@ module Ruby
           page_start = page << 8 # glossary: combine-bytes
           offset = 0
           while offset < PAGE_SIZE
-            @ppu_registers.cpu_write(Ppu::OAMDATA, @bus.read(page_start | offset)) # glossary: combine-bytes
+            @ppu_registers.cpu_write(Ppu::OAMDATA, @bus.read_for_dma(page_start | offset)) # glossary: combine-bytes
             offset += 1
           end
           @pending = true
