@@ -1,0 +1,34 @@
+# frozen_string_literal: true
+
+module Ruby
+  module Nes
+    class Console
+      # The device in CpuBus's `ppu_registers:` slot (plan 12, decision 1): before handing an access to the PPU, it
+      # catches the PPU up to the start of the instruction's last cycle. Cpu#step charges the base cycles before running
+      # the instruction, so `cpu.cycles` is then the cycle it ends on, and every non-read-modify-write instruction makes
+      # its data access on its last cycle (https://www.nesdev.org/6502_cpu.txt); read-modify-write instructions on PPU
+      # registers are approximated. The Console gives the CPU through the writer, since it builds the CPU after the bus.
+      class PpuRegisterSync
+        # The access falls on the instruction's last cycle, the one before the cycle it ends on.
+        ACCESS_CYCLE_OFFSET = 1
+
+        attr_writer :cpu
+
+        def initialize(ppu:, cpu: nil)
+          @ppu = ppu
+          @cpu = cpu
+        end
+
+        def cpu_read(address, data_bus)
+          @ppu.catch_up(@cpu.cycles - ACCESS_CYCLE_OFFSET)
+          @ppu.cpu_read(address, data_bus)
+        end
+
+        def cpu_write(address, value)
+          @ppu.catch_up(@cpu.cycles - ACCESS_CYCLE_OFFSET)
+          @ppu.cpu_write(address, value)
+        end
+      end
+    end
+  end
+end
