@@ -126,7 +126,7 @@ RSpec.describe Ruby::Nes::Cpu::Interrupts do
     end
 
     context 'when an NMI is pending' do
-      subject(:cpu) { Ruby::Nes::Cpu.new(bus:).tap { |cpu| cpu.nmi_line = true } }
+      subject(:cpu) { Ruby::Nes::Cpu.new(bus:).tap { |cpu| cpu.nmi_line_changed(true, 0) } }
 
       let(:bus) { FlatBus.new }
 
@@ -158,6 +158,36 @@ RSpec.describe Ruby::Nes::Cpu::Interrupts do
         expect(cpu).not_to be_jammed
         expect(cpu.step).to eq(2)
         expect(cpu.program_counter).to eq(0x1235)
+      end
+    end
+  end
+
+  describe '#pending_interrupt' do
+    context 'when no interrupt is due' do
+      subject(:cpu) { Ruby::Nes::Cpu.new(bus:, cycles: 10) }
+
+      let(:bus) { FlatBus.new }
+
+      it 'returns nothing' do
+        expect(cpu.pending_interrupt).to be_nil
+      end
+    end
+
+    context 'when an NMI is due' do
+      subject(:cpu) { Ruby::Nes::Cpu.new(bus:, cycles: 10).tap { |cpu| cpu.nmi_line_changed(true, 8) } }
+
+      let(:bus) { FlatBus.new }
+
+      before { bus.write_bytes(0xFFFA, [0x34, 0x12]) }
+
+      it 'returns the NMI vector' do
+        expect(cpu.pending_interrupt).to eq(0xFFFA)
+      end
+
+      it 'leaves it to the next step' do
+        cpu.pending_interrupt
+        cpu.step
+        expect(cpu.program_counter).to eq(0x1234)
       end
     end
   end

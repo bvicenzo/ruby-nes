@@ -11,29 +11,49 @@ module Ruby
       # the NMI has been handled", so releasing the line does not cancel it and holding it asserted does not repeat it.
       # IRQ is level-sensitive and masked by the status's I. "If both an NMI and an IRQ are pending at the end of an
       # instruction, the NMI will be handled".
+      #
+      # The NMI edge carries the CPU cycle it happened on, and the poll sees "the line status at the end of the
+      # second-to-last cycle" of the previous instruction (plan 12, decision 2): an edge on its last cycle waits one
+      # more instruction. A second edge while one is pending keeps the first one's cycle. The IRQ line is polled
+      # without a cycle (plan 22 brings its timing).
       class InterruptLines
+        # The poll sees edges up to the cycle before the previous instruction's last one.
+        POLL_DELAY_CYCLES = 1
+
         def initialize(status:)
           @status = status
           @nmi_line = false
           @nmi_pending = false
+          @nmi_edge_cycle = 0
           @irq_line = false
         end
 
-        def nmi_line=(asserted)
-          @nmi_pending = true if asserted && !@nmi_line
+        # The NMI line's new level, `true` while asserted, and the CPU cycle the change happened on.
+        def nmi_line_changed(asserted, cycle)
+          if asserted && !@nmi_line && !@nmi_pending
+            @nmi_pending = true
+            @nmi_edge_cycle = cycle
+          end
           @nmi_line = asserted
         end
 
         attr_writer :irq_line
 
-        # The vector of the interrupt to take now, or nil. Taking an NMI clears it; an IRQ stays as long as its line.
-        def acknowledge
-          if @nmi_pending
-            @nmi_pending = false
+        # The vector of the interrupt a step starting on `cycle` takes, or nil, without taking it (for the tracer).
+        def pending(cycle)
+          if @nmi_pending && @nmi_edge_cycle < cycle - POLL_DELAY_CYCLES
             NMI_VECTOR
           elsif @irq_line && !@status.interrupt_disable?
             IRQ_VECTOR
           end
+        end
+
+        # The vector of the interrupt to take at the start of `cycle`, or nil. Taking an NMI clears it; an IRQ stays as
+        # long as its line.
+        def acknowledge(cycle)
+          vector = pending(cycle)
+          @nmi_pending = false if vector == NMI_VECTOR
+          vector
         end
 
         # Reset forgets an NMI not yet taken (plan 07, decision 6); the lines keep the levels their devices set.

@@ -7,6 +7,12 @@
 # instruction" (https://www.nesdev.org/wiki/Instruction_reference). Addresses are 16 bits wide and wrap past $FFFF
 # (plan 05, decision 6); a read crossing from $FFxx to $00xx changes the high byte, so it pays the cycle too. Every
 # example places the operand at the program counter, as if the opcode was just fetched.
+#
+# Dummy reads (https://www.nesdev.org/6502_cpu.txt, plan 12, decision 4): absolute indexed and "(d),y" read the address
+# whose high byte is not fixed yet ("The high byte of the effective address may be invalid at this time, i.e. it may
+# be smaller by $100"): read instructions only when the index crosses a page ("+ This cycle will be executed only if
+# the effective address was invalid during cycle #4"), write and read-modify-write instructions always ("Because the
+# processor cannot undo a write to an invalid address, it always reads from the address first").
 RSpec.describe Ruby::Nes::Cpu::AddressingModes do
   describe '#immediate_address' do
     subject(:cpu) { Ruby::Nes::Cpu.new(bus: FlatBus.new, program_counter:) }
@@ -148,6 +154,7 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
     context 'when the base plus X stays in the page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFE)
         bus.write(0x8001, 0x12)
       end
@@ -160,10 +167,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
         cpu.absolute_x_address
         expect(cpu.program_counter).to eq(0x8002)
       end
+
+      it 'makes a dummy read at $12FF' do
+        cpu.absolute_x_address
+        expect(bus).to have_received(:read).with(0x12FF).once
+      end
     end
 
     context 'when the base plus X crosses into the next page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFF)
         bus.write(0x8001, 0x12)
       end
@@ -175,16 +188,27 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
       it 'adds no cycle' do
         expect { cpu.absolute_x_address }.not_to change(cpu, :cycles)
       end
+
+      it 'makes a dummy read at $1200' do
+        cpu.absolute_x_address
+        expect(bus).to have_received(:read).with(0x1200).once
+      end
     end
 
     context 'when the base plus X passes $FFFF' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFF)
         bus.write(0x8001, 0xFF)
       end
 
       it 'wraps to $0000' do
         expect(cpu.absolute_x_address).to eq(0x0000)
+      end
+
+      it 'makes a dummy read at $FF00' do
+        cpu.absolute_x_address
+        expect(bus).to have_received(:read).with(0xFF00).once
       end
     end
   end
@@ -196,6 +220,7 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
     context 'when the base plus X stays in the page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFE)
         bus.write(0x8001, 0x12)
       end
@@ -212,10 +237,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
         cpu.absolute_x_address_for_read
         expect(cpu.program_counter).to eq(0x8002)
       end
+
+      it 'makes no dummy read' do
+        cpu.absolute_x_address_for_read
+        expect(bus).not_to have_received(:read).with(0x12FF)
+      end
     end
 
     context 'when the base plus X crosses into the next page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFF)
         bus.write(0x8001, 0x12)
       end
@@ -227,10 +258,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
       it 'adds one cycle' do
         expect { cpu.absolute_x_address_for_read }.to change(cpu, :cycles).by(1)
       end
+
+      it 'makes a dummy read at $1200' do
+        cpu.absolute_x_address_for_read
+        expect(bus).to have_received(:read).with(0x1200).once
+      end
     end
 
     context 'when the base plus X passes $FFFF' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFF)
         bus.write(0x8001, 0xFF)
       end
@@ -242,6 +279,11 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
       it 'adds one cycle' do
         expect { cpu.absolute_x_address_for_read }.to change(cpu, :cycles).by(1)
       end
+
+      it 'makes a dummy read at $FF00' do
+        cpu.absolute_x_address_for_read
+        expect(bus).to have_received(:read).with(0xFF00).once
+      end
     end
   end
 
@@ -252,6 +294,7 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
     context 'when the base plus Y stays in the page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFE)
         bus.write(0x8001, 0x12)
       end
@@ -264,10 +307,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
         cpu.absolute_y_address
         expect(cpu.program_counter).to eq(0x8002)
       end
+
+      it 'makes a dummy read at $12FF' do
+        cpu.absolute_y_address
+        expect(bus).to have_received(:read).with(0x12FF).once
+      end
     end
 
     context 'when the base plus Y crosses into the next page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFF)
         bus.write(0x8001, 0x12)
       end
@@ -279,16 +328,27 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
       it 'adds no cycle' do
         expect { cpu.absolute_y_address }.not_to change(cpu, :cycles)
       end
+
+      it 'makes a dummy read at $1200' do
+        cpu.absolute_y_address
+        expect(bus).to have_received(:read).with(0x1200).once
+      end
     end
 
     context 'when the base plus Y passes $FFFF' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFF)
         bus.write(0x8001, 0xFF)
       end
 
       it 'wraps to $0000' do
         expect(cpu.absolute_y_address).to eq(0x0000)
+      end
+
+      it 'makes a dummy read at $FF00' do
+        cpu.absolute_y_address
+        expect(bus).to have_received(:read).with(0xFF00).once
       end
     end
   end
@@ -300,6 +360,7 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
     context 'when the base plus Y stays in the page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFE)
         bus.write(0x8001, 0x12)
       end
@@ -316,10 +377,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
         cpu.absolute_y_address_for_read
         expect(cpu.program_counter).to eq(0x8002)
       end
+
+      it 'makes no dummy read' do
+        cpu.absolute_y_address_for_read
+        expect(bus).not_to have_received(:read).with(0x12FF)
+      end
     end
 
     context 'when the base plus Y crosses into the next page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFF)
         bus.write(0x8001, 0x12)
       end
@@ -331,10 +398,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
       it 'adds one cycle' do
         expect { cpu.absolute_y_address_for_read }.to change(cpu, :cycles).by(1)
       end
+
+      it 'makes a dummy read at $1200' do
+        cpu.absolute_y_address_for_read
+        expect(bus).to have_received(:read).with(0x1200).once
+      end
     end
 
     context 'when the base plus Y passes $FFFF' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0xFF)
         bus.write(0x8001, 0xFF)
       end
@@ -345,6 +418,11 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
       it 'adds one cycle' do
         expect { cpu.absolute_y_address_for_read }.to change(cpu, :cycles).by(1)
+      end
+
+      it 'makes a dummy read at $FF00' do
+        cpu.absolute_y_address_for_read
+        expect(bus).to have_received(:read).with(0xFF00).once
       end
     end
   end
@@ -462,6 +540,7 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
     context 'when the base plus Y stays in the page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0x20)
         bus.write(0x0020, 0xFE)
         bus.write(0x0021, 0x12)
@@ -475,10 +554,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
         cpu.indirect_indexed_address
         expect(cpu.program_counter).to eq(0x8001)
       end
+
+      it 'makes a dummy read at $12FF' do
+        cpu.indirect_indexed_address
+        expect(bus).to have_received(:read).with(0x12FF).once
+      end
     end
 
     context 'when the base plus Y crosses into the next page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0x20)
         bus.write(0x0020, 0xFF)
         bus.write(0x0021, 0x12)
@@ -491,10 +576,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
       it 'adds no cycle' do
         expect { cpu.indirect_indexed_address }.not_to change(cpu, :cycles)
       end
+
+      it 'makes a dummy read at $1200' do
+        cpu.indirect_indexed_address
+        expect(bus).to have_received(:read).with(0x1200).once
+      end
     end
 
     context 'when the base plus Y passes $FFFF' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0x20)
         bus.write(0x0020, 0xFF)
         bus.write(0x0021, 0xFF)
@@ -502,6 +593,11 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
       it 'wraps to $0000' do
         expect(cpu.indirect_indexed_address).to eq(0x0000)
+      end
+
+      it 'makes a dummy read at $FF00' do
+        cpu.indirect_indexed_address
+        expect(bus).to have_received(:read).with(0xFF00).once
       end
     end
   end
@@ -526,6 +622,7 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
     context 'when the base plus Y stays in the page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0x20)
         bus.write(0x0020, 0xFE)
         bus.write(0x0021, 0x12)
@@ -543,10 +640,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
         cpu.indirect_indexed_address_for_read
         expect(cpu.program_counter).to eq(0x8001)
       end
+
+      it 'makes no dummy read' do
+        cpu.indirect_indexed_address_for_read
+        expect(bus).not_to have_received(:read).with(0x12FF)
+      end
     end
 
     context 'when the base plus Y crosses into the next page' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0x20)
         bus.write(0x0020, 0xFF)
         bus.write(0x0021, 0x12)
@@ -559,10 +662,16 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
       it 'adds one cycle' do
         expect { cpu.indirect_indexed_address_for_read }.to change(cpu, :cycles).by(1)
       end
+
+      it 'makes a dummy read at $1200' do
+        cpu.indirect_indexed_address_for_read
+        expect(bus).to have_received(:read).with(0x1200).once
+      end
     end
 
     context 'when the base plus Y passes $FFFF' do
       before do
+        allow(bus).to receive(:read).and_call_original
         bus.write(0x8000, 0x20)
         bus.write(0x0020, 0xFF)
         bus.write(0x0021, 0xFF)
@@ -574,6 +683,11 @@ RSpec.describe Ruby::Nes::Cpu::AddressingModes do
 
       it 'adds one cycle' do
         expect { cpu.indirect_indexed_address_for_read }.to change(cpu, :cycles).by(1)
+      end
+
+      it 'makes a dummy read at $FF00' do
+        cpu.indirect_indexed_address_for_read
+        expect(bus).to have_received(:read).with(0xFF00).once
       end
     end
   end

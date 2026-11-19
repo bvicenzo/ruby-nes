@@ -228,3 +228,27 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) C
 | interpreter | baseline | 3.72 | 208% | 0.5% | — |
 | yjit | baseline | 16.38 | 915% | 0.5% | — |
 | zjit | baseline | 9.00 | 503% | 0.4% | — |
+
+### 2026-11-19 — Plan 12: indexed dummy reads (nestest, 10 M cycles, 2 warm-up and 5 measured runs)
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+Three `rake bench:cpu` runs in one session, merged by hand: the base commit of plan 12 (8977021), plan 12's CPU without
+the dummy reads (base cycles charged before `execute`, the NMI polling point), and with them (plan 12, decision 4).
+The change column compares each row with the base commit under the same configuration.
+
+| Configuration | Variant | Emulated MHz | % of real time | Spread | Change from baseline |
+|---|---|---|---|---|---|
+| interpreter | base commit | 3.39 | 190% | 0.8% | — |
+| yjit | base commit | 14.86 | 830% | 1.2% | — |
+| zjit | base commit | 7.59 | 424% | 7.0% | — |
+| interpreter | without dummy reads | 3.36 | 188% | 1.4% | -0.9% |
+| yjit | without dummy reads | 15.22 | 850% | 0.1% | +2.4% |
+| zjit | without dummy reads | 8.52 | 476% | 1.8% | +12.3% |
+| interpreter | with dummy reads | 3.37 | 188% | 0.7% | -0.6% |
+| yjit | with dummy reads | 14.90 | 833% | 2.3% | +0.3% |
+| zjit | with dummy reads | 8.54 | 477% | 1.8% | +12.5% |
+
+The polling point and the earlier charge of the base cycles cost nothing measurable; the dummy reads cost about 2%
+under YJIT (15.22 → 14.90) and nothing measurable under the interpreter or ZJIT. The base commit's ZJIT run has a 7%
+spread, so its +12% is noise rather than a gain. The whole machine ran about 9% slower than on 2026-11-18.

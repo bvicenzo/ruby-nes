@@ -26,11 +26,14 @@ module Ruby
           INTERRUPT_CYCLES
         end
 
-        # The NMI input, `true` while asserted, `false` while released (booleans only); the CPU detects its edge (see
-        # InterruptLines).
-        def nmi_line=(asserted)
-          @interrupt_lines.nmi_line = asserted
+        # The NMI input changed: `true` while asserted, `false` while released (booleans only), with the CPU cycle the
+        # change happened on; the CPU detects its edge and polls it (see InterruptLines).
+        def nmi_line_changed(asserted, cycle)
+          @interrupt_lines.nmi_line_changed(asserted, cycle)
         end
+
+        # The vector of the interrupt the next step takes, or nil, without taking it: the tracer shows it as a step.
+        def pending_interrupt = @interrupt_lines.pending(@cycles)
 
         # The IRQ input, `true` while any device asserts it, `false` otherwise (booleans only; see InterruptLines).
         def irq_line=(asserted)

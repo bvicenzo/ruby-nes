@@ -11,7 +11,14 @@ module Ruby
       # Indexed reads cost one more cycle when the index carries into the next page ("+ means add a cycle for write
       # instructions or for page wrapping on read instructions"): the `_for_read` resolvers add it to `cycles`; write and
       # read-modify-write instructions use the plain ones, whose extra cycle is part of their base count (plan 05,
-      # decision 2). Dummy reads at the un-carried address are not modelled (plan 05, decision 3).
+      # decision 2).
+      #
+      # Both read the address whose high byte is not fixed yet, as the 6502 does
+      # (https://www.nesdev.org/6502_cpu.txt, plan 12, decision 4): "The high byte of the effective address may be
+      # invalid at this time, i.e. it may be smaller by $100". The `_for_read` resolvers only when the index crosses a
+      # page ("This cycle will be executed only if the effective address was invalid"); the plain ones always,
+      # "Because the processor cannot undo a write to an invalid address, it always reads from the address first".
+      # The other dummy reads (zero page indexed, implied, the stack) never reach a register and stay unmodelled.
       module AddressingModes
         def immediate_address
           address = @program_counter
@@ -32,15 +39,11 @@ module Ruby
 
         def absolute_address = fetch_word
 
-        def absolute_x_address
-          (fetch_word + @index_x) & Bits::WORD_MASK # glossary: wrap-to-word
-        end
+        def absolute_x_address = indexed_for_write(fetch_word, @index_x)
 
         def absolute_x_address_for_read = indexed_for_read(fetch_word, @index_x)
 
-        def absolute_y_address
-          (fetch_word + @index_y) & Bits::WORD_MASK # glossary: wrap-to-word
-        end
+        def absolute_y_address = indexed_for_write(fetch_word, @index_y)
 
         def absolute_y_address_for_read = indexed_for_read(fetch_word, @index_y)
 
@@ -54,9 +57,7 @@ module Ruby
         end
 
         # `($nn),Y`: the base is read from page zero at `arg` and `(arg + 1) % 256`, then Y is added.
-        def indirect_indexed_address
-          (word_within_page(fetch_byte) + @index_y) & Bits::WORD_MASK # glossary: wrap-to-word
-        end
+        def indirect_indexed_address = indexed_for_write(word_within_page(fetch_byte), @index_y)
 
         def indirect_indexed_address_for_read = indexed_for_read(word_within_page(fetch_byte), @index_y)
 
@@ -79,9 +80,21 @@ module Ruby
           (high << 8) | low # glossary: combine-bytes
         end
 
+        # A read pays the page-cross cycle, and only then the dummy read at the address whose high byte is not fixed.
         def indexed_for_read(base, index)
           address = (base + index) & Bits::WORD_MASK # glossary: wrap-to-word
-          @cycles += 1 if (base & Bits::PAGE_MASK) != (address & Bits::PAGE_MASK) # glossary: page-crossed
+          if (base & Bits::PAGE_MASK) != (address & Bits::PAGE_MASK) # glossary: page-crossed
+            @cycles += 1
+            @bus.read((base & Bits::PAGE_MASK) | (address & Bits::BYTE_MASK)) # glossary: add-within-page
+          end
+          address
+        end
+
+        # Writes and read-modify-write instructions always make the dummy read at the address whose high byte is not
+        # fixed (the effective address itself when the index stays in the page).
+        def indexed_for_write(base, index)
+          address = (base + index) & Bits::WORD_MASK # glossary: wrap-to-word
+          @bus.read((base & Bits::PAGE_MASK) | (address & Bits::BYTE_MASK)) # glossary: add-within-page
           address
         end
       end

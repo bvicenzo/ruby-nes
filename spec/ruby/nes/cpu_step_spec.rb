@@ -53,9 +53,9 @@ RSpec.describe Ruby::Nes::Cpu do
 
       context 'and an NMI is pending' do
         subject(:cpu) do
-          described_class.new(bus:, program_counter: 0x8001, stack_pointer: 0xFD).tap do |cpu|
+          described_class.new(bus:, program_counter: 0x8001, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
             cpu.jam
-            cpu.nmi_line = true
+            cpu.nmi_line_changed(true, 0)
           end
         end
 
@@ -86,43 +86,63 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    # The polling point (plan 12, decision 2): the CPU sees "the line status at the end of the second-to-last cycle", so an
+    # NMI edge on an instruction's last cycle waits for the next instruction.
     context 'when an NMI is pending' do
-      subject(:cpu) do
-        described_class.new(bus:, program_counter: 0x8123, stack_pointer: 0xFD).tap do |cpu|
-          cpu.status.carry = true
-          cpu.nmi_line = true
+      context 'but its edge came on the last cycle of the previous instruction' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8123, cycles: 10).tap { |cpu| cpu.nmi_line_changed(true, 9) }
+        end
+
+        before do
+          bus.write(0x8123, 0xE8)
+          bus.write_bytes(0xFFFA, [0x34, 0x12])
+        end
+
+        it 'runs the instruction at the program counter', :aggregate_failures do
+          expect(cpu.step).to eq(2)
+          expect(cpu.index_x).to eq(0x01)
         end
       end
 
-      before do
-        bus.write(0x8123, 0xE8)
-        bus.write_bytes(0xFFFA, [0x34, 0x12])
-      end
+      context 'and its edge came before the last cycle of the previous instruction' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8123, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.status.carry = true
+            cpu.nmi_line_changed(true, 8)
+          end
+        end
 
-      it 'pushes $8123 and then the flags with break clear', :aggregate_failures do
-        cpu.step
-        expect(bus.read(0x01FD)).to eq(0x81)
-        expect(bus.read(0x01FC)).to eq(0x23)
-        expect(bus.read(0x01FB)).to eq(0x21)
-      end
+        before do
+          bus.write(0x8123, 0xE8)
+          bus.write_bytes(0xFFFA, [0x34, 0x12])
+        end
 
-      it 'moves the stack pointer to $FA' do
-        cpu.step
-        expect(cpu.stack.pointer).to eq(0xFA)
-      end
+        it 'pushes $8123 and then the flags with break clear', :aggregate_failures do
+          cpu.step
+          expect(bus.read(0x01FD)).to eq(0x81)
+          expect(bus.read(0x01FC)).to eq(0x23)
+          expect(bus.read(0x01FB)).to eq(0x21)
+        end
 
-      it 'sets interrupt disable' do
-        cpu.step
-        expect(cpu.status).to be_interrupt_disable
-      end
+        it 'moves the stack pointer to $FA' do
+          cpu.step
+          expect(cpu.stack.pointer).to eq(0xFA)
+        end
 
-      it 'moves the program counter to the address at $FFFA' do
-        cpu.step
-        expect(cpu.program_counter).to eq(0x1234)
-      end
+        it 'sets interrupt disable' do
+          cpu.step
+          expect(cpu.status).to be_interrupt_disable
+        end
 
-      it 'takes 7 cycles' do
-        expect(cpu.step).to eq(7)
+        it 'moves the program counter to the address at $FFFA' do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x1234)
+        end
+
+        it 'takes 7 cycles' do
+          expect(cpu.step).to eq(7)
+        end
       end
     end
 
@@ -221,6 +241,44 @@ RSpec.describe Ruby::Nes::Cpu do
       it 'adds the stall to the cycles of the step and to the count', :aggregate_failures do
         expect(cpu.step).to eq(516)
         expect(cpu.cycles).to eq(516)
+      end
+    end
+
+    # Cpu#step charges an instruction's base cycles before running it (plan 12, decision 1), and the indexed reads add
+    # their page-cross cycle while resolving the address, so at the data access the count is the cycle the instruction
+    # ends on: the register sync catches the PPU up from it.
+    context 'when the instruction accesses the bus' do
+      context 'and it is a write' do
+        subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, accumulator: 0x42, cycles: 10) }
+
+        let(:probe) { double(cycles_seen: nil) }
+
+        before do
+          bus.write_bytes(0x8000, [0x8D, 0x00, 0x02])
+          allow(bus).to receive(:write).and_invoke(->(_address, _value) { probe.cycles_seen(cpu.cycles) })
+        end
+
+        it 'counts the base cycles before the write' do
+          cpu.step
+          expect(probe).to have_received(:cycles_seen).with(14).once
+        end
+      end
+
+      context 'and it is an indexed read crossing a page' do
+        subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, index_x: 0x01, cycles: 10) }
+
+        let(:probe) { double(cycles_seen: 0x00) }
+
+        before do
+          bus.write_bytes(0x8000, [0xBD, 0xFF, 0x02])
+          allow(bus).to receive(:read).and_call_original
+          allow(bus).to receive(:read).with(0x0300).and_invoke(->(_address) { probe.cycles_seen(cpu.cycles) })
+        end
+
+        it 'counts the base and page-cross cycles before the read' do
+          cpu.step
+          expect(probe).to have_received(:cycles_seen).with(15).once
+        end
       end
     end
 

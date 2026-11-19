@@ -65,9 +65,9 @@ module Ruby
       attr_accessor :accumulator, :index_x, :index_y, :program_counter
       attr_reader :status, :stack, :cycles
 
-      # One optional keyword per register of the register file: the list is as long as the hardware's.
+      # One optional keyword per register of the register file, plus the cycle count, so specs can start anywhere.
       # rubocop:disable-next Metrics/ParameterLists
-      def initialize(bus:, accumulator: 0, index_x: 0, index_y: 0, program_counter: 0, stack_pointer: 0)
+      def initialize(bus:, accumulator: 0, index_x: 0, index_y: 0, program_counter: 0, stack_pointer: 0, cycles: 0)
         @bus = bus
         @accumulator = accumulator
         @index_x = index_x
@@ -77,7 +77,7 @@ module Ruby
         @shifter = Shifter.new(status: @status)
         @stack = Stack.new(bus:, pointer: stack_pointer)
         @interrupt_lines = InterruptLines.new(status: @status)
-        @cycles = 0
+        @cycles = cycles
         @jammed = false
       end
 
@@ -102,17 +102,20 @@ module Ruby
       # the cycles it took: 7 for an interrupt, or the opcode's base cycles plus any page-cross or branch cycle charged
       # while it ran, plus the cycles a DMA the step started halts the CPU for, which the bus reports (plan 11,
       # decision 3). A jammed CPU does neither: it touches no bus and takes JAMMED_STEP_CYCLES.
+      #
+      # The base cycles are charged before the instruction runs (plan 12, decision 1), so at its data access `cycles` is
+      # the cycle it ends on: the register sync catches the PPU up to the access from there.
       def step
         return stay_jammed if @jammed
 
         cycles_before = @cycles
-        vector = @interrupt_lines.acknowledge
+        vector = @interrupt_lines.acknowledge(@cycles)
         if vector
           take_interrupt(vector)
         else
           opcode = fetch_byte
-          execute(opcode)
           @cycles += Opcodes::TABLE[opcode].cycles
+          execute(opcode)
         end
         @cycles += @bus.take_stall_cycles(@cycles)
         @cycles - cycles_before
