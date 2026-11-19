@@ -41,6 +41,10 @@ From plan 12: the PPU advances one dot per method call (`Ppu::FrameTiming`), 89 
 adds rendering; register accesses catch the PPU up mid-instruction, and the indexed addressing modes do their dummy
 reads. Each is a candidate for measurement.
 
+From plan 13: the background is rendered per dot (plan 13, decision 1): `Ppu::BackgroundRenderer` runs a step table
+for every dot of the visible and pre-render scanlines. A scanline fast path when no PPU register was written
+mid-line is the obvious candidate; the nestest golden frame digest guards it.
+
 ## Open decisions
 
 - Which accuracy shortcuts are acceptable (e.g. scanline-based fast path, APU catch-up)? Each one is proposed with its

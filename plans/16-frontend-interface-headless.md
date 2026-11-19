@@ -22,7 +22,11 @@ In:
   - `button_states` → bitmasks for both controllers;
   - `queue_audio(samples)` (no-op until plan 24);
   - `running?`.
-- Shared RGB conversion (palette table moved from plan 13's dumper; colour emphasis bits applied here).
+- Shared RGB conversion (palette table moved from plan 13's dumper, `Debug::FrameDump`, NESdev's `2C02G_U_wiki.pal`;
+  colour emphasis bits applied here). Plan 13 dumps PPM; the PNG encoder below is new here (plan 13, decision 3).
+- A complete frame for the frontend: plan 13 has one frame buffer, filled as the dots run, and `Console#run_frame`
+  stops a few dots into the next frame (docs/architecture.md, Frame buffer contract); decide double buffering or a
+  copy at a fixed point here.
 - `Frontends::Headless`: runs N frames, takes an input script (frame number → buttons), writes PNG screenshots at
   chosen frames, exposes a digest of each frame.
 - Minimal PNG encoder in pure Ruby (`zlib` from stdlib; IHDR/IDAT/IEND chunks with CRC).

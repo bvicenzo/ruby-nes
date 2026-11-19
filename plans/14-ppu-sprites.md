@@ -37,6 +37,14 @@ writes increment it, reads do not. Left to this plan: the sprite 0 hit and overf
 OAMADDR set to 0 during dots 257–320, and OAMDATA reads and writes during rendering ("glitchy increment",
 "expose internal OAM accesses", PPU registers).
 
+From plan 13: the background is a per-dot pipeline (`Ppu::BackgroundRenderer` schedules each dot from a constant
+table; `Ppu::BackgroundFetcher`, `Ppu::BackgroundShifters`) and `Ppu::Picture` owns the frame buffer and the colour of
+each pixel (transparent background shows `$3F00`, left clipping, greyscale, backdrop override). Sprite composition
+plugs into `Picture`, which needs the background pixel's opacity for priority and sprite 0 hit. The pixel of dot
+1-256 goes to x = dot − 1 (plan 13, decision 5, a convention): check it against the sprite 0 hit timing ROMs. The
+sprite pattern fetches of dots 257-320 are not made yet (plan 13, decision 6); MMC3's A12 counting (plan 21) needs
+them.
+
 ## Tasks
 
 - [ ] Specify and test evaluation (0, 1, 8, 9 sprites on a line; Y boundaries; 8×16 height).
