@@ -36,6 +36,8 @@ module Ruby
           @ram.setbyte(address & RAM_MIRROR_MASK, value) # glossary: mirror-down
         elsif address < IO_REGISTERS_START
           @ppu_registers.cpu_write(address & PPU_REGISTER_MIRROR_MASK, value) # glossary: mirror-down
+        elsif address == OAMDMA
+          @oam_dma.start(value)
         elsif address < TEST_MODE_START
           @io_registers.cpu_write(address, value)
         elsif address >= CARTRIDGE_START

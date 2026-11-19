@@ -208,6 +208,22 @@ RSpec.describe Ruby::Nes::Cpu do
       end
     end
 
+    # OAM DMA "halts the CPU" for "513 or 514 cycles" (https://www.nesdev.org/wiki/DMA); the bus reports the stall and
+    # the step adds it (plan 11, decision 3), naming the cycle the halt falls on: the cycles run so far.
+    context 'when the instruction makes the bus stall the CPU' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+
+      before do
+        bus.write_bytes(0x8000, [0xEA])
+        allow(bus).to receive(:take_stall_cycles).with(2).and_return(514)
+      end
+
+      it 'adds the stall to the cycles of the step and to the count', :aggregate_failures do
+        expect(cpu.step).to eq(516)
+        expect(cpu.cycles).to eq(516)
+      end
+    end
+
     context 'when the opcode is $00 (BRK)' do
       subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD) }
 

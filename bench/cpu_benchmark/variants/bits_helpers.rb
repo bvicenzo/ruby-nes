@@ -104,6 +104,8 @@ module Ruby
           @ram[Bits.mirror_down(address, mirror_mask: RAM_MIRROR_MASK)] = value
         elsif address < IO_REGISTERS_START
           @ppu_registers.cpu_write(Bits.mirror_down(address, mirror_mask: PPU_REGISTER_MIRROR_MASK), value)
+        elsif address == OAMDMA
+          @oam_dma.start(value)
         elsif address < TEST_MODE_START
           @io_registers.cpu_write(address, value)
         elsif address >= CARTRIDGE_START

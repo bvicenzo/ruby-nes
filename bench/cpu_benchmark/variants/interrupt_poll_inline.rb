@@ -45,6 +45,7 @@ module Ruby
           execute(opcode)
           @cycles += Opcodes::TABLE[opcode].cycles
         end
+        @cycles += @bus.take_stall_cycles(@cycles)
         @cycles - cycles_before
       end
     end

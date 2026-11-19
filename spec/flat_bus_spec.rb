@@ -94,4 +94,12 @@ RSpec.describe FlatBus do
       end
     end
   end
+
+  describe '#take_stall_cycles' do
+    subject(:bus) { described_class.new }
+
+    it 'returns 0' do
+      expect(bus.take_stall_cycles(1001)).to eq(0)
+    end
+  end
 end

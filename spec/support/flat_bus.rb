@@ -9,6 +9,7 @@
 #   bus.write(0x10FF, 0x34)
 #   bus.read(0x10FF) # => 0x34
 #   bus.write_bytes(0x8000, [0xA9, 0x42]) # a program: LDA #$42
+#   bus.take_stall_cycles(2) # => 0, as CpuBus answers when no DMA ran
 class FlatBus
   SIZE = 0x10000
   BYTE_VALUES = (0x00..0xFF)
@@ -30,6 +31,9 @@ class FlatBus
   def write_bytes(address, bytes)
     bytes.each_with_index { |byte, offset| write(address + offset, byte) }
   end
+
+  # No device of a flat memory halts the CPU; a spec that needs a stall stubs this method.
+  def take_stall_cycles(_halt_cycle) = 0
 
   private
 

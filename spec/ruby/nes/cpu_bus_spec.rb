@@ -107,6 +107,14 @@ RSpec.describe Ruby::Nes::CpuBus do
         end
       end
 
+      context 'and it is $4014' do
+        before { allow(io_registers).to receive(:cpu_read).with(0x4014, 0x00).and_return(0x40) }
+
+        it 'returns what the APU and I/O registers answer for $4014' do
+          expect(bus.read(0x4014)).to eq(0x40)
+        end
+      end
+
       context 'and it is $4017' do
         before { allow(io_registers).to receive(:cpu_read).with(0x4017, 0x00).and_return(0x41) }
 
@@ -271,11 +279,13 @@ RSpec.describe Ruby::Nes::CpuBus do
     end
 
     context 'when the address is in the APU and I/O registers' do
-      subject(:bus) { described_class.new(io_registers:) }
+      subject(:bus) { described_class.new(ppu_registers:, io_registers:) }
 
       let(:io_registers) { object_double(Ruby::Nes::CpuBus::Disconnected, cpu_write: nil) }
 
       context 'and it is $4000' do
+        let(:ppu_registers) { object_double(Ruby::Nes::CpuBus::Disconnected, cpu_write: nil) }
+
         before { bus.write(0x4000, 0x30) }
 
         it 'hands the byte to the APU and I/O registers at $4000' do
@@ -283,7 +293,55 @@ RSpec.describe Ruby::Nes::CpuBus do
         end
       end
 
+      # OAMDMA (https://www.nesdev.org/wiki/PPU_registers): "256 pairs of a read from CPU memory and a write to OAMDATA"
+      # (plan 11, decision 2: the CPU bus owns the DMA unit). OAMDATA "Writes will increment OAMADDR after the write", so
+      # the page lands from OAMADDR on and wraps around OAM.
+      context 'and it is $4014' do
+        context 'and any device answers the PPU registers' do
+          let(:ppu_registers) { object_double(Ruby::Nes::CpuBus::Disconnected, cpu_write: nil) }
+
+          before do
+            bus.write(0x0200, 0x11)
+            bus.write(0x02FF, 0x99)
+            bus.write(0x4014, 0x02)
+          end
+
+          it 'copies the page to OAMDATA and hands nothing to the APU and I/O registers', :aggregate_failures do
+            expect(ppu_registers).to have_received(:cpu_write).with(0x2004, 0x11).ordered
+            expect(ppu_registers).to have_received(:cpu_write).with(0x2004, 0x99).ordered
+            expect(ppu_registers).to have_received(:cpu_write).with(0x2004, anything).exactly(256).times
+            expect(io_registers).not_to have_received(:cpu_write)
+          end
+        end
+
+        context 'and the PPU answers them with OAMADDR at $F0' do
+          let(:ppu_registers) { Ruby::Nes::Ppu.new(bus: instance_double(Ruby::Nes::PpuBus), oam:) }
+          let(:oam) { Ruby::Nes::Ppu::Oam.new(address: 0xF0) }
+
+          before do
+            bus.write(0x0200, 0x11)
+            bus.write(0x020F, 0x22)
+            bus.write(0x0210, 0x33)
+            bus.write(0x02FF, 0x99)
+            bus.write(0x4014, 0x02)
+          end
+
+          it 'fills OAM from $F0, wrapping past $FF back to $EF', :aggregate_failures do
+            oam.address = 0xF0
+            expect(oam.read).to eq(0x11)
+            oam.address = 0xFF
+            expect(oam.read).to eq(0x22)
+            oam.address = 0x00
+            expect(oam.read).to eq(0x33)
+            oam.address = 0xEF
+            expect(oam.read).to eq(0x99)
+          end
+        end
+      end
+
       context 'and it is $4017' do
+        let(:ppu_registers) { object_double(Ruby::Nes::CpuBus::Disconnected, cpu_write: nil) }
+
         before { bus.write(0x4017, 0x40) }
 
         it 'hands the byte to the APU and I/O registers at $4017' do
@@ -339,6 +397,27 @@ RSpec.describe Ruby::Nes::CpuBus do
         it 'hands the byte to the board at $FFFF' do
           expect(mapper).to have_received(:cpu_write).with(0xFFFF, 0xC0)
         end
+      end
+    end
+  end
+
+  # OAM DMA stalls the CPU "513 or 514 cycles" (https://www.nesdev.org/wiki/DMA); the parity rule is CpuBus::OamDma's.
+  describe '#take_stall_cycles' do
+    subject(:bus) { described_class.new(ppu_registers:) }
+
+    let(:ppu_registers) { object_double(Ruby::Nes::CpuBus::Disconnected, cpu_write: nil) }
+
+    context 'when no OAM DMA was started' do
+      it 'returns 0' do
+        expect(bus.take_stall_cycles(1001)).to eq(0)
+      end
+    end
+
+    context 'when $4014 was written' do
+      before { bus.write(0x4014, 0x02) }
+
+      it 'returns the OAM DMA stall' do
+        expect(bus.take_stall_cycles(1001)).to eq(513)
       end
     end
   end

@@ -100,7 +100,8 @@ module Ruby
 
       # Takes the interrupt InterruptLines names, if any, or else runs the instruction at the program counter; returns
       # the cycles it took: 7 for an interrupt, or the opcode's base cycles plus any page-cross or branch cycle charged
-      # while it ran. A jammed CPU does neither: it touches no bus and takes JAMMED_STEP_CYCLES.
+      # while it ran, plus the cycles a DMA the step started halts the CPU for, which the bus reports (plan 11,
+      # decision 3). A jammed CPU does neither: it touches no bus and takes JAMMED_STEP_CYCLES.
       def step
         return stay_jammed if @jammed
 
@@ -113,6 +114,7 @@ module Ruby
           execute(opcode)
           @cycles += Opcodes::TABLE[opcode].cycles
         end
+        @cycles += @bus.take_stall_cycles(@cycles)
         @cycles - cycles_before
       end
 
