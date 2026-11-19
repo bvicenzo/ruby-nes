@@ -32,6 +32,11 @@ Out: OAM decay and other analog behaviour.
 - Evaluation per dot vs per scanline at dot 257 (results are the same unless a game writes OAM mid-evaluation).
   Recommendation: per scanline, documented.
 
+From plan 11: `Ppu::Oam` holds the 256 bytes (byte 2 already ANDed with `$E3` on write) and OAMADDR; OAMDATA
+writes increment it, reads do not. Left to this plan: the sprite 0 hit and overflow bits of `$2002` (0 until now),
+OAMADDR set to 0 during dots 257–320, and OAMDATA reads and writes during rendering ("glitchy increment",
+"expose internal OAM accesses", PPU registers).
+
 ## Tasks
 
 - [ ] Specify and test evaluation (0, 1, 8, 9 sprites on a line; Y boundaries; 8×16 height).

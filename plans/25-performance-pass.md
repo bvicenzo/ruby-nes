@@ -29,6 +29,11 @@ In:
 - Hot-path micro-changes earlier plans left to plan 10, which did not measure them: moving the program counter's
   advance out of `immediate_address` and merging `Status#update_zero_and_negative` into one expression (plan 05), and
   a `BASE_CYCLES` array instead of `Opcodes::TABLE[opcode].cycles` per step (plan 06). Each can be a CPU variant.
+- Plan 11's per-access lookups: `Cpu#step` asks the bus for stall cycles after every instruction, and `PpuBus` asks
+  the mapper's `mirroring` and indexes a table on every nametable access. The stall query measured about −8% under
+  YJIT on nestest (16.4 → 15.1 emulated MHz); a pending flag inside `CpuBus` did not help, the cost being the call
+  per step. Candidate: a push model, where the DMA tells the CPU (a counter or flag the CPU owns, checked like the
+  interrupt lines), at the price of wiring the bus to the CPU after both exist.
 
 Out: changing behaviour. Every optimisation keeps the whole suite (including test ROMs) green.
 

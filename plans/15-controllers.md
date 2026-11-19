@@ -28,7 +28,8 @@ Out: Zapper, Four Score, DPCM read conflicts (backlog).
 
 - Sharing `$4000-$4017`: plan 04's `CpuBus` has one `io_registers:` slot for the whole APU and I/O range; reads of
   `$4016`/`$4017` belong to the controllers, `$4017` writes to the APU frame counter (plan 22). Decide whether a
-  composite device fills the slot or the slot is split; whichever plan comes first makes the choice.
+  composite device fills the slot or the slot is split; whichever plan comes first makes the choice. Plan 11 kept
+  `$4014` (OAM DMA) out of the slot: `CpuBus` routes its writes to `CpuBus::OamDma`.
 - Allow Up+Down / Left+Right at the same time? Real controllers cannot; some games glitch. Recommendation: the
   frontend filters opposite directions by default, the core does not.
 

@@ -32,7 +32,8 @@ Out: triangle, noise, DMC, mixer (plan 23); audio output (plan 24).
   path in `CpuBus` for `$4015`, or a second return channel. Decide here, with a spec citing the APU page.
 - Sharing `$4000-$4017`: `CpuBus` has a single `io_registers:` slot for the APU and the I/O registers (plan 15's
   controllers read `$4016`/`$4017`, while `$4017` writes go to the frame counter). Decide whether one composite device
-  fills the slot or the slot is split.
+  fills the slot or the slot is split. Plan 11 kept `$4014` (OAM DMA) out of the slot: `CpuBus` routes its
+  writes to `CpuBus::OamDma`.
 - Tick granularity: per CPU cycle (simple, many calls) vs catch-up on register access and at frame end (faster,
   more complex). Recommendation: per cycle now; plan 25 decides if catch-up pays off.
 

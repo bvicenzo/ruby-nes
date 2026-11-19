@@ -23,6 +23,11 @@ In: the three channels, the DMC memory reader with CPU stall, DMC IRQ, the mixer
 
 Out: resampling and the audio device (plan 24); expansion audio (MMC5, VRC6, … — none needed for SMB3).
 
+From plan 11: stalls reach the CPU through `CpuBus#take_stall_cycles(halt_cycle)` (the CPU cycle the halt falls on, one
+after the write), which `Cpu#step` adds after each instruction; OAM DMA (`CpuBus::OamDma`) already reports there, with
+get cycles being the even CPU cycles counted from `Cpu.new` (a convention, plan 11 decision 3). The DMC reports through
+the same channel; the DMA page's interaction of DMC and OAM DMA is decided here.
+
 ## Open decisions
 
 - DMC stall precision: fixed 4 cycles (simple) vs the documented 1–4 depending on the CPU cycle being read/write.

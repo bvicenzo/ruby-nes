@@ -32,6 +32,14 @@ every source (`mapper.irq? || apu.irq?`, plans 21 and 22) and sets the line afte
 list of sources — decide here. `Console#reset` calls `Cpu#reset`, which returns its 7 cycles for the PPU and
 discards a pending NMI; power-up is `Cpu.new` + `reset`.
 
+From plan 11: `Ppu` answers the `ppu_registers:` slot over a `PpuBus`; `$2002` returns bits 7–5 as 0 (no flag
+exists yet) with bits 4–0 from the PPU I/O latch, and clears `w`. This plan adds the VBlank flag, its "reading
+`$2002` clears it" leaf ("Reading PPUSTATUS will return the current state of this flag and then clear it", PPU
+registers), and the writes to `$2000`, `$2001`, `$2005` and `$2006` ignored "until reaching the pre-render scanline"
+after power and reset ([PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state)). The console wires
+`CpuBus.new(mapper:, ppu_registers: ppu)` with `Ppu.new(bus: PpuBus.new(mapper:))`; OAM DMA is already inside
+`CpuBus` and its stall comes back through `Cpu#step`.
+
 The CPU gaps deferred to this plan (`docs/architecture.md`, Known gaps) are checked here once the PPU exists: dummy
 reads (plan 05, `cpu_dummy_reads`), and the interrupt polling point, the `CLI`/`SEI`/`PLP` IRQ delay and interrupt
 hijacking (plan 07, `cpu_interrupts_v2`). They depend on the clock model decision below.

@@ -19,7 +19,9 @@ Many of these boards have **bus conflicts**: the written value is ANDed with the
 Plan 04 left no `Mappers::Base` on purpose: with NROM and these three boards side by side, extract what they share
 (CHR ROM vs CHR-RAM allocation and write protection, PRG-RAM, `mirroring`, `irq?`) into a base class or module, or
 record why not. The interface is `cpu_read(address, data_bus)` (return `data_bus` when the board does not drive the
-bus), `cpu_write`, `ppu_read`, `ppu_write`, `mirroring`, `irq?` (docs/architecture.md).
+bus), `cpu_write`, `ppu_read`, `ppu_write`, `mirroring`, `irq?` (docs/architecture.md). Since plan 11, `mirroring`
+answers one of `:horizontal`, `:vertical`, `:single_screen_lower`, `:single_screen_upper`, `:four_screen`, and
+`PpuBus` asks it on every nametable access, so AxROM only has to change what it returns.
 
 ## Scope
 
