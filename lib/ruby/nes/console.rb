@@ -9,14 +9,19 @@ module Ruby
     #
     # Building it is the power-up (plan 12, decision 8): the CPU's and the PPU's reset, then the PPU catches up the 7
     # cycles of the reset sequence, so it stands 21 dots into scanline 0, as nestest.log's `PPU:  0, 21` at `CYC:7`.
+    #
+    # The two standard controllers answer $4016 and $4017 through Input::ControllerPorts (plan 15); `controllers` hands
+    # them to the frontend, which sets the buttons held on each.
     class Console
-      attr_reader :cpu, :ppu, :cpu_bus
+      attr_reader :cpu, :ppu, :cpu_bus, :controllers
 
-      def initialize(cartridge)
+      def initialize(cartridge, controllers: [Input::Controller.new, Input::Controller.new])
         mapper = Mappers.build(cartridge)
+        @controllers = controllers.dup.freeze
         @ppu = Ppu.new(bus: PpuBus.new(mapper:))
         register_sync = PpuRegisterSync.new(ppu: @ppu)
-        @cpu_bus = CpuBus.new(mapper:, ppu_registers: register_sync)
+        controller_ports = Input::ControllerPorts.new(first: controllers.first, second: controllers.last)
+        @cpu_bus = CpuBus.new(mapper:, ppu_registers: register_sync, controller_ports:)
         @cpu = Cpu.new(bus: @cpu_bus)
         register_sync.cpu = @cpu
         @ppu.nmi_input = @cpu

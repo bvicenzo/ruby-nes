@@ -39,6 +39,83 @@ RSpec.describe Ruby::Nes::Console do
         expect(console.cpu_bus.read(0x0010)).to eq(0x00)
       end
     end
+
+    # The controllers (plan 15): a $4016 write of 1 then 0 latches both, and the first read of $4016 reports A of the
+    # first controller in bit 0 (https://www.nesdev.org/wiki/Controller_reading). Bits 7-5 repeat the previous read,
+    # "usually 010 from the high byte $40" (https://www.nesdev.org/wiki/Open_bus_behavior): the operand of LDA $4016.
+    context 'when the program strobes the controllers and reads $4016 into $10' do
+      # LDA #$01 / STA $4016 / LDA #$00 / STA $4016 / LDA $4016 / STA $10, then JMP $800F forever.
+      let(:cartridge) do
+        Cartridges.with_program(
+          [0xA9, 0x01, 0x8D, 0x16, 0x40, 0xA9, 0x00, 0x8D, 0x16, 0x40, 0xAD, 0x16, 0x40, 0x85, 0x10, 0x4C, 0x0F, 0x80]
+        )
+      end
+
+      let(:a_button) { Ruby::Nes::Input::Controller::BUTTONS.fetch(:a) }
+
+      context 'and no button is held' do
+        let(:first_controller) { Ruby::Nes::Input::Controller.new }
+        let(:second_controller) { Ruby::Nes::Input::Controller.new }
+
+        it 'stores $40' do
+          console = described_class.new(cartridge, controllers: [first_controller, second_controller])
+          6.times { console.step }
+          expect(console.cpu_bus.read(0x0010)).to eq(0x40)
+        end
+      end
+
+      context 'and A is held on the second controller only' do
+        let(:first_controller) { Ruby::Nes::Input::Controller.new }
+        let(:second_controller) { Ruby::Nes::Input::Controller.new(buttons: a_button) }
+
+        it 'stores $40' do
+          console = described_class.new(cartridge, controllers: [first_controller, second_controller])
+          6.times { console.step }
+          expect(console.cpu_bus.read(0x0010)).to eq(0x40)
+        end
+      end
+
+      context 'and A is held on the first controller' do
+        let(:first_controller) { Ruby::Nes::Input::Controller.new(buttons: a_button) }
+        let(:second_controller) { Ruby::Nes::Input::Controller.new }
+
+        it 'stores $41' do
+          console = described_class.new(cartridge, controllers: [first_controller, second_controller])
+          6.times { console.step }
+          expect(console.cpu_bus.read(0x0010)).to eq(0x41)
+        end
+      end
+    end
+  end
+
+  # The frontend sets the buttons held through the controllers (plan 15, decision 6).
+  describe '#controllers' do
+    let(:cartridge) { Cartridges.with_program([0x4C, 0x00, 0x80]) }
+
+    context 'with the controllers given' do
+      let(:first_controller) { Ruby::Nes::Input::Controller.new }
+      let(:second_controller) { Ruby::Nes::Input::Controller.new }
+
+      it 'returns them in port order, frozen', :aggregate_failures do
+        console = described_class.new(cartridge, controllers: [first_controller, second_controller])
+        expect(console.controllers).to match([be(first_controller), be(second_controller)])
+        expect(console.controllers).to be_frozen
+      end
+
+      it 'leaves the given array unfrozen' do
+        given_controllers = [first_controller, second_controller]
+        described_class.new(cartridge, controllers: given_controllers)
+        expect(given_controllers).not_to be_frozen
+      end
+    end
+
+    context 'without controllers given' do
+      it 'returns two controllers of their own', :aggregate_failures do
+        console = described_class.new(cartridge)
+        expect(console.controllers).to match([an_instance_of(Ruby::Nes::Input::Controller)] * 2)
+        expect(console.controllers.first).not_to be(console.controllers.last)
+      end
+    end
   end
 
   describe '#step' do
