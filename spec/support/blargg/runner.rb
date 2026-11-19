@@ -16,10 +16,11 @@ module Blargg
     # The report's state, code and text when the run stopped, and the frames it took.
     Outcome = Data.define(:state, :code, :text, :frames)
 
-    def initialize(console, frame_limit:)
+    # `report` reads the ROM's protocol: Report ("Output at $6000") or LegacyReport (the 2005 ROMs).
+    def initialize(console, frame_limit:, report: Report.new(console.cpu_bus))
       @console = console
       @frame_limit = frame_limit
-      @report = Report.new(console.cpu_bus)
+      @report = report
     end
 
     def run

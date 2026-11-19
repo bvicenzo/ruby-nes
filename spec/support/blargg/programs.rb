@@ -2,7 +2,8 @@
 
 module Blargg
   # Tiny programs that speak blargg's "Output at $6000" protocol, for the runner's specs. Each loads at $8000 (the reset
-  # vector of Cartridges.with_program) and first writes the signature $DE $B0 $61 to $6001-$6003.
+  # vector of Cartridges.with_program) and first writes the signature $DE $B0 $61 to $6001-$6003. LEGACY_FINISHES
+  # speaks the 2005 protocol instead (LegacyReport).
   module Programs
     SIGNATURE = HexDump.bytes(<<~HEX).bytes.freeze
       A9 DE 8D 01 60
@@ -43,6 +44,16 @@ module Blargg
       A9 4B 8D 05 60
       A9 03 8D 00 60
       4C 1E 80
+    HEX
+
+    # The 2005 protocol: some 329 000 cycles of work (about 11 frames, two nested 256-step loops run once), then result
+    # 1 at $F8 and `exit: jmp exit`.
+    #   8000 LDA #$01 / STA $00 / 8004 LDX #$00 / 8006 LDY #$00 / 8008 DEY / BNE $8008 / DEX / BNE $8006 / DEC $00 /
+    #   BNE $8004 / 8012 LDA #$01 / STA $F8 / 8016 JMP $8016
+    LEGACY_FINISHES = HexDump.bytes(<<~HEX).bytes.freeze
+      A9 01 85 00
+      A2 00 A0 00 88 D0 FD CA D0 F8 C6 00 D0 F2
+      A9 01 85 F8 4C 16 80
     HEX
   end
 end
