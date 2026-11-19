@@ -47,7 +47,8 @@ compiler. The design favours code that is easy to read and easy for a JIT or an 
   1. **Interrupt lines** — NMI from the PPU, IRQ from the APU and mappers — set as levels with `Cpu#nmi_line=` and
      `Cpu#irq_line=`, and read by the CPU between instructions (plan 07).
   2. **CPU stall cycles** — OAM DMA (a write to `$4014`, plan 11) and DMC sample fetches (plan 23) halt the CPU for a
-     number of cycles. The bus reports the stall and `Cpu#step` adds it to the cycles it returns.
+     number of cycles. The bus reports the stall and `Cpu#step` adds it to the cycles it returns: after each step,
+     `@cycles += bus.take_stall_cycles(@cycles)`, the argument being the CPU cycle the halt falls on.
 
 ## Buses
 
@@ -80,6 +81,12 @@ IRQ and BRK at `$FFFE`. Reading an address no device answers returns
   from `data_bus`. The bus stores every result as the next `data_bus`; writes do not change it (plan 04, decision 1).
 - `cpu_write(address, value)`.
 
+`CpuBus` also owns the **OAM DMA unit**, `CpuBus::OamDma` (plan 11, decision 2): a write to `$4014` starts it instead
+of reaching the `io_registers:` slot (reads of `$4014` still go to the slot). Its collaborators are the bus's own: it
+reads the page through `CpuBus#read` and writes each byte to `ppu_registers.cpu_write($2004, byte)`, so the bytes land
+in OAM from OAMADDR on. The copy happens at once; the 513 or 514 cycles it costs come back through
+`CpuBus#take_stall_cycles(halt_cycle)`. Get cycles are the even CPU cycles by convention (see Known gaps).
+
 ### Mapper interface
 
 Every board in `Ruby::Nes::Mappers` (built by `Mappers.build(cartridge)` from the iNES mapper number) answers the CPU
@@ -89,7 +96,7 @@ device interface above plus:
 |---|---|
 | `ppu_read(address)` | the pattern table byte, for `$0000-$1FFF` (the PPU bus never hands anything else) |
 | `ppu_write(address, value)` | kept by CHR RAM, ignored by CHR ROM |
-| `mirroring` | the nametable arrangement the board selects (`:horizontal`, `:vertical`, …) |
+| `mirroring` | the nametable arrangement the board selects: `:horizontal`, `:vertical`, `:single_screen_lower`, `:single_screen_upper` or `:four_screen` (asked on every nametable access, so a board may change it at any time) |
 | `irq?` | whether the board holds the CPU's IRQ line low |
 
 No base class yet (plan 19 extracts one); a scanline/A12 hook for MMC3 is shaped by plan 21.
@@ -106,6 +113,36 @@ Source: [PPU memory map](https://www.nesdev.org/wiki/PPU_memory_map). The PPU ad
 | `$3000-$3EFF` | `$0F00` | unused in the table; the page's hardware notes say it is usually a mirror of `$2000-$2EFF` | cartridge |
 | `$3F00-$3F1F` | `$0020` | palette RAM | internal to the PPU |
 | `$3F20-$3FFF` | `$00E0` | mirrors of `$3F00-$3F1F` | internal to the PPU |
+
+`PpuBus` (plan 11) decodes the range and delegates: pattern tables to the mapper's `ppu_read`/`ppu_write`,
+`$2000-$3EFF` to `PpuBus::Nametables`, `$3F00-$3FFF` to `PpuBus::PaletteRam`.
+
+- **Nametables** hold 4 KiB of VRAM: the console's 2 KiB of CIRAM (pages 0 and 1) and the 2 KiB a four-screen board
+  brings (pages 2 and 3). Address bits 10-11 pick the logical nametable; the mapper's `mirroring` picks its physical
+  page ([Mirroring](https://www.nesdev.org/wiki/Mirroring), whose names the iNES header follows; the PPU nametables page
+  names the arrangements the other way round):
+
+  | `mirroring` | `$2000` | `$2400` | `$2800` | `$2C00` |
+  |---|---|---|---|---|
+  | `:horizontal` | 0 | 0 | 1 | 1 |
+  | `:vertical` | 0 | 1 | 0 | 1 |
+  | `:single_screen_lower` | 0 | 0 | 0 | 0 |
+  | `:single_screen_upper` | 1 | 1 | 1 | 1 |
+  | `:four_screen` | 0 | 1 | 2 | 3 |
+
+- **Palette RAM** holds 32 entries of 6 bits ("a 6-bit color value"); entry 0 of each sprite palette (`$3F10`, `$3F14`,
+  `$3F18`, `$3F1C`) is the same storage as entry 0 of the matching background palette: "writing to either one updates
+  the same internal storage" ([PPU palettes](https://www.nesdev.org/wiki/PPU_palettes)).
+
+### PPU registers
+
+`Ppu` answers the `ppu_registers:` slot ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). It decodes the
+eight registers and keeps the PPU's I/O latch (open bus, without decay); behind it, `Ppu::ScrollRegisters` holds v, t,
+x and w and applies each row of the "Register controls" table of
+[PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling), `Ppu::Oam` holds OAM and OAMADDR, and `Ppu::DataPort` is
+PPUDATA: the read buffer, the palette exception and the increment of v. `Ppu` tells the port the increment (PPUCTRL
+bit 2) and the greyscale (PPUMASK bit 0) when those registers are written. `Ppu#cpu_read` ignores the CPU's data bus:
+the PPU answers from its own latch.
 
 ## Clock
 
@@ -175,12 +212,14 @@ MMC3 scanline IRQ. The `Cpu#step` interface stays in every option; only where th
 | `lib/ruby/nes/mappers.rb` | `Ruby::Nes::Mappers` | `Mappers.build` factory |
 | `lib/ruby/nes/mappers/` | `Ruby::Nes::Mappers::Nrom`, `::Mmc3`… | one file per mapper (a shared base is extracted in plan 19) |
 | `lib/ruby/nes/cpu_bus.rb` | `Ruby::Nes::CpuBus` | CPU address decoding, RAM, open bus |
-| `lib/ruby/nes/cpu_bus/` | `Ruby::Nes::CpuBus::Disconnected` | the device in an empty slot |
+| `lib/ruby/nes/cpu_bus/` | `Ruby::Nes::CpuBus::Disconnected`, `::OamDma` | the device in an empty slot; the OAM DMA unit the bus owns |
 | `lib/ruby/nes/cpu.rb` | `Ruby::Nes::Cpu` | registers, operand fetch, `step`, interrupts |
 | `lib/ruby/nes/cpu/` | `Ruby::Nes::Cpu::Status`, `::Stack`, `::Shifter`, `::AddressingModes`, `::Dispatch`, `::Opcodes`, `::Interrupts`, `::InterruptLines` | status flags, stack, the shift/rotate unit, addressing modes, the opcode dispatch and reset/NMI/IRQ (mixins of `Cpu`), the opcode table of all 256 opcodes (mnemonic, mode, base cycles, official or not), the NMI edge detector and IRQ level |
 | `lib/ruby/nes/cpu/instructions/` | `Ruby::Nes::Cpu::Instructions::LoadStore`, `::Arithmetic`, `::Branches`…, `::ReadModifyWriteCombos`, `::ImmediateCombos`, `::Unstable` | one mixin of `Cpu` per instruction group, each instruction a method taking the resolved effective address; the last three hold unofficial opcodes only (plan 09) |
-| `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding, VRAM, palette RAM |
-| `lib/ruby/nes/ppu.rb`, `ppu/` | `Ruby::Nes::Ppu`, `Ruby::Nes::Ppu::…` | registers, timing, renderer pieces |
+| `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding |
+| `lib/ruby/nes/ppu_bus/` | `Ruby::Nes::PpuBus::Nametables`, `::PaletteRam` | VRAM through the mirroring, palette RAM |
+| `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder and the PPU's I/O latch; timing and rendering later |
+| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`… | v/t/x/w, OAM and OAMADDR, PPUDATA; renderer pieces later |
 | `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller` | controllers |
 | `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Headless`… | headless, raylib/sdl2 (later) |
@@ -281,6 +320,11 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | Interrupt hijacking | An NMI asserted during the first four ticks of `BRK` sends it through the NMI vector (with B still set in the pushed flags), and "an NMI can hijack an IRQ" ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Interrupt_hijacking)). The emulator finishes `BRK` or the IRQ through `$FFFE` and takes the NMI on the next step. | Plan 12, with `cpu_interrupts_v2` |
 | Jammed CPU | The `JAM` opcodes "halt the CPU until reset" ([CPU unofficial opcodes](https://www.nesdev.org/wiki/CPU_unofficial_opcodes)); no reference found says what the bus does meanwhile, how the cycles count, or whether NMI and IRQ act on a jammed CPU. The emulator's choice is a convention: each `Cpu#step` touches no bus, takes no interrupt and returns 2 cycles (`Cpu::JAMMED_STEP_CYCLES`), and the `JAM` opcode itself costs 2. **Technical debt:** search deeper (Visual6502 simulations, "No More Secrets") and replace the convention with a sourced behaviour. | A later CPU pass (no plan yet) |
 | Unstable unofficial opcodes | `ANE` (`XAA`), `LAX #imm`, `SHA` (`AHX`), `SHX`, `SHY`, `TAS` and `LAS` depend on the chip, the temperature and the RDY line ("No More Secrets", [csdb.dk/release/?id=198357](https://csdb.dk/release/?id=198357)). The emulator uses the documented formulas without DMA, the magic constants the document advises for emulators ($EF for `ANE`, $EE for `LAX #imm`), and Z and N from the result ([Visual6502 wiki](https://www.nesdev.org/wiki/Visual6502wiki/6502_Opcode_8B_(XAA,_ANE)) for `ANE`, inferred for `LAX #imm`; "No More Secrets" says both follow A before the instruction). `LAX #imm`'s $EE comes from a C64 source; NES emulators are said to use $FF. | Plan 12, with `instr_test-v5` (it tests `LAX #imm`, `SHX` and `SHY`) |
+| PPU I/O latch decay | "At least one bit in this value decays after 3ms to 30ms" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). The latch keeps its value forever. | Plan 12 (time exists), with `ppu_open_bus` |
+| OAM DMA alignment | Get and put cycles "are aligned to the first and second halves of the APU clock", and "At power-on, whether the first CPU cycle is get or put is random" ([DMA](https://www.nesdev.org/wiki/DMA)). The emulator takes even CPU cycles, counted from `Cpu.new`, as get cycles (a convention; plan 11, decision 3 compares it with Mesen2, which reaches the same alignment counting 8 reset cycles and odd get cycles), so a `$4014` write on an even cycle stalls 513 cycles and on an odd one 514. The copy also happens at once, before the stall, so the PPU sees OAM complete one instruction early. | Plan 23 (DMC DMA shares the get/put rule) |
+| PPU register writes after reset | `$2000`, `$2001`, `$2005` and `$2006` ignore writes "until reaching the pre-render scanline" after power and reset ([PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state)). They are always accepted. | Plan 12 |
+| OAMDATA and PPUDATA during rendering | OAMDATA writes during rendering "do perform a glitchy increment of OAMADDR", its reads "expose internal OAM accesses"; PPUDATA "will update v in an odd way" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers), [PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling)). Both behave as outside rendering. | Plans 13, 14 |
+| Byte under a palette read | A PPUDATA read of the palette fills the buffer from "a normal read from PPU memory at the specified address, "underneath" the palette data" ("usually mirrored nametables"). The emulator reads the nametable byte `$1000` below (the `$2F00-$2FFF` mirror), an inference from "$3000-3EFF is usually a mirror of" `$2000-$2EFF`. | When a board maps `$3000-$3FFF` differently |
 
 ## Frame buffer contract
 
@@ -319,3 +363,6 @@ presentation, in a frontend).
 | 17 | 2026-11-18 | A `JAM` opcode puts the CPU in a jammed state (`Cpu#jammed?`) that only `Cpu#reset` clears; a jammed step costs 2 cycles and touches nothing (see Known gaps) | The frontend can show the halt, and the console keeps its clock running as the hardware does | When a source for the jammed behaviour is found |
 | 18 | 2026-11-18 | Each row's column 2 is its `case`'s `else` (the `JAM` in 12 rows, the opcode `$x2` in rows 8, A, C and E) and row F is the outer `else`; repeated bodies keep one `when` per opcode (`Lint/DuplicateBranch` disabled on the two rows that need it) | A `when` for every value leaves the implicit `else` unreachable, and Ruby's branch coverage counts it; the map stays readable byte by byte | — |
 | 19 | 2026-11-18 | YJIT is the project's default JIT | Plan 10: fastest with every variant measured, 16.4 emulated MHz (915% of real time) on nestest against 9.0 for ZJIT and 3.7 without a JIT ([benchmarks](benchmarks.md#findings)) | Plan 25 (whole frames) |
+| 20 | 2026-11-18 | OAM DMA is `CpuBus::OamDma`, owned by `CpuBus`, which routes `$4014` writes to it; the stall comes back through `CpuBus#take_stall_cycles(halt_cycle)`, added by `Cpu#step` after every step; even CPU cycles are get cycles | The DMA's collaborators are the bus's own (CPU reads, `$2004` writes), so no circular wiring, and the `io_registers:` slot stays for the APU and controllers; DMC DMA (plan 23) reports through the same channel. The query per step measured about −8% under YJIT on nestest | Plan 23; plan 25 (a push model) |
+| 21 | 2026-11-18 | The PPU's I/O latch is modelled without decay; `Ppu#cpu_read` ignores the CPU data bus | Write-only registers and PPUSTATUS's bits 4-0 answer it; decay needs time (Known gaps) | Plan 12 |
+| 22 | 2026-11-18 | `PpuBus::Nametables` asks the mapper's `mirroring` on every access and maps it through a constant table; 4 KiB of VRAM support four-screen | MMC1, MMC3 and AxROM change the mirroring at runtime; four-screen costs one table row | Plan 25 (measure the lookup) |

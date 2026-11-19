@@ -25,7 +25,9 @@ only the inline form exists.
 | DMA | Direct Memory Access | The 2A03's two copy units: OAM DMA (started by writing `$4014`) copies sprite data into OAM, and DMC DMA fetches sample bytes for the DMC. The CPU is halted while they run. | [DMA](https://www.nesdev.org/wiki/DMA) |
 | DMC | Delta Modulation Channel | The APU channel that plays 1-bit delta-encoded samples. | [APU DMC](https://www.nesdev.org/wiki/APU_DMC) |
 | Dot | — | One PPU clock; a scanline is 341 dots. | [PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing) |
+| Get/put cycle | — | The two halves of each APU cycle; a DMA reads (gets) on the first and writes (puts) on the second. OAM DMA takes 513 cycles when `$4014` is written on a get cycle and 514 on a put cycle; the emulator takes even CPU cycles as get cycles, by convention. | [DMA](https://www.nesdev.org/wiki/DMA) |
 | I/O | Input/Output | The non-APU registers in `$4000-$4017`: OAM DMA (`$4014`) and the controller ports (`$4016`, `$4017`). `CpuBus`'s `io_registers:` slot receives the whole APU and I/O range, `$4000-$4017`. | [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
+| I/O latch (PPU) | — | The PPU's own open bus: an 8-bit latch that every write to `$2000-$2007` loads; write-only registers and PPUSTATUS's bits 4-0 read it back. Not the CPU's data bus. | [Open bus behavior](https://www.nesdev.org/wiki/Open_bus_behavior#PPU_open_bus) |
 | iNES | — | The `.nes` file format: a 16-byte header followed by PRG ROM and CHR ROM. | [iNES](https://www.nesdev.org/wiki/INES) |
 | IRQ | Interrupt Request | Maskable, level-sensitive interrupt line (ignored while the I flag is set); vector at `$FFFE`. | [IRQ](https://www.nesdev.org/wiki/IRQ) |
 | JAM | — (6502_cpu.txt: "Jams the machine"; the wiki's matrix calls it STP) | The 12 unofficial opcodes (`$02`, `$12`, … `$F2`) that "halt the CPU until reset"; `Cpu#jammed?` reports it. | [CPU unofficial opcodes](https://www.nesdev.org/wiki/CPU_unofficial_opcodes) |
@@ -51,6 +53,7 @@ only the inline form exists.
 | Scanline | — | One row of the frame; 262 per NTSC frame. | [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering) |
 | Sprite 0 hit | — | A PPUSTATUS flag set when sprite 0 overlaps the background; games poll it to time mid-frame effects such as a fixed status bar. | [PPU registers](https://www.nesdev.org/wiki/PPU_registers) |
 | Status flags | — | The CPU's P register, bits `NV1B DIZC`: N negative, V overflow, B break (not a real flag), D decimal, I interrupt disable, Z zero, C carry. | [Status flags](https://www.nesdev.org/wiki/Status_flags) |
+| v, t, x, w | Current VRAM address, temporary VRAM address, fine X scroll, write toggle | The PPU's internal scroll registers (15, 15, 3 and 1 bits), named by their letters on NESdev. Code spells them out in `Ppu::ScrollRegisters`: `vram_address`, `temporary_address`, `fine_x`, `second_write?`. | [PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling) |
 | VBlank | Vertical blanking | Scanlines 241–260, when the PPU makes no memory accesses; the VBlank flag is set at scanline 241, dot 1. | [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering) |
 | VRAM | Video RAM | The PPU's nametable memory; on the console, the 2 KiB CIRAM. | [PPU nametables](https://www.nesdev.org/wiki/PPU_nametables) |
 
@@ -95,6 +98,14 @@ constant name.
 - Off the hot path: `Bits.wrap_to_word(value)`
 - Keeps the low 16 bits: a 16-bit address or program counter wrapping past `$FFFF` to `$0000`.
 
+### low-bits
+
+- Inline: `value & MASK`, where the mask is a run of ones from bit 0 (`COLOUR_MASK = 0x3F` keeps 6 bits)
+- Off the hot path: `Bits.low_bits(value, MASK)`
+- Keeps only the bits a narrower register or memory cell holds: a palette entry stores "a 6-bit color value"
+  ([PPU palettes](https://www.nesdev.org/wiki/PPU_palettes)), so `$FF` is stored as `$3F`. wrap-to-byte and
+  wrap-to-word are the 8- and 16-bit cases, named apart because the intent there is an overflow.
+
 ### low-byte
 
 - Inline: `word & BYTE_MASK`
@@ -127,6 +138,23 @@ constant name.
 - Inline: `(high << NIBBLE_WIDTH) | low`
 - Off the hot path: `Bits.combine_nibbles(low: 0x1, high: 0x2)` → `0x21`
 - Builds a byte from its two 4-bit halves. Keyword arguments keep the order of the halves explicit.
+
+### bit-field
+
+- Inline: `(value & FIELD_MASK) >> FIELD_SHIFT`
+- Off the hot path: `Bits.bit_field(value, mask: FIELD_MASK, shift: FIELD_SHIFT)`
+- Reads a group of adjacent bits as a number of its own: address bits 10-11 (`NAMETABLE_SELECT_MASK = 0x0C00`,
+  shift 10) number the logical nametable `0-3` ([PPU nametables](https://www.nesdev.org/wiki/PPU_nametables)).
+  high-nibble is the case of the upper 4 bits of a byte.
+
+### place-bit-field
+
+- Inline: `(register & ~FIELD_MASK) | ((value << FIELD_SHIFT) & FIELD_MASK)`, often over two tagged lines: the field
+  moved into place first (`field = (value << FIELD_SHIFT) & FIELD_MASK`), then merged
+  (`(register & ~FIELD_MASK) | field`)
+- Off the hot path: `Bits.place_bit_field(register, value, mask: FIELD_MASK, shift: FIELD_SHIFT)`
+- Writes a number into a group of adjacent bits, leaving the others untouched: the PPU's register writes copy bits
+  of the value into fields of `t` ([PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling)).
 
 ### set-flag
 
