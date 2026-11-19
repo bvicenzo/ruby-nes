@@ -13,7 +13,9 @@ module Ruby
     # - cpu_write(address, value)   -> PRG RAM writes and mapper registers; anything else is ignored.
     # - ppu_read(address)           -> the pattern table byte, for $0000-$1FFF.
     # - ppu_write(address, value)   -> kept by CHR RAM, ignored by CHR ROM.
-    # - mirroring                   -> the nametable arrangement the board selects (:horizontal, :vertical, ...).
+    # - mirroring                   -> the nametable arrangement the board selects, asked on every nametable access:
+    #                                  :horizontal, :vertical, :single_screen_lower, :single_screen_upper or
+    #                                  :four_screen.
     # - irq?                        -> whether the board holds the CPU's IRQ line low.
     module Mappers
       # Base class of every error raised while building a board for a cartridge.
