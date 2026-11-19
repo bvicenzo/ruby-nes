@@ -18,6 +18,8 @@ module Ruby
 
       def self.increment_within_page(pointer) = (pointer & PAGE_MASK) | ((pointer + 1) & BYTE_MASK)
 
+      def self.add_within_page(base, offset) = (base & PAGE_MASK) | ((base + offset) & BYTE_MASK)
+
       def self.signed_byte(byte) = byte >= SIGN_BIT ? byte - BYTE_RANGE : byte
     end
 
@@ -53,13 +55,13 @@ module Ruby
 
         def zero_page_y_address = Bits.wrap_to_byte(fetch_byte + @index_y)
 
-        def absolute_x_address = Bits.wrap_to_word(fetch_word + @index_x)
+        def absolute_x_address = indexed_for_write(fetch_word, @index_x)
 
-        def absolute_y_address = Bits.wrap_to_word(fetch_word + @index_y)
+        def absolute_y_address = indexed_for_write(fetch_word, @index_y)
 
         def indexed_indirect_address = word_within_page(Bits.wrap_to_byte(fetch_byte + @index_x))
 
-        def indirect_indexed_address = Bits.wrap_to_word(word_within_page(fetch_byte) + @index_y)
+        def indirect_indexed_address = indexed_for_write(word_within_page(fetch_byte), @index_y)
 
         # The offset is fetched first: the target is relative to the program counter after the operand.
         def relative_address
@@ -75,10 +77,19 @@ module Ruby
           Bits.combine_bytes(low:, high:)
         end
 
+        # The dummy reads of plan 12, as the core makes them.
         def indexed_for_read(base, index)
           address = Bits.wrap_to_word(base + index)
-          @cycles += 1 if Bits.page_crossed?(base, address)
+          if Bits.page_crossed?(base, address)
+            @bus.read(Bits.add_within_page(base, index))
+            @cycles += 1
+          end
           address
+        end
+
+        def indexed_for_write(base, index)
+          @bus.read(Bits.add_within_page(base, index))
+          Bits.wrap_to_word(base + index)
         end
       end
     end
