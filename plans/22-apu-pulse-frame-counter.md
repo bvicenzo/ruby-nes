@@ -37,17 +37,27 @@ Out: triangle, noise, DMC, mixer (plan 23); audio output (plan 24).
 - Tick granularity: per CPU cycle (simple, many calls) vs catch-up on register access and at frame end (faster,
   more complex). Recommendation: per cycle now; plan 25 decides if catch-up pays off.
 
+- IRQ line: plan 12 (decision 3) chose a wired-OR push: each IRQ source (frame counter here, DMC in plan 23, mappers)
+  asserts and releases its own bit on a shared line, replacing the mappers' `irq?` predicate; implement it here if
+  plan 21 did not. Its level should reach the CPU's polling point the way plan 12's NMI edge does (decision 2).
+- CPU interrupt gaps that become testable with the frame IRQ (`docs/architecture.md`, Known gaps): the `CLI`/`SEI`/`PLP`
+  delay, interrupt hijacking and the branch polling quirk, checked by `cpu_interrupts_v2` 1, 3, 4 and 5 (plan 12
+  recorded their failures). Model each or record why it stays a gap.
+
 ## Tasks
 
 - [ ] Specify and test the length counter (table load, halt, disable via `$4015`), envelope, sweep (both negate modes,
       muting), duty sequencer, timer.
 - [ ] Specify and test the frame counter (both modes, write delay, IRQ inhibit, IRQ flag cleared by `$4015` read).
-- [ ] Add `apu_test` (and `instr_timing`, which uses the APU length counter as a timer) to the manifest.
+- [ ] Add `apu_test` (and `instr_timing`, which uses the APU length counter as a timer) to the manifest, plus
+      `instr_misc/04-dummy_reads_apu`; rerun the `cpu_interrupts_v2` singles already in it.
 
 ## Acceptance criteria
 
 - [ ] `apu_test` `1-len_ctr`, `2-len_table` and `3-irq_flag` pass; `4-jitter`, `5-len_timing`, `6-irq_flag_timing`
       results recorded with reasons.
+- [ ] `cpu_interrupts_v2` `1-cli_latency` and `instr_misc/04-dummy_reads_apu` pass, or their failures are recorded
+      with the reason; the Known gaps rows they cover are updated.
 - [ ] `instr_timing` result recorded (pass expected if the clock model holds; otherwise reason documented).
 - [ ] 100% branch coverage on APU code so far; rubocop clean.
 

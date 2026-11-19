@@ -47,6 +47,11 @@ Out: MMC6 specifics; the battery (SMB3 has none).
   Recommendation: A12 notification, measure the cost, keep the shortcut as a documented fallback.
 - MMC3 revision behaviour for latch = 0 (revision A vs B). Recommendation: revision B (most common), record it.
 
+- IRQ line: plan 12 (decision 3) chose a wired-OR push: each IRQ source asserts and releases its own bit on a shared
+  line, replacing the mappers' `irq?` predicate. If this plan comes before plan 22, it implements that line; the
+  mapper register writes are not synchronised with the PPU the way `$2000-$3FFF` are (plan 12, decision 1), so
+  measure whether the MMC3 IRQ needs it.
+
 ## Tasks
 
 - [ ] Specify and test bank select/data for every register and both modes (PRG mode, CHR inversion).

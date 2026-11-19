@@ -28,6 +28,10 @@ left clipping; a debug PPM/PNG dumper with an NTSC palette table (`Ruby::Nes::De
 
 Out: sprites (plan 14), colour emphasis (applied by frontends later), the formal frontend interface (plan 16).
 
+From plan 12: `Ppu::FrameTiming` advances one dot at a time (scanline, dot, frame number, odd-frame skip) and
+`Ppu#catch_up(cpu_cycle)` runs dots up to the CPU's time, also before every PPU register access (plan 12, decision 1),
+so mid-scanline register writes land on the right dot. The per-dot pipeline hangs off that dot step.
+
 ## Open decisions
 
 - Accuracy vs speed: a per-dot pipeline (accurate, mid-scanline effects work) vs per-scanline tile rendering (much

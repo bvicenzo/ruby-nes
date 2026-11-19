@@ -41,6 +41,8 @@ Out: variants with oversize banks (UNROM 512 etc.).
       mirroring (AxROM), bus conflict as decided.
 - [ ] Extract the shared mapper base (or record why not).
 - [ ] Register them in `Mappers.build`.
+- [ ] Add `cpu_dummy_reads/cpu_dummy_reads.nes` (CNROM, mapper 3) to the manifest: plan 12 modelled the dummy reads of
+      the indexed modes (plan 12, decision 4) and checked them with the NROM `instr_misc/03-dummy_reads`.
 - [ ] Check whether a freely distributable multi-mapper test ROM (e.g. "Holy Mapperel") is in the test ROM collection;
       if so add it to the manifest.
 
@@ -48,6 +50,7 @@ Out: variants with oversize banks (UNROM 512 etc.).
 
 - [ ] All three mappers are specified and implemented; `Mappers.build` returns them by number.
 - [ ] If available, the multi-mapper test ROM passes for mappers 0, 2, 3 and 7.
+- [ ] `cpu_dummy_reads` passes, or its result is recorded in `docs/test-roms.md` with the reason.
 - [ ] Optional: a game the user owns per mapper boots to gameplay.
 - [ ] 100% branch coverage; rubocop clean.
 

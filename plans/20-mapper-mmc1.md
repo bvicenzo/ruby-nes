@@ -41,7 +41,9 @@ Out: the other variants' PRG-RAM banking (backlog unless a game needs it).
 
 - [ ] Specify and test the shift register (five writes, reset bit, consecutive-cycle ignore).
 - [ ] Specify and test each PRG mode, CHR mode and mirroring value; PRG-RAM enable/disable.
-- [ ] Add test ROMs needing mapper 1 (e.g. `instr_test-v5/all_instrs.nes` if it is MMC1 — check with the loader).
+- [ ] Add the test ROMs needing mapper 1 (checked in plan 12 from their headers): `instr_test-v5/all_instrs.nes`,
+      `instr_test-v5/official_only.nes`, `ppu_vbl_nmi/ppu_vbl_nmi.nes` and `cpu_interrupts_v2/cpu_interrupts.nes`, the
+      multi-test builds of suites whose single ROMs plan 12 ran (results in `docs/test-roms.md`).
 
 ## Acceptance criteria
 

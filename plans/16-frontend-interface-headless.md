@@ -30,6 +30,9 @@ In:
 
 Out: windowed frontends (plans 17, 18).
 
+From plan 12: `Console#run_frame` returns when the PPU wraps to (0, 0) (plan 12, decision 7), so the frame buffer is
+complete and VBlank has run when the frontend takes it.
+
 ## Open decisions
 
 - Input script format: YAML (`120: [start]`) vs a compact text format. Recommendation: YAML, readable in specs.

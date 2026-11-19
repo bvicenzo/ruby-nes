@@ -37,6 +37,10 @@ In:
 
 Out: changing behaviour. Every optimisation keeps the whole suite (including test ROMs) green.
 
+From plan 12: the PPU advances one dot per method call (`Ppu::FrameTiming`), 89 342 calls per frame before plan 13
+adds rendering; register accesses catch the PPU up mid-instruction, and the indexed addressing modes do their dummy
+reads. Each is a candidate for measurement.
+
 ## Open decisions
 
 - Which accuracy shortcuts are acceptable (e.g. scanline-based fast path, APU catch-up)? Each one is proposed with its
