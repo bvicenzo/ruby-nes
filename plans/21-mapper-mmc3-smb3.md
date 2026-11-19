@@ -58,7 +58,9 @@ Out: MMC6 specifics; the battery (SMB3 has none).
 - [ ] Specify and test mirroring and PRG-RAM protect.
 - [ ] Specify and test the IRQ counter: reload, decrement, zero with IRQ enabled/disabled, acknowledge, latch = 0, A12
       filter (two rises close together clock once).
-- [ ] Expose A12 from the PPU (plan 13/14 fetch addresses) to the mapper.
+- [ ] Expose A12 from the PPU (plan 13/14 fetch addresses) to the mapper. Since plan 14 (decision 3) the sprite
+      pattern fetches happen on their dots, low at 261 + 8k and high at 263 + 8k of the visible and pre-render lines,
+      empty slots fetching tile `$FF`; the garbage nametable fetches of 257-320 are still not made.
 - [ ] Add `mmc3_test_2` to the manifest.
 - [ ] Play SMB3 with the scripted headless input first (title → world map → 1-1), then interactively.
 

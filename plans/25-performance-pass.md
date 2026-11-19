@@ -41,9 +41,14 @@ From plan 12: the PPU advances one dot per method call (`Ppu::FrameTiming`), 89 
 adds rendering; register accesses catch the PPU up mid-instruction, and the indexed addressing modes do their dummy
 reads. Each is a candidate for measurement.
 
-From plan 13: the background is rendered per dot (plan 13, decision 1): `Ppu::BackgroundRenderer` runs a step table
-for every dot of the visible and pre-render scanlines. A scanline fast path when no PPU register was written
-mid-line is the obvious candidate; the nestest golden frame digest guards it.
+From plan 13: the background is rendered per dot (plan 13, decision 1): `Ppu::Renderer` (called `BackgroundRenderer`
+until plan 14) runs a step table for every dot of the visible and pre-render scanlines. A scanline fast path when no
+PPU register was written mid-line is the obvious candidate; the nestest golden frame digest guards it.
+
+From plan 14: composing the sprites costs about 28% of the frame rate under YJIT on nestest (26.6 to 19.2 frames per
+second; architecture decision 34): per pixel, `SpriteRenderer#pixel` (the line buffer and its visibility) and
+`PriorityMultiplexer#palette_entry`, plus the sprite steps of dots 257-320. Candidates: skipping the sprite path on
+lines whose buffer is empty, and inlining the visibility.
 
 ## Open decisions
 
