@@ -26,8 +26,8 @@ compiler. The design favours code that is easy to read and easy for a JIT or an 
          internal RAM   PPU registers   APU and I/O         test mode       Cartridge
          2 KiB          $2000-$3FFF     registers           (disabled)      $4020-$FFFF
          $0000-$1FFF       |            $4000-$4017         $4018-$401F     (mapper)
-                           |            (APU, controllers,                      |
-                           v             OAM DMA)                               |
+                           |            (APU, OAM DMA;                          |
+                           v             controllers at $4016-$4017)            |
                         +-----+   PPU bus ($0000-$3FFF)                         |
                         | Ppu |----+------------------+-------------------------+
                         +-----+    |                  |                         |
@@ -76,19 +76,21 @@ IRQ and BRK at `$FFFE`. Reading an address no device answers returns
 
 ### Devices on the CPU bus
 
-`CpuBus` has three slots, given as keywords to `CpuBus.new` and each defaulting to `CpuBus::Disconnected`:
-`ppu_registers:` (`$2000-$3FFF`, handed the address already mirrored down to `$2000-$2007`), `io_registers:`
-(`$4000-$4017`) and `mapper:` (`$4020-$FFFF`). `$4018-$401F` reach no device. A device answers:
+`CpuBus` has four slots, given as keywords to `CpuBus.new` and each defaulting to `CpuBus::Disconnected`:
+`ppu_registers:` (`$2000-$3FFF`, handed the address already mirrored down to `$2000-$2007`), `apu_registers:`
+(`$4000-$4015` and writes to `$4017`, the frame counter), `controller_ports:` (reads of `$4016`/`$4017`, writes to
+`$4016`) and `mapper:` (`$4020-$FFFF`). `$4018-$401F` reach no device. The split of `$4000-$4017` mirrors the 2A03's
+own decoding (plan 15, decision 1). A device answers:
 
 - `cpu_read(address, data_bus)` → the byte left on the data bus after the read. A device that does not drive the bus
   at that address returns `data_bus` untouched (open bus); a register that drives only some bits keeps the others
   from `data_bus`. The bus stores every result as the next `data_bus`; writes do not change it (plan 04, decision 1).
 - `cpu_write(address, value)`.
 
-`CpuBus` also owns the **OAM DMA unit**, `CpuBus::OamDma` (plan 11, decision 2): a write to `$4014` starts it instead
-of reaching the `io_registers:` slot (reads of `$4014` still go to the slot). Its collaborators are the bus's own: it
-reads the page through `CpuBus#read` and writes each byte to `ppu_registers.cpu_write($2004, byte)`, so the bytes land
-in OAM from OAMADDR on. The copy happens at once; the 513 or 514 cycles it costs come back through
+`CpuBus` also owns the **OAM DMA unit**, `CpuBus::OamDma` (plan 11, decision 2): a write to `$4014` starts it instead of
+reaching the `apu_registers:` slot (reads of `$4014` still go to the slot). Its collaborators are the bus's own: it
+reads the page through `CpuBus#read_for_dma` and writes each byte to `ppu_registers.cpu_write($2004, byte)`, so the
+bytes land in OAM from OAMADDR on. The copy happens at once; the 513 or 514 cycles it costs come back through
 `CpuBus#take_stall_cycles(halt_cycle)`. Get cycles are the even CPU cycles by convention (see Known gaps).
 
 ### Mapper interface
@@ -104,6 +106,18 @@ device interface above plus:
 | `irq?` | whether the board holds the CPU's IRQ line low |
 
 No base class yet (plan 19 extracts one); a scanline/A12 hook for MMC3 is shaped by plan 21.
+
+### Controllers
+
+`Input::ControllerPorts` answers the `controller_ports:` slot
+([Controller reading](https://www.nesdev.org/wiki/Controller_reading)): a `$4016` write strobes both
+`Input::Controller`s, a read of `$4016` clocks the first and a read of `$4017` the second. The ports drive bits 4-0
+(a standard controller only D0; D4-D1 read 0) and keep bits 7-5 from the data bus
+([Open bus behavior](https://www.nesdev.org/wiki/Open_bus_behavior)). `Console.new(cartridge, controllers:)` takes the
+two controllers (two released ones by default) and `Console#controllers` returns them; the frontend sets the buttons
+held with `Controller#buttons=`, a mask in report order (`Controller::BUTTONS`, bit 0 = A … bit 7 = Right). The core
+does not filter opposite directions; the frontend does (plan 15, decision 2). OAM DMA never clocks them: it reads
+through `CpuBus#read_for_dma`, where `$4000-$401F` is open bus ([DMA](https://www.nesdev.org/wiki/DMA)).
 
 ### PPU bus
 
@@ -254,7 +268,7 @@ most calls.
 | `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder, the PPU's I/O latch, the catch-up to a CPU cycle, reset and the writes it ignores; the PPUCTRL and PPUMASK settings told to the renderer |
 | `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::BackgroundShifters`, `::LayerVisibility`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
 | `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
-| `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller` | controllers |
+| `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller`, `::ControllerPorts` | a standard controller; the device answering `$4016`/`$4017` |
 | `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Headless`… | headless, raylib/sdl2 (later) |
 | `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer`, `::FrameDump`… | tooling off the hot path |
 | `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | the bit constants hot paths use inline (`BYTE_MASK`, `PAGE_MASK`…) and readable bit helpers for code off the hot path |
@@ -352,6 +366,7 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | Interrupt polling point | Interrupts are polled "during the final cycle of the instruction", and what matters is the line status "at the end of the second-to-last cycle"; branches poll before their operand fetch and "not before the third CPU cycle on a taken branch" ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Branch_instructions_and_interrupts)). Since plan 12 the NMI edge carries its cycle and is polled at that point. The IRQ line is still polled before each instruction without a cycle, and taken branches get no special case (`cpu_interrupts_v2/5-branch_delays_irq` needs the APU's frame IRQ). | Plan 22, with `cpu_interrupts_v2` |
 | IRQ delay after `CLI`, `SEI`, `PLP` | These "change the I flag after polling for interrupts", so "executing CLI will execute the next instruction before the CPU invokes the IRQ handler", and an IRQ pending when `SEI` runs is still taken once ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Delayed_IRQ_response_after_CLI,_SEI,_and_PLP)). The emulator polls with the new I, so the IRQ comes one instruction early after `CLI`/`PLP` and is lost after `SEI`. `RTI` acts immediately, as modelled. `cpu_interrupts_v2/1-cli_latency` needs the APU's frame IRQ. | Plan 22, with `cpu_interrupts_v2` |
 | Interrupt hijacking | An NMI asserted during the first four ticks of `BRK` sends it through the NMI vector (with B still set in the pushed flags), and "an NMI can hijack an IRQ" ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Interrupt_hijacking)). The emulator finishes `BRK` or the IRQ through `$FFFE` and takes the NMI on the next step; the PPU does not advance inside the sequence. `cpu_interrupts_v2/2-nmi_and_brk` fails. | Plan 22, with `cpu_interrupts_v2` |
+| DMC conflict on controller reads | A DMC sample fetch that falls on a `$4016`/`$4017` read clocks the shift register again, so "the shift register will drop a bit out", "most common symptom of this is spurious Right presses" ([Controller reading](https://www.nesdev.org/wiki/Controller_reading), [Standard controller](https://www.nesdev.org/wiki/Standard_controller)). No DMC exists yet; a read clocks the controller once. The expansion port latches (bits 2-1 of a `$4016` write) and third-party controllers that return 0 after the 8th read are not modelled either (plan 15). | Plan 23 (DMC DMA) |
 | Jammed CPU | The `JAM` opcodes "halt the CPU until reset" ([CPU unofficial opcodes](https://www.nesdev.org/wiki/CPU_unofficial_opcodes)); no reference found says what the bus does meanwhile, how the cycles count, or whether NMI and IRQ act on a jammed CPU. The emulator's choice is a convention: each `Cpu#step` touches no bus, takes no interrupt and returns 2 cycles (`Cpu::JAMMED_STEP_CYCLES`), and the `JAM` opcode itself costs 2. **Technical debt:** search deeper (Visual6502 simulations, "No More Secrets") and replace the convention with a sourced behaviour. | A later CPU pass (no plan yet) |
 | Unstable unofficial opcodes | `ANE` (`XAA`), `LAX #imm`, `SHA` (`AHX`), `SHX`, `SHY`, `TAS` and `LAS` depend on the chip, the temperature and the RDY line ("No More Secrets", [csdb.dk/release/?id=198357](https://csdb.dk/release/?id=198357)). The emulator uses the documented formulas without DMA, $EF for `ANE` as the document advises for emulators, and Z and N from the result ([Visual6502 wiki](https://www.nesdev.org/wiki/Visual6502wiki/6502_Opcode_8B_(XAA,_ANE))). `LAX #imm` uses $FF, not the document's $EE: blargg's `instr_test-v5`, whose checksums come from the console, passes only with it, and it also checks `LAX #imm`'s flags, `SHX` and `SHY` (plan 12). `ANE`, `SHA`, `TAS` and `LAS` stay unchecked. | A later CPU pass (no plan yet) |
 | PPU I/O latch decay | "At least one bit in this value decays after 3ms to 30ms" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). The latch keeps its value forever (plan 12, decision 9): `ppu_open_bus` fails #3, "Decay value should become zero by one second". | A later PPU pass (no plan yet) |
@@ -406,7 +421,7 @@ presentation, in a frontend).
 | 17 | 2026-11-18 | A `JAM` opcode puts the CPU in a jammed state (`Cpu#jammed?`) that only `Cpu#reset` clears; a jammed step costs 2 cycles and touches nothing (see Known gaps) | The frontend can show the halt, and the console keeps its clock running as the hardware does | When a source for the jammed behaviour is found |
 | 18 | 2026-11-18 | Each row's column 2 is its `case`'s `else` (the `JAM` in 12 rows, the opcode `$x2` in rows 8, A, C and E) and row F is the outer `else`; repeated bodies keep one `when` per opcode (`Lint/DuplicateBranch` disabled on the two rows that need it) | A `when` for every value leaves the implicit `else` unreachable, and Ruby's branch coverage counts it; the map stays readable byte by byte | — |
 | 19 | 2026-11-18 | YJIT is the project's default JIT | Plan 10: fastest with every variant measured, 16.4 emulated MHz (915% of real time) on nestest against 9.0 for ZJIT and 3.7 without a JIT ([benchmarks](benchmarks.md#findings)) | Plan 25 (whole frames) |
-| 20 | 2026-11-18 | OAM DMA is `CpuBus::OamDma`, owned by `CpuBus`, which routes `$4014` writes to it; the stall comes back through `CpuBus#take_stall_cycles(halt_cycle)`, added by `Cpu#step` after every step; even CPU cycles are get cycles | The DMA's collaborators are the bus's own (CPU reads, `$2004` writes), so no circular wiring, and the `io_registers:` slot stays for the APU and controllers; DMC DMA (plan 23) reports through the same channel. The query per step measured about −8% under YJIT on nestest | Plan 23; plan 25 (a push model) |
+| 20 | 2026-11-18 | OAM DMA is `CpuBus::OamDma`, owned by `CpuBus`, which routes `$4014` writes to it; the stall comes back through `CpuBus#take_stall_cycles(halt_cycle)`, added by `Cpu#step` after every step; even CPU cycles are get cycles | The DMA's collaborators are the bus's own (CPU reads, `$2004` writes), so no circular wiring, and the `apu_registers:` and `controller_ports:` slots (decision 35) stay for the APU and the controllers; DMC DMA (plan 23) reports through the same channel. The query per step measured about −8% under YJIT on nestest | Plan 23; plan 25 (a push model) |
 | 21 | 2026-11-18 | The PPU's I/O latch is modelled without decay; `Ppu#cpu_read` ignores the CPU data bus | Write-only registers and PPUSTATUS's bits 4-0 answer it; decay needs time (Known gaps). Plan 12 kept it without decay (decision 9) | A later PPU pass |
 | 22 | 2026-11-18 | `PpuBus::Nametables` asks the mapper's `mirroring` on every access and maps it through a constant table; 4 KiB of VRAM support four-screen | MMC1, MMC3 and AxROM change the mirroring at runtime; four-screen costs one table row | Plan 25 (measure the lookup) |
 | 23 | 2026-11-19 | Clock model: register-access catch-up. `Cpu#step` charges the base cycles before running the instruction; `Console::PpuRegisterSync` catches the PPU up to `cycles - 1` before every `$2000-$3FFF` access, and `Console#step` to `cycles` after the step | `ppu_vbl_nmi/04-nmi_control` cannot pass with instruction-level catch-up; one call per register access and one per step | Plan 21 (mapper registers, MMC3 IRQ), plan 22 (APU registers), plan 25 |
@@ -421,3 +436,4 @@ presentation, in a frontend).
 | 32 | 2026-11-19 | Sprites are evaluated once per visible scanline at dot 257 and composed through a 256-entry line buffer filled front to back at the sprite fetches (dots 261 + 8k and 263 + 8k); the overflow search follows the hardware's diagonal scan | OAMDATA writes are ignored during rendering, so OAM cannot change mid-evaluation; one lookup per pixel; NESdev's "buffer" model of priority; the fetches on their dots feed MMC3's A12 (plan 14, decisions 1-3 and 6) | A later PPU pass (overflow timing, Known gaps) |
 | 33 | 2026-11-19 | `BackgroundSchedule`, `BackgroundRenderer` and `BackgroundVisibility` became `RenderSchedule`, `Renderer` and `LayerVisibility`; the sprite steps go to `SpriteRenderer`, the sprite pattern address is a strategy per sprite size, and sprite 0 hit is its own `SpriteZeroHit` | One visibility rule serves both layers; each unit decides one thing (plan 14, decision 7) | — |
 | 34 | 2026-11-19 | Composing the sprites costs about 28% of the frame rate under YJIT on nestest (26.6 to 19.2 frames per second, 300 frames after 30) | Three calls per pixel more (sprite pixel, its visibility, the multiplexer) and the sprite steps of dots 257-320 | Plan 25 |
+| 35 | 2026-11-19 | `CpuBus` splits `$4000-$4017` into an `apu_registers:` slot (`$4000-$4015`, writes to `$4017`) and a `controller_ports:` slot (reads of `$4016`/`$4017`, writes to `$4016`), as it already routed `$4014` writes to the OAM DMA | It mirrors the 2A03, which decodes the range itself (the ports leave the chip through /OE1, /OE2 and OUT0-2); `$4016`/`$4017` are the last two addresses before `$4018`, so a read costs one more comparison and no intermediate device (plan 15, decision 1) | Plan 22 |
