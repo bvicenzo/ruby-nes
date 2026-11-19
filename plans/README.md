@@ -44,7 +44,7 @@ Conventions (see also `CLAUDE.md`):
 | 13 | [PPU background rendering](13-ppu-background-rendering.md) | 12 | done |
 | 14 | [PPU sprites](14-ppu-sprites.md) | 13 | done |
 | 15 | [Controllers](15-controllers.md) | 04 | done |
-| 16 | [Frontend interface and headless backend](16-frontend-interface-headless.md) | 13 | todo |
+| 16 | [Frontend interface and headless backend](16-frontend-interface-headless.md) | 13 | done |
 | 17 | [Backend comparison: raylib vs SDL2](17-backend-comparison-raylib-sdl2.md) | 14, 15, 16 | todo |
 | 18 | [Interactive frontend and CLI](18-interactive-frontend-cli.md) | 17 | todo |
 | 19 | [Simple mappers: UxROM, CNROM, AxROM](19-simple-mappers-uxrom-cnrom-axrom.md) | 04 | todo |
