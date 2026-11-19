@@ -25,13 +25,14 @@ only the inline form exists.
 | DMA | Direct Memory Access | The 2A03's two copy units: OAM DMA (started by writing `$4014`) copies sprite data into OAM, and DMC DMA fetches sample bytes for the DMC. The CPU is halted while they run. | [DMA](https://www.nesdev.org/wiki/DMA) |
 | DMC | Delta Modulation Channel | The APU channel that plays 1-bit delta-encoded samples. | [APU DMC](https://www.nesdev.org/wiki/APU_DMC) |
 | Dot | — | One PPU clock; a scanline is 341 dots. | [PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing) |
+| Dummy read | — | A read the 6502 makes and throws away. The indexed modes read the address whose high byte is not fixed yet, "smaller by $100" on a page cross; writes and read-modify-write instructions always do it. It matters when the address is a register with read side effects (`$2002`, `$2007`). | [6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt) |
 | Get/put cycle | — | The two halves of each APU cycle; a DMA reads (gets) on the first and writes (puts) on the second. OAM DMA takes 513 cycles when `$4014` is written on a get cycle and 514 on a put cycle; the emulator takes even CPU cycles as get cycles, by convention. | [DMA](https://www.nesdev.org/wiki/DMA) |
 | I/O | Input/Output | The non-APU registers in `$4000-$4017`: OAM DMA (`$4014`) and the controller ports (`$4016`, `$4017`). `CpuBus`'s `io_registers:` slot receives the whole APU and I/O range, `$4000-$4017`. | [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
 | I/O latch (PPU) | — | The PPU's own open bus: an 8-bit latch that every write to `$2000-$2007` loads; write-only registers and PPUSTATUS's bits 4-0 read it back. Not the CPU's data bus. | [Open bus behavior](https://www.nesdev.org/wiki/Open_bus_behavior#PPU_open_bus) |
 | iNES | — | The `.nes` file format: a 16-byte header followed by PRG ROM and CHR ROM. | [iNES](https://www.nesdev.org/wiki/INES) |
 | IRQ | Interrupt Request | Maskable, level-sensitive interrupt line (ignored while the I flag is set); vector at `$FFFE`. | [IRQ](https://www.nesdev.org/wiki/IRQ) |
 | JAM | — (6502_cpu.txt: "Jams the machine"; the wiki's matrix calls it STP) | The 12 unofficial opcodes (`$02`, `$12`, … `$F2`) that "halt the CPU until reset"; `Cpu#jammed?` reports it. | [CPU unofficial opcodes](https://www.nesdev.org/wiki/CPU_unofficial_opcodes) |
-| Magic constant | — | The chip- and temperature-dependent byte that the unstable ANE (`$8B`) and LAX #imm (`$AB`) OR into A; the emulator uses the values "No More Secrets" advises for emulators. | ["No More Secrets"](https://csdb.dk/release/?id=198357) |
+| Magic constant | — | The chip- and temperature-dependent byte that the unstable ANE (`$8B`) and LAX #imm (`$AB`) OR into A; the emulator uses $EF for ANE, as "No More Secrets" advises for emulators, and $FF for LAX #imm, the value blargg's `instr_test-v5` needs. | ["No More Secrets"](https://csdb.dk/release/?id=198357) |
 | Mapper | — | The cartridge board's logic that maps PRG and CHR chips into the address spaces, often with bank switching. | [Mapper](https://www.nesdev.org/wiki/Mapper) |
 | MMC3 | — (NESdev uses the name without expanding "MMC") | Nintendo's mapper chip with a scanline IRQ; iNES mapper 4. Used by Super Mario Bros. 3. | [MMC3](https://www.nesdev.org/wiki/MMC3) |
 | Nametable | — | 1024-byte background layout: 960 tile indices plus a 64-byte attribute table. | [PPU nametables](https://www.nesdev.org/wiki/PPU_nametables) |
@@ -44,6 +45,7 @@ only the inline form exists.
 | PAL | Phase Alternating Line | The European video standard, with different clock ratios and frame timing; not emulated (backlog). | [Cycle reference chart](https://www.nesdev.org/wiki/Cycle_reference_chart) |
 | Palette | — | 6-bit colour indices (one of 64 colours); 4 background and 4 sprite palettes at `$3F00-$3F1F`. | [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes) |
 | Pattern table | — | PPU memory defining tile shapes (the CHR data). | [PPU pattern tables](https://www.nesdev.org/wiki/PPU_pattern_tables) |
+| Pre-render scanline | — | Scanline 261 (also called −1), before the visible ones: VBlank, sprite 0 hit and overflow are cleared at its dot 1, and on odd frames with rendering enabled its last dot is skipped. | [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering), [PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing) |
 | PPU | Picture Processing Unit | Generates the video signal, 240 lines of pixels. | [PPU](https://www.nesdev.org/wiki/PPU) |
 | PPUCTRL … PPUDATA | PPU registers | `$2000` PPUCTRL, `$2001` PPUMASK, `$2002` PPUSTATUS, `$2003` OAMADDR, `$2004` OAMDATA, `$2005` PPUSCROLL, `$2006` PPUADDR, `$2007` PPUDATA; `$4014` OAMDMA. | [PPU registers](https://www.nesdev.org/wiki/PPU_registers) |
 | PRG | Program (memory) | The cartridge memory on the CPU side: PRG ROM (16 KiB units in iNES) with the program, and PRG RAM (also called WRAM), usually at `$6000-$7FFF`. | [iNES](https://www.nesdev.org/wiki/INES), [CPU memory map](https://www.nesdev.org/wiki/CPU_memory_map) |
@@ -250,6 +252,14 @@ constant name.
 - The next address without carrying into the next page: `$10FF` → `$1000`, not `$1100`. Indirect `JMP` reads its
   pointer's high byte this way: "JMP ($03FF) reads $03FF and $0300 instead of $0400"
   ([Instruction reference](https://www.nesdev.org/wiki/Instruction_reference)). In page zero it is plain wrap-to-byte.
+
+### add-within-page
+
+- Inline: `(base & PAGE_MASK) | ((base + offset) & BYTE_MASK)`, or with the wrapped sum already at hand,
+  `(base & PAGE_MASK) | (sum & BYTE_MASK)`
+- Off the hot path: `Bits.add_within_page(base, offset)`
+- Adds to the low byte only, keeping the base's page: `$12FF + 1` → `$1200`. The 6502's indexed modes read this
+  address before fixing the high byte, a dummy read ("it may be smaller by $100", [6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)).
 
 ### page-crossed
 
