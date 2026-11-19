@@ -42,6 +42,7 @@ only the inline form exists.
 | NTSC | National Television System Committee | The video standard of North American and Japanese consoles; the timing this project emulates. | [Cycle reference chart](https://www.nesdev.org/wiki/Cycle_reference_chart) |
 | OAM | Object Attribute Memory | PPU-internal memory with the sprite display list: 64 sprites × 4 bytes. | [PPU OAM](https://www.nesdev.org/wiki/PPU_OAM) |
 | Open bus | — | Reading an address no device answers; the result is usually the last value on the data bus. | [Open bus behavior](https://www.nesdev.org/wiki/Open_bus_behavior) |
+| φ1, φ2 | Phase 1, phase 2 | The two halves of a CPU cycle. The NMI edge detector samples the line during φ2, so the emulator stamps a /NMI change with the first CPU cycle whose φ2 sees it. | [CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts) |
 | PAL | Phase Alternating Line | The European video standard, with different clock ratios and frame timing; not emulated (backlog). | [Cycle reference chart](https://www.nesdev.org/wiki/Cycle_reference_chart) |
 | Palette | — | 6-bit colour indices (one of 64 colours); 4 background and 4 sprite palettes at `$3F00-$3F1F`. | [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes) |
 | Pattern table | — | PPU memory defining tile shapes (the CHR data). | [PPU pattern tables](https://www.nesdev.org/wiki/PPU_pattern_tables) |

@@ -20,7 +20,7 @@ Only the NROM single-test builds run here. The multi-test builds (`all_instrs.ne
 
 ## Results
 
-Plan 12, 2026-11-19. Frames are emulated frames until the result; times are under YJIT on the machine of
+Plan 12, 2026-11-19, after the review's fixes. Frames are emulated frames until the result; times are under YJIT on the machine of
 [benchmarks](benchmarks.md).
 
 | ROM | Result | Frames | Notes |
@@ -46,17 +46,17 @@ Plan 12, 2026-11-19. Frames are emulated frames until the result; times are unde
 | `ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes` | Passed | 172 | |
 | `ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes` | Passed | 172 | |
 | `ppu_vbl_nmi/rom_singles/04-nmi_control.nes` | Passed | 38 | Needs the register-access sync and the NMI polling point (architecture decisions 23 and 24). |
-| `ppu_vbl_nmi/rom_singles/05-nmi_timing.nes` | Failed (1) | 220 | Prints `00 4`, `01-06 3`, `07-09 2`; not investigated (Known gaps: NMI suppression around VBlank). |
-| `ppu_vbl_nmi/rom_singles/06-suppression.nes` | Failed (1) | 214 | Probably the reads on the dot VBlank starts or the next one, which do not suppress the NMI here (Known gaps); not investigated further. |
-| `ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes` | Failed (1) | 194 | NMI taken for offsets `00-05`, not for `06-08`; not investigated. |
-| `ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes` | Failed (1) | 237 | No NMI for offsets `03-04`, NMI for `05-0C`; not investigated. |
+| `ppu_vbl_nmi/rom_singles/05-nmi_timing.nes` | Passed | 222 | Needs the φ2 sampling of the NMI line: a change on a CPU cycle's last dot is seen in the next cycle (architecture decision 24). |
+| `ppu_vbl_nmi/rom_singles/06-suppression.nes` | Passed | 225 | A `$2002` read on the dot VBlank starts or the next one releases /NMI before the CPU's φ2 sample, so no edge is seen (decision 24); the read on the dot before cancels the flag itself (decision 5 of plan 12). |
+| `ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes` | Passed | 200 | Enabling NMI right before the flag clears asserts and releases /NMI before the φ2 sample (decision 24). |
+| `ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes` | Passed | 224 | Disabling NMI right after VBlank starts releases /NMI before the φ2 sample (decision 24). |
 | `ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes` | Passed | 71 | |
 | `ppu_vbl_nmi/rom_singles/10-even_odd_timing.nes` | Failed (3) | 82 | "Clock is skipped too late, relative to enabling BG": rendering takes effect at once, not 3-4 dots later (Known gaps: rendering toggle delay). |
 | `instr_misc/rom_singles/01-abs_x_wrap.nes` | Passed | 12 | |
 | `instr_misc/rom_singles/02-branch_wrap.nes` | Passed | 11 | |
 | `instr_misc/rom_singles/03-dummy_reads.nes` | Passed | 57 | Needs the indexed dummy reads (architecture decision 26). |
 | `cpu_interrupts_v2/rom_singles/1-cli_latency.nes` | Failed (3) | 19 | "APU should generate IRQ when $4017 = $00": needs the APU frame IRQ (plan 22). |
-| `cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes` | Failed (1) | 122 | An NMI during `BRK`: probably the hijacking, not modelled (plan 22). |
+| `cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes` | Failed (1) | 124 | An NMI during `BRK`: probably the hijacking, not modelled (plan 22). |
 | `cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes` | Failed (1) | 139 | Needs the APU frame IRQ (plan 22). |
 | `cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes` | Failed (1) | 70 | Needs the APU frame IRQ (plan 22). |
 | `cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes` | Timed out | 3600 | Stays at "test_jmp" waiting for an IRQ: needs the APU frame IRQ (plan 22). |
