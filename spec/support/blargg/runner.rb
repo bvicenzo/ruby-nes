@@ -3,7 +3,9 @@
 module Blargg
   # Runs a console frame by frame until its blargg ROM reports a result or `frame_limit` frames have run. A reset
   # request ($81) is honoured "delayed by at least 100 msec from now": RESET_DELAY_FRAMES frames later; the request
-  # must then go away before another one counts, since the ROM rewrites the status only once it runs again.
+  # must then go away before another one counts, since the ROM rewrites the status only once it runs again. The status
+  # is read once per frame, so a ROM that went back to $80 and asked again within one frame would not be seen asking
+  # twice; no ROM of the manifest does.
   class Runner
     # An NTSC frame lasts 29 780.5 CPU cycles of a 1.789773 MHz clock, 16.6 ms
     # (https://www.nesdev.org/wiki/Cycle_reference_chart): 7 frames are 116 ms.

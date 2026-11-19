@@ -41,7 +41,7 @@ RSpec.configure do |config|
 
   # Examples tagged `slow: true` run a test ROM for seconds; they run only with SLOW=1, which CI always sets (plan 12,
   # decision 6).
-  config.filter_run_excluding(slow: true) unless ENV['SLOW']
+  config.filter_run_excluding(slow: true) unless ENV['SLOW'] == '1'
 
   config.expect_with :rspec do |expectations|
     expectations.syntax = :expect

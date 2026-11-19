@@ -9,17 +9,24 @@
 #   Cartridges.with_program([0x4C, 0x00, 0x80], interrupt_handler: [0xE6, 0x10, 0x40])
 module Cartridges
   PRG_ROM_SIZE = 16_384
+  CHR_ROM_SIZE = 8_192
+  # NOP, what PRG ROM holds wherever a spec puts nothing.
+  NO_OPERATION = 0xEA
   # The 16 KiB of PRG ROM appear at $8000 and again at $C000 (https://www.nesdev.org/wiki/NROM).
   PROGRAM_START = 0x8000
   INTERRUPT_HANDLER_START = 0x9000
-  # $FFFA-$FFFF: the NMI, reset and IRQ vectors (https://www.nesdev.org/wiki/CPU_interrupts), little-endian.
+  # $FFFA-$FFFF: the NMI, reset and IRQ vectors (https://www.nesdev.org/wiki/CPU_interrupts), little-endian words.
   VECTORS_OFFSET = 0x3FFA
-  VECTORS = [0x00, 0x90, 0x00, 0x80, 0x00, 0x90].freeze
+  VECTORS = [INTERRUPT_HANDLER_START, PROGRAM_START, INTERRUPT_HANDLER_START].pack('v*').bytes.freeze
   # RTI.
   RETURN_FROM_INTERRUPT = [0x40].freeze
 
-  def self.build(prg_rom: Array.new(16_384, 0xEA), chr_rom: Array.new(8_192, 0x00), mirroring: :horizontal,
-                 mapper_number: 0)
+  def self.build(
+    prg_rom: Array.new(PRG_ROM_SIZE, NO_OPERATION),
+    chr_rom: Array.new(CHR_ROM_SIZE, 0x00),
+    mirroring: :horizontal,
+    mapper_number: 0
+  )
     header = Ruby::Nes::Cartridge::Header.new(
       prg_rom_size: prg_rom.size,
       chr_rom_size: chr_rom.size,
@@ -37,7 +44,7 @@ module Cartridges
   # An NROM cartridge whose program starts at $8000, the reset vector, and whose NMI and IRQ vectors point at the
   # interrupt handler at $9000 (RTI unless given). The rest of PRG ROM is NOP.
   def self.with_program(program, interrupt_handler: RETURN_FROM_INTERRUPT)
-    prg_rom = Array.new(PRG_ROM_SIZE, 0xEA)
+    prg_rom = Array.new(PRG_ROM_SIZE, NO_OPERATION)
     prg_rom[0, program.size] = program
     prg_rom[INTERRUPT_HANDLER_START - PROGRAM_START, interrupt_handler.size] = interrupt_handler
     prg_rom[VECTORS_OFFSET, VECTORS.size] = VECTORS

@@ -5,9 +5,10 @@
 # 1.789773 MHz clock, 16.6 ms (https://www.nesdev.org/wiki/Cycle_reference_chart). The synthetic programs write the
 # signature $DE $B0 $61 at $6001-$6003; RAM is zero at power, so $00 tells a first boot from a run after the reset.
 #
-# The real ROMs below are the ones plan 12 must pass (its acceptance criteria, plus the other ppu_vbl_nmi singles that
-# pass); every ROM's result, failures included, is in docs/test-roms.md. They take seconds each, so they are tagged
-# `slow: true` and run only with SLOW=1 (plan 12, decision 6).
+# The real ROMs below are the ones plan 12 passes: every instr_test-v5 and instr_misc single it covers and ppu_vbl_nmi
+# 01-09; every ROM's result, failures included, is in docs/test-roms.md. Each context's cartridge is the ROM its
+# `test_rom:` names. They take seconds each, so they are tagged `slow: true` and run only with SLOW=1 (plan 12,
+# decision 6).
 RSpec.describe Blargg::Runner do
   describe '#run' do
     subject(:runner) { described_class.new(console, frame_limit:) }
@@ -15,6 +16,7 @@ RSpec.describe Blargg::Runner do
     let(:console) { Ruby::Nes::Console.new(cartridge) }
 
     context 'when the program never writes the signature' do
+      # JMP $8000, forever.
       let(:cartridge) { Cartridges.with_program([0x4C, 0x00, 0x80]) }
       let(:frame_limit) { 30 }
 
@@ -65,131 +67,101 @@ RSpec.describe Blargg::Runner do
     end
 
     context 'when the program is a single ROM of instr_test-v5' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
       let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
 
       context 'and it is 01-basics', :slow, test_rom: 'instr_test-v5/rom_singles/01-basics.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/01-basics.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 02-implied', :slow, test_rom: 'instr_test-v5/rom_singles/02-implied.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/02-implied.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 03-immediate', :slow, test_rom: 'instr_test-v5/rom_singles/03-immediate.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/03-immediate.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 04-zero_page', :slow, test_rom: 'instr_test-v5/rom_singles/04-zero_page.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/04-zero_page.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 05-zp_xy', :slow, test_rom: 'instr_test-v5/rom_singles/05-zp_xy.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/05-zp_xy.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 06-absolute', :slow, test_rom: 'instr_test-v5/rom_singles/06-absolute.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/06-absolute.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 07-abs_xy', :slow, test_rom: 'instr_test-v5/rom_singles/07-abs_xy.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/07-abs_xy.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 08-ind_x', :slow, test_rom: 'instr_test-v5/rom_singles/08-ind_x.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/08-ind_x.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 09-ind_y', :slow, test_rom: 'instr_test-v5/rom_singles/09-ind_y.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/09-ind_y.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 10-branches', :slow, test_rom: 'instr_test-v5/rom_singles/10-branches.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/10-branches.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 11-stack', :slow, test_rom: 'instr_test-v5/rom_singles/11-stack.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/11-stack.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 12-jmp_jsr', :slow, test_rom: 'instr_test-v5/rom_singles/12-jmp_jsr.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/12-jmp_jsr.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 13-rts', :slow, test_rom: 'instr_test-v5/rom_singles/13-rts.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/13-rts.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 14-rti', :slow, test_rom: 'instr_test-v5/rom_singles/14-rti.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/14-rti.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 15-brk', :slow, test_rom: 'instr_test-v5/rom_singles/15-brk.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/15-brk.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 16-special', :slow, test_rom: 'instr_test-v5/rom_singles/16-special.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_test-v5/rom_singles/16-special.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
@@ -197,43 +169,59 @@ RSpec.describe Blargg::Runner do
     end
 
     context 'when the program is a single ROM of ppu_vbl_nmi' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
       let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
 
       context 'and it is 01-vbl_basics', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/01-vbl_basics.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('ppu_vbl_nmi/rom_singles/01-vbl_basics.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 02-vbl_set_time', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('ppu_vbl_nmi/rom_singles/02-vbl_set_time.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 03-vbl_clear_time', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('ppu_vbl_nmi/rom_singles/03-vbl_clear_time.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 04-nmi_control', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/04-nmi_control.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('ppu_vbl_nmi/rom_singles/04-nmi_control.nes')) }
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
 
+      context 'and it is 05-nmi_timing', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/05-nmi_timing.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 06-suppression', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/06-suppression.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 07-nmi_on_timing', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/07-nmi_on_timing.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 08-nmi_off_timing', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/08-nmi_off_timing.nes' do
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 09-even_odd_frames', :slow, test_rom: 'ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('ppu_vbl_nmi/rom_singles/09-even_odd_frames.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
@@ -241,27 +229,23 @@ RSpec.describe Blargg::Runner do
     end
 
     context 'when the program is a single ROM of instr_misc' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
       let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
 
       context 'and it is 01-abs_x_wrap', :slow, test_rom: 'instr_misc/rom_singles/01-abs_x_wrap.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_misc/rom_singles/01-abs_x_wrap.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 02-branch_wrap', :slow, test_rom: 'instr_misc/rom_singles/02-branch_wrap.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_misc/rom_singles/02-branch_wrap.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
 
       context 'and it is 03-dummy_reads', :slow, test_rom: 'instr_misc/rom_singles/03-dummy_reads.nes' do
-        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('instr_misc/rom_singles/03-dummy_reads.nes')) }
-
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end

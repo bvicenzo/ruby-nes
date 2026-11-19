@@ -2,14 +2,15 @@
 
 # The console (plan 12): the CPU and the PPU run together, the PPU 3 dots per CPU cycle
 # (https://www.nesdev.org/wiki/Cycle_reference_chart). Power-up (plan 12, decision 8) is the CPU's and the PPU's reset;
-# "The PPU comes out of power and reset at the top of the picture" (https://www.nesdev.org/wiki/PPU_power_up_state),
-# and then catches up the 7 cycles of the CPU's reset sequence, which nestest.log shows as `PPU:  0, 21` at `CYC:7`. The
-# PPU ignores writes to PPUCTRL, PPUMASK, PPUSCROLL and PPUADDR until the end of its first VBlank. A frame is 262
-# scanlines of 341 dots, one dot fewer on odd frames with rendering enabled (https://www.nesdev.org/wiki/PPU_frame_timing),
-# and ends when the PPU wraps to dot 0 of scanline 0 (plan 12, decision 7).
+# "The PPU comes out of power and reset at the top of the picture" (https://www.nesdev.org/wiki/PPU_power_up_state), and
+# then catches up the 7 cycles of the CPU's reset sequence, which nestest.log shows as `PPU:  0, 21` at `CYC:7`. The PPU
+# ignores writes to PPUCTRL, PPUMASK, PPUSCROLL and PPUADDR until the end of its first VBlank. A frame is 262 scanlines
+# of 341 dots, one dot fewer on odd frames with rendering enabled (https://www.nesdev.org/wiki/PPU_frame_timing), and
+# ends when the PPU wraps to dot 0 of scanline 0 (plan 12, decision 7).
 RSpec.describe Ruby::Nes::Console do
   describe '.new' do
     context 'when the program only loops' do
+      # JMP $8000, forever.
       let(:cartridge) { Cartridges.with_program([0x4C, 0x00, 0x80]) }
 
       it 'starts the CPU at the reset vector, 7 cycles in' do
@@ -24,6 +25,7 @@ RSpec.describe Ruby::Nes::Console do
     end
 
     context 'when the program enables NMI once, right away' do
+      # LDA #$80 / STA $2000 once, then JMP $8005 forever; the NMI handler counts in $10: INC $10 / RTI.
       let(:cartridge) do
         Cartridges.with_program([0xA9, 0x80, 0x8D, 0x00, 0x20, 0x4C, 0x05, 0x80], interrupt_handler: [0xE6, 0x10, 0x40])
       end
@@ -40,6 +42,7 @@ RSpec.describe Ruby::Nes::Console do
   describe '#step' do
     subject(:console) { described_class.new(cartridge) }
 
+    # NOP.
     let(:cartridge) { Cartridges.with_program([0xEA]) }
 
     it 'runs one CPU instruction and returns its cycles', :aggregate_failures do
@@ -57,6 +60,7 @@ RSpec.describe Ruby::Nes::Console do
     subject(:console) { described_class.new(cartridge) }
 
     context 'when the program leaves rendering disabled' do
+      # JMP $8000, forever.
       let(:cartridge) { Cartridges.with_program([0x4C, 0x00, 0x80]) }
 
       before { console.run_frame }
@@ -78,6 +82,7 @@ RSpec.describe Ruby::Nes::Console do
     end
 
     context 'when the program keeps enabling rendering' do
+      # LDA #$08, then STA $2001 / JMP $8002 forever: background on.
       let(:cartridge) { Cartridges.with_program([0xA9, 0x08, 0x8D, 0x01, 0x20, 0x4C, 0x02, 0x80]) }
 
       before { console.run_frame }
@@ -93,6 +98,7 @@ RSpec.describe Ruby::Nes::Console do
     end
 
     context 'when the program keeps enabling NMI' do
+      # LDA #$80, then STA $2000 / JMP $8002 forever; the NMI handler counts in $10: INC $10 / RTI.
       let(:cartridge) do
         Cartridges.with_program([0xA9, 0x80, 0x8D, 0x00, 0x20, 0x4C, 0x02, 0x80], interrupt_handler: [0xE6, 0x10, 0x40])
       end
@@ -111,6 +117,7 @@ RSpec.describe Ruby::Nes::Console do
     context 'when the program only loops' do
       subject(:console) { described_class.new(cartridge) }
 
+      # NOP / NOP, then JMP $8002 forever.
       let(:cartridge) { Cartridges.with_program([0xEA, 0xEA, 0x4C, 0x02, 0x80]) }
 
       before do
@@ -130,6 +137,7 @@ RSpec.describe Ruby::Nes::Console do
     context 'when the program enables NMI once, right away' do
       subject(:console) { described_class.new(cartridge) }
 
+      # LDA #$80 / STA $2000 once, then JMP $8005 forever; the NMI handler counts in $10: INC $10 / RTI.
       let(:cartridge) do
         Cartridges.with_program([0xA9, 0x80, 0x8D, 0x00, 0x20, 0x4C, 0x05, 0x80], interrupt_handler: [0xE6, 0x10, 0x40])
       end
