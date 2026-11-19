@@ -64,19 +64,21 @@ only the inline form exists.
 
 ## Computing terms
 
-Standard acronyms used by the tooling around the emulator (the test ROM harness, the benchmark and the frame dump),
+Standard acronyms used by the tooling around the emulator (the test ROM harness, the benchmark and the frontends),
 kept in names because they are what the libraries and protocols call them.
 
 | Term | Stands for | Meaning | Reference |
 |---|---|---|---|
+| CRC | Cyclic Redundancy Check | The 32-bit checksum that closes every PNG chunk, computed over its type and data (`Zlib.crc32`). | [PNG](https://www.w3.org/TR/png-3/) |
 | HTTP | Hypertext Transfer Protocol | The protocol the test ROM downloader speaks; a `200` status is a delivered file. | [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) |
 | JIT | Just-In-Time (compiler) | A compiler that turns Ruby methods into machine code while the program runs. Ruby 4.0.9 ships two, YJIT and ZJIT, both off by default; the benchmark (plan 10) measures each against the interpreter. | [YJIT](https://docs.ruby-lang.org/en/master/yjit/yjit_md.html) |
 | JSON | JavaScript Object Notation | The one-line format `bench/cpu.rb` prints its measurement in, for the bench rake tasks to collect. | [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) |
-| PPM | Portable PixMap | The image format `Debug::FrameDump` writes (binary `P6`): a short text header, then red, green and blue bytes per pixel. | [PPM](https://netpbm.sourceforge.net/doc/ppm.html) |
-| SHA-256 | Secure Hash Algorithm, 256-bit | The digest the test ROM manifest records for each file; a matching digest means the bytes are the expected ones. | [FIPS 180-4](https://csrc.nist.gov/pubs/fips/180-4/upd1/final) |
+| PNG | Portable Network Graphics | The image format of the headless frontend's screenshots (`Frontends::Png`): a signature, then chunks (IHDR, IDAT, IEND), the pixels compressed with zlib. | [PNG](https://www.w3.org/TR/png-3/) |
+| RGB | Red, Green, Blue | A colour as its three 8-bit intensities; `Frontends::Palette` turns each pixel into 3 such bytes. | [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes) |
+| SHA-256 | Secure Hash Algorithm, 256-bit | The digest the test ROM manifest records for each file, and the headless frontend for each frame; a matching digest means the bytes are the expected ones. | [FIPS 180-4](https://csrc.nist.gov/pubs/fips/180-4/upd1/final) |
 | SSL | Secure Sockets Layer | Name kept by Ruby `Net::HTTP` (`use_ssl:`) for an encrypted (TLS) connection. | [Net::HTTP](https://docs.ruby-lang.org/en/master/Net/HTTP.html) |
 | URL | Uniform Resource Locator | The address of a file on the web, e.g. a test ROM at one of the manifest sources. | [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986) |
-| YAML | YAML Ain't Markup Language | The format of the test ROM manifest (`spec/fixtures/test_roms.yml`). | [YAML](https://yaml.org/) |
+| YAML | YAML Ain't Markup Language | The format of the test ROM manifest (`spec/fixtures/test_roms.yml`) and of the headless frontend's input script. | [YAML](https://yaml.org/) |
 | YJIT | — (Yet another Ruby JIT, by its authors) | CRuby's lazy basic-block-versioning JIT, enabled with `--yjit`. | [YJIT](https://docs.ruby-lang.org/en/master/yjit/yjit_md.html) |
 | ZJIT | — (the name is not expanded by its documentation) | CRuby's newer method-based JIT, enabled with `--zjit`. | [ZJIT](https://docs.ruby-lang.org/en/master/zjit_md.html) |
 

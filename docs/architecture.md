@@ -186,8 +186,20 @@ mark. OAMADDR is 0 on dots 257-320. Each pixel, the background's and the sprites
 picks one by NESdev's decision table; where both are opaque it asks `Ppu::SpriteZeroHit` (sprite 0, not x = 255). `Ppu`
 decodes PPUCTRL bits 3, 4 and 5 and PPUMASK bits 0-4 and tells the renderer and the sprite renderer, which pass each
 setting to its part; PPUSTATUS bits 6-5 are `SpriteStatus`'s, cleared at dot 1 of the pre-render line.
-`Debug::FrameDump` writes a frame as a PPM image with NESdev's `2C02G_U_wiki.pal`;
-`rake debug:frame[rom,frame_count,output]` runs a ROM and dumps its last frame.
+`Ppu::Picture` also ORs PPUMASK's emphasis bits (5-7, told by `Ppu`) into bits 6-8 of every pixel, and draws into
+a buffer of its own that it swaps with the published one when `Ppu::FrameTiming` enters the post-render scanline
+(plan 16, see Frame buffer contract).
+
+### Frontends
+
+`Frontends::Base` is the contract a frontend honours (`running?`, `button_states`, `present(frame_buffer)`,
+`queue_audio(samples)`) and `Frontends::Driver` the loop they share: the buttons go to `Console#controllers`, the
+console runs a frame, the frontend gets `Ppu#frame_buffer`. `Frontends::Palette` turns pixels into RGB with the 512
+colours of NESdev's `2C02G_U_wiki.pal` (64 per emphasis combination), `Frontends::Png` encodes an image, and
+`Frontends::Headless` runs N frames with an `Frontends::InputScript` (YAML, frame number to the buttons held from it
+on), writes PNG screenshots and keeps each frame's SHA-256. `exe/ruby-nes ROM --headless --frames N
+[--screenshot FRAME:PATH] [--input SCRIPT]` is `CommandLine` (plan 16). The core never loads any of them:
+`lib/ruby/nes.rb` requires no frontend file, and a spec checks it in a process of its own.
 
 ## Clock
 
@@ -269,10 +281,10 @@ most calls.
 | `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::BackgroundShifters`, `::LayerVisibility`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
 | `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller`, `::ControllerPorts` | a standard controller; the device answering `$4016`/`$4017` |
-| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Headless`… | headless, raylib/sdl2 (later) |
-| `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer`, `::FrameDump`… | tooling off the hot path |
+| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver`, `::Headless`, `::InputScript`, `::Palette`, `::Png` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); raylib/SDL2 later (plan 17). Never loaded by `lib/ruby/nes.rb` |
+| `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer` | tooling off the hot path |
 | `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | the bit constants hot paths use inline (`BYTE_MASK`, `PAGE_MASK`…) and readable bit helpers for code off the hot path |
-| `lib/ruby/nes/cli.rb` | — | command line (plan 18) |
+| `lib/ruby/nes/command_line.rb`, `command_line/` | `Ruby::Nes::CommandLine`, `::Options` | `exe/ruby-nes`: loads the core and the frontends, parses the arguments, runs a ROM (plan 16; plan 18 adds the window) |
 | `spec/support/test_roms.rb`, `spec/support/test_roms/` | `TestRoms`, `TestRoms::Manifest`, `::Fetcher`… | test ROM harness (plan 02): test tooling, not shipped in the gem |
 | `spec/support/blargg.rb`, `spec/support/blargg/` | `Blargg`, `Blargg::Report`, `::LegacyReport`, `::Runner`, `::Programs` | blargg's "Output at $6000" protocol, the 2005 ROMs' result at `$F8` (plan 14), and a runner that presses reset when asked (plan 12): test tooling, also used by `rake blargg:run`; specs in `spec/blargg/`, the real ROMs tagged `slow: true` |
 | `spec/support/nestest.rb`, `spec/support/nestest/` | `Nestest`, `Nestest::Log`, `::Runner`, `::Divergence` | nestest in automation mode compared with its reference trace (plan 08): test tooling, also used by `rake nestest:diff` |
@@ -296,7 +308,7 @@ Rules:
 A **hot path** is everything called, directly or indirectly, per CPU instruction, per CPU bus access, per PPU dot or
 per APU tick: `Cpu#step` and the instruction implementations, `CpuBus` and `PpuBus` reads and writes, mapper
 `cpu_read`/`cpu_write`/`ppu_read`/`ppu_write`, the PPU dot and the APU tick, and the `Console` loop around them.
-Loading a ROM, the CLI, frontends (outside the per-frame copy), debug tooling and specs are not hot paths.
+Loading a ROM, the command line, frontends (they run once per frame), debug tooling and specs are not hot paths.
 
 Rules on hot paths:
 
@@ -331,8 +343,8 @@ production code and specs alike.
 **Exception 1 — hardware acronyms** (decision 4). Documented hardware names are kept in class and constant names
 (`Cpu`, `Ppu`, `Apu`, `Oam`, `Dmc`, `PPUCTRL`) because they are what the reference documentation uses and what a reader
 searches for. Each is expanded in [`GLOSSARY.md`](GLOSSARY.md#hardware-terms), and the class or constant comment
-expands its own. Standard computing acronyms used by the tooling (URL, HTTP, YAML, SHA-256, SSL, JSON, PPM, and the
-JIT names JIT, YJIT, ZJIT) are allowed on the same terms (decision 5): each is expanded in
+expands its own. Standard computing acronyms used by the tooling (URL, HTTP, YAML, SHA-256, SSL, JSON, PNG, RGB, CRC,
+and the JIT names JIT, YJIT, ZJIT) are allowed on the same terms (decision 5): each is expanded in
 [`GLOSSARY.md`](GLOSSARY.md#computing-terms). Anything else is spelled out.
 
 **Exception 2 — inline bit operations on hot paths** (decision 3). On hot paths the operators `&`, `|`, `^`, `~`,
@@ -383,12 +395,17 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 
 ## Frame buffer contract
 
-- The PPU writes **palette indices** (0–63; a 6-bit value selects one of the 64 colours, see
-  [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes)) into a preallocated buffer of 256 × 240 entries, row by
-  row. Colour emphasis bits are added on top when the PPU plans get there.
-- `Ppu#frame_buffer` is `Ppu::Picture`'s buffer, filled as the dots run (plan 13): there is one buffer, no double
-  buffering. `Console#run_frame` stops within the first instruction of the next frame, so up to the first few pixels
-  of row 0 already belong to it; plan 16 decides how a frontend gets a complete frame.
+- The PPU writes **pixels of 0–511** into preallocated buffers of 256 × 240 entries, row by row: bits 5-0 are the
+  palette index (a 6-bit value selects one of the 64 colours, see
+  [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes)), bits 8-6 PPUMASK's emphasis bits 7-5 (bit 6 red, bit 7
+  green, bit 8 blue on NTSC, [Colour emphasis](https://www.nesdev.org/wiki/Colour_emphasis)), which "are applied
+  independently of greyscale" (plan 16, decision 2).
+- **Double buffering** (plan 16, decision 1): `Ppu::Picture` draws into one buffer and, when the PPU enters the
+  post-render scanline 240, swaps it with the one `Ppu#frame_buffer` returns. So `Ppu#frame_buffer` is always one
+  whole frame, although `Console#run_frame` stops within the first instruction of the next one. The two arrays
+  alternate: the one a frontend gets is valid until the next frame completes, then drawn over, so a frontend asks for
+  it after each frame and copies it to keep it. Every visible pixel is drawn every frame (rendering or forced
+  blank), so nothing stale survives in the back buffer.
 - Converting indices to RGB, scaling and presenting are the **frontend's** job. The core never depends on a graphics
   library.
 
@@ -406,7 +423,7 @@ presentation, in a frontend).
 | 2 | 2026-11-17 | Memory container: `Array` of Integer | Most readable; plan 10 measured a binary `String` −4% and `IO::Buffer` −24% under YJIT, both slower without a JIT ([benchmarks](benchmarks.md#findings)) | — |
 | 3 | 2026-11-17 | Hot paths write bit operations inline with named constants and `# glossary:` tags; flag tests always use `anybits?`/`nobits?` | No method call per cycle, meaning still one lookup away; RuboCop enforces the predicates. Plan 10: `Bits` helpers on the per-instruction path cost nothing measurable under YJIT and ZJIT but 14% without a JIT, and that path is only a lower bound of a full conversion | Plan 25 (measure the whole hot path converted before narrowing the exception) |
 | 4 | 2026-11-17 | Hardware acronyms kept in names, expanded in the glossary | They match the reference documentation readers search | — |
-| 5 | 2026-11-17 | Standard computing acronyms (URL, HTTP, YAML, SHA-256, SSL; JSON, JIT, YJIT, ZJIT since plan 10; PPM since plan 13) allowed in tooling names, expanded in the glossary | They are what the libraries and protocols call them; spelling them out (`address` for URL) would clash with emulator terms | — |
+| 5 | 2026-11-17 | Standard computing acronyms (URL, HTTP, YAML, SHA-256, SSL; JSON, JIT, YJIT, ZJIT since plan 10; PPM since plan 13, replaced by PNG, RGB and CRC in plan 16) allowed in tooling names, expanded in the glossary | They are what the libraries and protocols call them; spelling them out (`address` for URL) would clash with emulator terms | — |
 | 6 | 2026-11-18 | The status register is a `Cpu::Status` object holding one boolean ivar per flag; the byte is composed for pushes and the trace, split by pulls | The object hides the representation, so plan 10 could swap it alone: one ivar per flag measured +5% under YJIT, +7% without a JIT and +5% under ZJIT against one Integer with bit masks (the first representation, 2026-11-18) | Plan 25 |
 | 7 | 2026-11-18 | The page-cross cycle of indexed reads is charged by `_for_read` resolvers; write and read-modify-write instructions use the plain ones | Tell, don't ask: no flag to query, no second return value | — |
 | 8 | 2026-11-18 | Dummy reads are not modelled (see Known gaps) | They matter only for registers with read side effects and open bus, which need the PPU | Superseded by 26 (plan 12) |
@@ -437,3 +454,7 @@ presentation, in a frontend).
 | 33 | 2026-11-19 | `BackgroundSchedule`, `BackgroundRenderer` and `BackgroundVisibility` became `RenderSchedule`, `Renderer` and `LayerVisibility`; the sprite steps go to `SpriteRenderer`, the sprite pattern address is a strategy per sprite size, and sprite 0 hit is its own `SpriteZeroHit` | One visibility rule serves both layers; each unit decides one thing (plan 14, decision 7) | — |
 | 34 | 2026-11-19 | Composing the sprites costs about 28% of the frame rate under YJIT on nestest (26.6 to 19.2 frames per second, 300 frames after 30) | Three calls per pixel more (sprite pixel, its visibility, the multiplexer) and the sprite steps of dots 257-320 | Plan 25 |
 | 35 | 2026-11-19 | `CpuBus` splits `$4000-$4017` into an `apu_registers:` slot (`$4000-$4015`, writes to `$4017`) and a `controller_ports:` slot (reads of `$4016`/`$4017`, writes to `$4016`), as it already routed `$4014` writes to the OAM DMA | It mirrors the 2A03, which decodes the range itself (the ports leave the chip through /OE1, /OE2 and OUT0-2); `$4016`/`$4017` are the last two addresses before `$4018`, so a read costs one more comparison and no intermediate device (plan 15, decision 1) | Plan 22 |
+| 36 | 2026-11-19 | `Ppu::Picture` double-buffers the frame and swaps at the post-render scanline (`FrameTiming` tells `picture_completed`); `Ppu#frame_buffer` is the last complete frame | A frontend gets one whole frame although `run_frame` stops inside the next one; O(1), no allocation, one comparison per scanline; moving `run_frame`'s stop point would change plan 12's decision 7 (plan 16, decision 1) | — |
+| 37 | 2026-11-19 | A pixel is 9 bits: the colour plus PPUMASK's emphasis bits in bits 6-8, ORed by `Ppu::Picture` | Mid-frame PPUMASK writes affect only the following pixels and the frontend never asks the PPU; one OR per pixel (plan 16, decision 2) | Plan 25 |
+| 38 | 2026-11-19 | Frontends live in `Ruby::Nes::Frontends` (`Base` contract, `Driver` loop), never loaded by the core; RGB is 3 bytes per pixel built with one `values_at` + `join` over a 512-entry table | The core never depends on a frontend; the join measured 2.8 ms per frame with and without a JIT, ahead of a preallocated `String` (2.4 ms under YJIT, 5.4 ms without one) and `flat_map` + `pack` (12-13 ms) (plan 16, decision 4) | Plan 17 (RGBA if a backend needs it), plan 25 |
+| 39 | 2026-11-19 | The command line is `Ruby::Nes::CommandLine`; `Debug::FrameDump` (PPM) and `rake debug:frame` are replaced by `exe/ruby-nes ROM --headless --screenshot FRAME:PATH` | One image path (PNG through the shared palette) instead of two; "CLI" would be an acronym outside the glossary (plan 16, decisions 5 and 7) | Plan 18 |
