@@ -14,6 +14,13 @@ Candidates:
 - **raylib** via `raylib-bindings` — window, texture, input and audio streams in one simple API.
 - **SDL2** via `ruby-sdl2` — the de facto standard in emulators; queue-based audio fits an APU well.
 
+From plan 16: a frontend subclasses `Frontends::Base` (`running?`, `button_states`, `present(frame_buffer)`,
+`queue_audio(samples)`) and `Frontends::Driver` runs the loop (buttons to `Console#controllers`, `run_frame`,
+`present(console.ppu.frame_buffer)`). The frame buffer holds pixels of 0-511 (palette index plus emphasis bits); it
+is one of two arrays the PPU swaps, valid until the next frame completes: copy it if presenting is deferred.
+`Frontends::Palette.rgb(frame_buffer)` turns it into RGB24, 3 bytes per pixel (about 2.8 ms per frame with or without
+a JIT, plan 16 decision 4): both libraries take RGB24 textures; add RGBA only if one needs it. `Frontends::Headless` and `exe/ruby-nes ROM --headless` are the reference run to compare against.
+
 Things to verify, not assume (Ruby 4.0.9 is recent; native extensions and FFI bindings may lag): installation on macOS
 (Homebrew libraries, native extension build), maintenance status, and whether SDL3 has usable Ruby bindings yet.
 
@@ -21,9 +28,9 @@ Things to verify, not assume (Ruby 4.0.9 is recent; native extensions and FFI bi
 
 In:
 
-- `Frontends::Raylib` and `Frontends::Sdl2`, each minimal: window at 3× scale, present the frame buffer as a texture,
-  keyboard → controller 1, quit on window close, and an audio smoke test (a 440 Hz square wave pushed through the
-  library's streaming API).
+- `Frontends::Raylib` and `Frontends::Sdl2`, each minimal: window at 3× scale, present the frame buffer as a texture
+  (RGB24 from `Frontends::Palette`), keyboard → controller 1, quit on window close, and an audio smoke test (a 440 Hz
+  square wave pushed through the library's streaming API).
 - Both libraries in an optional Gemfile group so the core never requires them.
 - `docs/backend-comparison.md` with the matrix below and the decision.
 

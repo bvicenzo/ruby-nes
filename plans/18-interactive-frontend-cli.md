@@ -27,7 +27,11 @@ In:
   filter them).
 - Keys: pause, reset, quit, toggle FPS overlay (or window-title FPS).
 - Frame pacing with drift correction.
-- CLI: `ruby-nes ROM [--scale N] [--jit=none|yjit|zjit] [--headless …]`.
+- CLI: `ruby-nes ROM [--scale N] [--jit=none|yjit|zjit] [--headless …]`. Plan 16 built `Ruby::Nes::CommandLine` and
+  `CommandLine::Options` (`--headless`, `--frames`, `--screenshot FRAME:PATH`, `--input SCRIPT`; without
+  `--headless` it stops with a message): extend them, and run the window through `Frontends::Driver`. The pacing
+  belongs to the windowed frontend (e.g. in `present` or `running?`), so the driver stays the same for every
+  frontend.
 
 Out: audio (plan 24), save states (backlog).
 

@@ -50,6 +50,11 @@ second; architecture decision 34): per pixel, `SpriteRenderer#pixel` (the line b
 `PriorityMultiplexer#palette_entry`, plus the sprite steps of dots 257-320. Candidates: skipping the sprite path on
 lines whose buffer is empty, and inlining the visibility.
 
+From plan 16: `Ppu::Picture#draw` ORs the emphasis bits into every pixel (one more operation per visible dot) and
+swaps two buffers once per frame; the frontends' RGB conversion (`Frontends::Palette.rgb`, one `values_at` + `join`)
+costs about 2.8 ms per frame. `Frontends::Headless` with an `InputScript` is the scripted runner `bench/frame.rb`
+can drive.
+
 ## Open decisions
 
 - Which accuracy shortcuts are acceptable (e.g. scanline-based fast path, APU catch-up)? Each one is proposed with its
