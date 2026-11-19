@@ -12,10 +12,12 @@ module Ruby
       # IRQ is level-sensitive and masked by the status's I. "If both an NMI and an IRQ are pending at the end of an
       # instruction, the NMI will be handled".
       #
-      # The NMI edge carries the CPU cycle it happened on, and the poll sees "the line status at the end of the
-      # second-to-last cycle" of the previous instruction (plan 12, decision 2): an edge on its last cycle waits one
-      # more instruction. A second edge while one is pending keeps the first one's cycle. The IRQ line is polled
-      # without a cycle (plan 22 brings its timing).
+      # The NMI edge carries the first CPU cycle whose φ2 sample sees it, and what the poll sees is "the status of the
+      # interrupt lines at the end of the second-to-last cycle" of the previous instruction (plan 12, decision 2): an
+      # edge on its last cycle waits one more instruction. A second edge while one is pending keeps the first one's
+      # cycle. The detector "polls the status of the NMI line during φ2 of each CPU cycle", so a line released within
+      # the cycle it rose in leaves no edge: that is how a $2002 read or an NMI disable right after VBlank starts
+      # suppresses the NMI. The IRQ line is polled without a cycle (plan 22 brings its timing).
       class InterruptLines
         # The poll sees edges up to the cycle before the previous instruction's last one.
         POLL_DELAY_CYCLES = 1
@@ -33,6 +35,9 @@ module Ruby
           if asserted && !@nmi_line && !@nmi_pending
             @nmi_pending = true
             @nmi_edge_cycle = cycle
+          elsif !asserted && @nmi_pending && @nmi_edge_cycle == cycle
+            # Released before the φ2 sample of the cycle it rose in: the detector never saw it low.
+            @nmi_pending = false
           end
           @nmi_line = asserted
         end

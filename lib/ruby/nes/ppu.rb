@@ -8,17 +8,19 @@ module Ruby
     #
     # PPU open bus (https://www.nesdev.org/wiki/Open_bus_behavior#PPU_open_bus): the PPU keeps its own I/O latch,
     # modelled without decay (plan 11, decision 1). "Writes to any PPU port [...] load a value onto the PPU's I/O bus";
-    # reads of $2004 and $2007 load the byte read; a PPUSTATUS read loads its bits 7-5 only; the write-only registers and
-    # PPUSTATUS's bits 4-0 answer the latch. The CPU's data bus never reaches it, so `cpu_read` ignores `data_bus`.
+    # reads of $2004 and $2007 load the byte read; a PPUSTATUS read loads its bits 7-5 only; the write-only registers
+    # and PPUSTATUS's bits 4-0 answer the latch. The CPU's data bus never reaches it, so `cpu_read` ignores `data_bus`.
     #
     # Time (plan 12): `catch_up` advances the frame timing 3 dots per CPU cycle
     # (https://www.nesdev.org/wiki/Cycle_reference_chart). The Ppu hears the frame timing's VBlank events and the VBlank
-    # flag's /NMI output, and tells `nmi_input.nmi_line_changed(asserted, cycle)` with the CPU cycle the change happened
-    # on. `nmi_input` is given as a keyword or, by the Console, which builds the CPU after the PPU, through its writer.
+    # flag's /NMI output, and tells `nmi_input.nmi_line_changed(asserted, cycle)` with the first CPU cycle whose φ2
+    # sample sees the change. `nmi_input` is given as a keyword or, by the Console, which builds the CPU after the PPU,
+    # through its writer.
     #
     # Reset (https://www.nesdev.org/wiki/PPU_power_up_state): the reset signal clears PPUCTRL, PPUMASK, PPUSCROLL,
     # PPUADDR, their latch and the PPUDATA read buffer, and is "cleared at the end of VBlank"; until then writes to
-    # PPUCTRL, PPUMASK, PPUSCROLL and PPUADDR have no effect, though they still load the I/O latch (plan 12, unit 3).
+    # PPUCTRL, PPUMASK, PPUSCROLL and PPUADDR have no effect; by convention they still load the I/O latch (plan 12,
+    # decision 11).
     # `Ppu.new` is ready: writes are accepted until the first reset (plan 12, decision 8).
     #
     # Not yet: the sprite 0 hit and overflow flags (PPUSTATUS bits 6-5 read 0 until plan 14).
@@ -49,6 +51,10 @@ module Ruby
       VERTICAL_BLANK_FLAG = 0x80
       # "3 dots per CPU cycle" on NTSC (https://www.nesdev.org/wiki/Cycle_reference_chart).
       DOTS_PER_CPU_CYCLE = 3
+      # The CPU samples NMI "during φ2 of each CPU cycle" (https://www.nesdev.org/wiki/CPU_interrupts), before the
+      # cycle's last dot: a change on that dot is seen in the next cycle. Calibrated with ppu_vbl_nmi 05-08 (plan 12,
+      # decision 2).
+      NMI_SAMPLE_LEAD_DOTS = 1
 
       attr_writer :nmi_input
 
@@ -73,17 +79,20 @@ module Ruby
 
       def frame_number = @frame_timing.frame_number
 
-      # Advances the PPU to the start of the given CPU cycle: 3 dots per cycle; a cycle already reached advances nothing.
+      # Advances the PPU to the start of the given CPU cycle: 3 dots per cycle; a cycle already reached advances
+      # nothing.
       def catch_up(cpu_cycle)
         target = cpu_cycle * DOTS_PER_CPU_CYCLE
         while @dots < target
-          @frame_timing.advance
+          # The dot entered counts before the frame timing runs it, so its events carry that dot's CPU cycle.
           @dots += 1
+          @frame_timing.advance
         end
       end
 
-      # The reset signal: clears PPUCTRL, PPUMASK, t, fine x, w and the PPUDATA read buffer, puts the frame timing at the
-      # top of an even frame, and ignores the writes it guards until VBlank ends. v, OAMADDR and the VBlank flag stay.
+      # The reset signal: clears PPUCTRL, PPUMASK, t, fine x, w and the PPUDATA read buffer, puts the frame timing at
+      # the top of an even frame, and ignores the writes it guards until VBlank ends. v, OAMADDR and the VBlank flag
+      # stay.
       def reset
         write_control(0)
         write_mask(0)
@@ -103,10 +112,11 @@ module Ruby
         @writes_ignored = false
       end
 
-      # The VBlank flag's /NMI output changed: the CPU hears it with the cycle of the dot being run (or, between dots,
-      # of the next one).
+      # The VBlank flag's /NMI output changed on the dot the PPU stands on (the dot just entered when the change comes
+      # from the frame timing, the next one to run between catch-ups): the CPU hears it with the first cycle whose φ2
+      # sample sees that dot.
       def nmi_output_changed(asserted)
-        @nmi_input.nmi_line_changed(asserted, @dots / DOTS_PER_CPU_CYCLE)
+        @nmi_input.nmi_line_changed(asserted, (@dots + NMI_SAMPLE_LEAD_DOTS) / DOTS_PER_CPU_CYCLE)
       end
 
       # The byte the register puts on the CPU data bus; `data_bus` is not read (the PPU answers from its own latch).

@@ -13,10 +13,15 @@
 # their latch and the PPUDATA read buffer; "Note that the VRAM address itself (V) is _not_ cleared"; "The VBL flag
 # (PPUSTATUS bit 7) is random at power, and unchanged by reset"; OAMADDR is unchanged. The signal is "cleared at the end
 # of VBlank", and until then writes to PPUCTRL, PPUMASK, PPUSCROLL and PPUADDR have no effect ("Attempting to write to
-# a register while it is being cleared has no effect"); they still load the I/O latch, which is a bus, not one of the
-# cleared registers (plan 12, unit 3).
+# a register while it is being cleared has no effect"); by convention they still load the I/O latch, which is a bus,
+# not one of the cleared registers: no source says either way (plan 12, decision 11).
 #
-# The clock (https://www.nesdev.org/wiki/Cycle_reference_chart): exactly 3 PPU dots per CPU cycle.
+# The clock (https://www.nesdev.org/wiki/Cycle_reference_chart): exactly 3 PPU dots per CPU cycle. An event raised while
+# the frame timing advances belongs to the dot it enters, the dot from which a register read sees it. The CPU's edge
+# detector "polls the status of the NMI line during φ2 of each CPU cycle (i.e., during the second half of each cycle)"
+# (https://www.nesdev.org/wiki/CPU_interrupts): an NMI change on a cycle's first or middle dot is seen in that cycle,
+# one on its last dot only in the next. That φ2 point, before the last dot, is calibrated with ppu_vbl_nmi 05-08,
+# which pass only with it (plan 12, decision 2).
 RSpec.describe Ruby::Nes::Ppu do
   describe '#cpu_write' do
     context 'when the PPU was reset and VBlank has not ended since' do
@@ -620,7 +625,59 @@ RSpec.describe Ruby::Nes::Ppu do
         end
       end
 
-      context 'and the PPU is on the last dot of a CPU cycle' do
+      context 'and the change comes as the PPU enters the middle dot of a CPU cycle' do
+        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming) }
+
+        context 'and the output is asserted' do
+          before do
+            allow(frame_timing).to receive(:advance).and_invoke(-> { ppu.nmi_output_changed(true) }, -> {}, -> {})
+          end
+
+          it 'tells the input on the cycle of that dot' do
+            ppu.catch_up(1)
+            expect(nmi_input).to have_received(:nmi_line_changed).with(true, 0).once
+          end
+        end
+
+        context 'and the output is released' do
+          before do
+            allow(frame_timing).to receive(:advance).and_invoke(-> { ppu.nmi_output_changed(false) }, -> {}, -> {})
+          end
+
+          it 'tells the input on the cycle of that dot' do
+            ppu.catch_up(1)
+            expect(nmi_input).to have_received(:nmi_line_changed).with(false, 0).once
+          end
+        end
+      end
+
+      context 'and the change comes as the PPU enters the last dot of a CPU cycle' do
+        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming) }
+
+        context 'and the output is asserted' do
+          before do
+            allow(frame_timing).to receive(:advance).and_invoke(-> {}, -> { ppu.nmi_output_changed(true) }, -> {})
+          end
+
+          it 'tells the input on the next cycle, the first whose φ2 sees it' do
+            ppu.catch_up(1)
+            expect(nmi_input).to have_received(:nmi_line_changed).with(true, 1).once
+          end
+        end
+
+        context 'and the output is released' do
+          before do
+            allow(frame_timing).to receive(:advance).and_invoke(-> {}, -> { ppu.nmi_output_changed(false) }, -> {})
+          end
+
+          it 'tells the input on the next cycle, the first whose φ2 sees it' do
+            ppu.catch_up(1)
+            expect(nmi_input).to have_received(:nmi_line_changed).with(false, 1).once
+          end
+        end
+      end
+
+      context 'and the change comes as the PPU enters the first dot of a CPU cycle' do
         let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming) }
 
         context 'and the output is asserted' do
@@ -628,9 +685,9 @@ RSpec.describe Ruby::Nes::Ppu do
             allow(frame_timing).to receive(:advance).and_invoke(-> {}, -> {}, -> { ppu.nmi_output_changed(true) })
           end
 
-          it 'tells the input on the CPU cycle the dot belongs to' do
+          it 'tells the input on the cycle of that dot' do
             ppu.catch_up(1)
-            expect(nmi_input).to have_received(:nmi_line_changed).with(true, 0).once
+            expect(nmi_input).to have_received(:nmi_line_changed).with(true, 1).once
           end
         end
 
@@ -639,9 +696,9 @@ RSpec.describe Ruby::Nes::Ppu do
             allow(frame_timing).to receive(:advance).and_invoke(-> {}, -> {}, -> { ppu.nmi_output_changed(false) })
           end
 
-          it 'tells the input on the CPU cycle the dot belongs to' do
+          it 'tells the input on the cycle of that dot' do
             ppu.catch_up(1)
-            expect(nmi_input).to have_received(:nmi_line_changed).with(false, 0).once
+            expect(nmi_input).to have_received(:nmi_line_changed).with(false, 1).once
           end
         end
       end

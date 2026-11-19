@@ -7,9 +7,12 @@
 # NMI, BRK, and reset are not affected", https://www.nesdev.org/wiki/Status_flags). "If both an NMI and an IRQ are
 # pending at the end of an instruction, the NMI will be handled". Both lines start released.
 #
-# The polling point (plan 12, decision 2): the CPU polls "the line status at the end of the second-to-last cycle" of an
-# instruction, so an NMI edge on the instruction's last cycle is taken one instruction later. The poll gives the cycle
-# the next step starts on, one past the previous instruction's last cycle.
+# The polling point (plan 12, decision 2): the CPU polls "the status of the interrupt lines at the end of the
+# second-to-last cycle" of an instruction, so an NMI edge on the instruction's last cycle is taken one instruction
+# later. The poll gives the cycle the next step starts on, one past the previous instruction's last cycle. The edge
+# detector "polls the status of the NMI line during φ2 of each CPU cycle" and sees an edge when the input goes "from
+# being high during one cycle to being low during the next", so a line asserted and released again within one cycle
+# leaves no edge (plan 12, decision 2).
 RSpec.describe Ruby::Nes::Cpu::InterruptLines do
   describe '#acknowledge' do
     context 'when the NMI line stays released' do
@@ -79,6 +82,21 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
     end
 
     context 'when the NMI line rose from released to asserted' do
+      context 'but it was released again within the same CPU cycle' do
+        subject(:interrupt_lines) do
+          described_class.new(status:).tap do |lines|
+            lines.nmi_line_changed(true, 8)
+            lines.nmi_line_changed(false, 8)
+          end
+        end
+
+        let(:status) { Ruby::Nes::Cpu::Status.new }
+
+        it 'returns nothing' do
+          expect(interrupt_lines.acknowledge(10)).to be_nil
+        end
+      end
+
       context 'but the edge came on the last cycle of the previous instruction' do
         context 'and the IRQ line is released' do
           subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 9) } }
