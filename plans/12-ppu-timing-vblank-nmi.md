@@ -2,7 +2,7 @@
 
 **Depends on:** 07, 11
 
-**Status:** in progress (base 8977021)
+**Status:** done (2026-11-19)
 
 ## Goal
 
@@ -80,12 +80,17 @@ Settled with the user on 2026-11-18.
    instruction makes its data access on its last cycle ([6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)), so the
    sync puts reads and writes on the right dot; read-modify-write instructions on PPU registers are approximated.
    Cost: one call per PPU register access, none per instruction beyond the console's catch-up.
-2. **NMI polling point.** The NMI edge carries the CPU cycle it happened on (the PPU's dot divided by 3). At the start
-   of a step the CPU takes a pending NMI only if its edge came before the last cycle of the previous instruction:
-   "the line status at the end of the second-to-last cycle" is what the poll sees
-   ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts)); a later edge is taken one instruction later.
-   `Cpu#nmi_line=` gains the cycle (name settled in TDD). Reason: decision 1 alone moves the write to the right dot
-   but the CPU would still see it before the next instruction.
+2. **NMI polling point.** The NMI edge carries a CPU cycle, and at the start of a step the CPU takes a pending NMI
+   only if its edge came before the last cycle of the previous instruction: "the status of the interrupt lines at the
+   end of the second-to-last cycle" is what the poll sees ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts));
+   a later edge is taken one instruction later. `Cpu#nmi_line_changed(asserted, cycle)` replaces `Cpu#nmi_line=`.
+   Reason: decision 1 alone moves the write to the right dot but the CPU would still see it before the next
+   instruction. *Refined after the review (2026-11-19, investigating `ppu_vbl_nmi` 05-08):* the edge detector "polls
+   the status of the NMI line during φ2 of each CPU cycle", so the cycle a change carries is the first whose φ2 sample
+   sees it, `(dot + 1) / 3` with the dot just entered (a change on a cycle's last dot counts for the next), and a line
+   released within that same cycle leaves no edge. Only this pair passes 05-08 (the change on its own dot's cycle, or
+   two dots ahead, fail them, with or without the cancellation); it also gives the suppression by `$2002` reads on
+   the dot VBlank starts or the next one, which decision 5 had left as a gap.
 3. **IRQ sources combine as a wired-OR push.** Each source asserts and releases its own bit on a shared line (the
    open-collector IRQ line of the hardware); the CPU sees the line asserted while any bit is set. It replaces the
    mappers' `irq?` predicate. Recorded in `docs/architecture.md` and plans 21/22; the first plan with an IRQ source
@@ -101,8 +106,8 @@ Settled with the user on 2026-11-18.
    frame ("Reading the flag on the dot before it is set (scanling 241, dot 0) causes it to read as 0 and be cleared",
    [PPU registers](https://www.nesdev.org/wiki/PPU_registers); "the flag is not set and the NMI is not generated for
    that frame", [PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing)). NMI suppression by reads on the
-   same dot or the next one stays a Known gap: the CPU has already latched the edge. `06-suppression`'s result is
-   recorded.
+   same dot or the next one was left as a Known gap, then modelled by decision 2's φ2 sampling (after the review):
+   `06-suppression` passes.
 6. **Slow test ROM runs.** Examples that run a blargg ROM are tagged `slow: true` and excluded by default; `SLOW=1`
    includes them. Criterion: CI always runs them (`SLOW=1`, under YJIT, in a job of their own on every push and pull
    request), and phase 5 of `implement-plan` runs `SLOW=1 bundle exec rake` before closing any plan that touches the
@@ -119,6 +124,9 @@ Settled with the user on 2026-11-18.
 10. **`LAX #imm` ($AB) uses the magic constant $FF** (settled during implementation, 2026-11-19, with the user):
     `instr_test-v5/03-immediate` fails with $EE (plan 09's choice, "No More Secrets"' advice) and $00 and passes with
     $FF; NESdev gives no constant. Plan 09's decision 7 carries a note.
+11. **An ignored write still loads the PPU's I/O latch** (a convention, settled with the user in unit 3): the reset
+    signal clears registers, and the latch is a bus that every write to a PPU port loads; no source says what an
+    ignored write does to it.
 
 ## Tasks
 
@@ -131,10 +139,10 @@ Settled with the user on 2026-11-18.
       the layer that owns the clock (the Ppu or the console), not here.
 - [x] `Ppu`: `$2002` bit 7, `$2000` bit 7, `$2001` rendering bits, `reset` with the ignored writes, `catch_up`. The
       Ppu hears FrameTiming's events and VerticalBlank's `nmi_output_changed`, and tells
-      `nmi_input.nmi_line_changed(asserted, cycle)` with the CPU cycle of the dot (`nmi_input:` keyword, or the writer
-      the Console uses). Reset also clears t, fine x and the PPUDATA read buffer (`ScrollRegisters#reset`,
-      `DataPort#clear_read_buffer`); an ignored write still loads the I/O latch, which is a bus, not a cleared
-      register.
+      `nmi_input.nmi_line_changed(asserted, cycle)` with the first CPU cycle whose φ2 sample sees the dot
+      (`nmi_input:` keyword, or the writer the Console uses). Reset also clears t, fine x and the PPUDATA read buffer
+      (`ScrollRegisters#reset`, `DataPort#clear_read_buffer`); an ignored write still loads the I/O latch, by
+      convention (decision 11).
 - [x] `Cpu`: base cycles charged before `execute`; `InterruptLines` takes the NMI at the polling point.
       `Cpu#nmi_line_changed(asserted, cycle)` replaces `nmi_line=`; `InterruptLines#acknowledge(cycle)` takes an NMI
       whose edge came before the previous instruction's last cycle (a second edge while pending keeps the first
@@ -170,6 +178,8 @@ Settled with the user on 2026-11-18.
       passes with $FF; Z and N from the result are confirmed (decision 10).
 - [x] `ppu_vbl_nmi` `01-vbl_basics` and `04-nmi_control` pass; the result of every other ROM in the suite is recorded
       in `docs/test-roms.md` with the reason for each failure.
+      *Result:* 01-09 pass once the NMI is sampled at φ2 (decision 2, refined after the review); 10 fails for the
+      rendering toggle delay (Known gaps, plan 13).
 - [x] `instr_misc` `01-abs_x_wrap`, `02-branch_wrap` and `03-dummy_reads` pass.
 - [x] The nestest trace `PPU:` column now matches too (`Debug::Tracer#line` prints the PPU scanline and dot, and
       `Nestest::Log` keeps the column instead of dropping it).
@@ -177,9 +187,33 @@ Settled with the user on 2026-11-18.
       Known gaps rows of `docs/architecture.md` are updated to match.
 - [x] A frame is exactly 89 342 dots (89 341 on odd frames with rendering enabled); CPU cycles per frame average
       29 780.5 with rendering enabled and 29 780⅔ without.
-- [ ] 100% branch coverage on the timing code; rubocop clean; `SLOW=1 bundle exec rake` green; CI runs the slow ROMs.
-      Verified locally: 529/529 branches, 162 files clean, 1456 examples with `SLOW=1`. The CI job `test-roms` is
-      configured; it is checked on the first push.
+- [x] 100% branch coverage on the timing code; rubocop clean; `SLOW=1 bundle exec rake` green; CI runs the slow ROMs.
+      Verified: 531/531 branches, 162 files clean, 1467 examples with `SLOW=1`; CI run 44528229063's `test-roms` job
+      ran the ROM examples under YJIT, 0 failures (24 then; 28 after the review's fixes, checked again on their push).
+
+## What was done
+
+- `Ppu::FrameTiming`: dots, scanlines, frame number and parity, the odd frame's skipped pre-render dot with rendering
+  on (sampled at dot 339), the VBlank events at (241, 1) and (261, 1), and the `$2002` read race at (241, 0).
+- `Ppu::VerticalBlank`: the VBlank flag and the /NMI level (flag AND PPUCTRL bit 7), told only when it changes.
+- `Ppu`: PPUSTATUS bit 7, PPUCTRL bit 7, PPUMASK's rendering bits, `catch_up(cpu_cycle)` (3 dots per cycle), `reset`
+  (PPUCTRL, PPUMASK, t, fine x, w, read buffer; writes to `$2000/$2001/$2005/$2006` ignored until VBlank ends), and
+  NMI changes stamped with the first CPU cycle whose φ2 sample sees them.
+- `Cpu`: base cycles charged before `execute`; `nmi_line_changed(asserted, cycle)` with the polling point and the
+  same-cycle cancellation; `pending_interrupt` for the tracer; dummy reads of the indexed modes (about 2% under YJIT);
+  `LAX #imm` with $FF.
+- `Console` (power-up, `step`, `run_frame`, `reset`) and `Console::PpuRegisterSync`, the register-access clock: frames
+  of exactly 89 342 dots (89 341 odd with rendering).
+- `Debug::Tracer`: the PPU column and lines for NMI, IRQ and a jammed CPU; nestest's runner steps a `Console` and all
+  8991 lines match with the PPU column.
+- `Blargg::Report`/`Runner` in `spec/support/`, `rake blargg:run`, 35 blargg ROMs in the manifest, 28 real-ROM examples
+  tagged `slow: true` (SLOW=1, CI job `test-roms` under YJIT): all 16 `instr_test-v5`, `ppu_vbl_nmi` 01-09 and
+  `instr_misc` 01-03 pass. `ppu_vbl_nmi/10`, `cpu_interrupts_v2` and `ppu_open_bus` fail for recorded reasons
+  (`docs/test-roms.md`).
+- Docs: `docs/architecture.md` (clock model, layout, Known gaps, decisions 23-29), `docs/GLOSSARY.md`,
+  `docs/test-roms.md`, `docs/benchmarks.md`; plans 09, 13, 16, 19-22, 25 and `implement-plan` phase 5 updated.
+- Independent Opus review: 12 findings, all applied; investigating `ppu_vbl_nmi` 05-08 led to the φ2 sampling
+  (decision 2, refined). 1467 examples with `SLOW=1`, 531/531 branches, RuboCop clean.
 
 ## References
 
