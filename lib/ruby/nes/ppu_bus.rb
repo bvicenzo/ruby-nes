@@ -9,6 +9,8 @@ module Ruby
     class PpuBus
       NAMETABLES_START = 0x2000
       PALETTE_START = 0x3F00
+      # The bus is 14 bits wide: a 15-bit v loses its top bit.
+      ADDRESS_MASK = 0x3FFF
 
       def initialize(mapper:)
         @mapper = mapper

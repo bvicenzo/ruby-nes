@@ -16,6 +16,8 @@ module Ruby
         ENTRY_MIRROR_MASK = 0x1F
         # A colour is one of the PPU's 64: 6 bits.
         COLOUR_MASK = 0x3F
+        # Greyscale (PPUMASK bit 0) is "bitwise ANDing the color with $30" (https://www.nesdev.org/wiki/PPU_registers).
+        GREYSCALE_COLOUR_MASK = 0x30
         ENTRIES_PER_PALETTE = 4
         SPRITE_PALETTES_START = 0x10
 

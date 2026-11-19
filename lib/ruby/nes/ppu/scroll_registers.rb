@@ -27,6 +27,18 @@ module Ruby
         COARSE_SCROLL_SHIFT = 3
         # v and t have 15 bits.
         VRAM_ADDRESS_MASK = 0x7FFF
+        # Rendering's updates of v ("Wrapping around"): bit 10 switches the horizontal nametable, bit 11 the vertical
+        # one; "hori(v)" is ".....A.. ...BCDEF" and "vert(v)" "GHIA.BC DEF.....".
+        HORIZONTAL_NAMETABLE_FLAG = 0x0400
+        VERTICAL_NAMETABLE_FLAG = 0x0800
+        HORIZONTAL_POSITION_MASK = HORIZONTAL_NAMETABLE_FLAG | COARSE_X_MASK
+        VERTICAL_POSITION_MASK = FINE_Y_MASK | VERTICAL_NAMETABLE_FLAG | COARSE_Y_MASK
+        # One step of fine Y and of coarse Y, in place.
+        FINE_Y_STEP = 1 << FINE_Y_SHIFT
+        COARSE_Y_STEP = 1 << COARSE_Y_SHIFT
+        # Coarse Y 29, in place: the last of the 30 tile rows, after which the vertical nametable switches. Software
+        # can set 30 and 31, which wrap to 0 "nametable not switched".
+        LAST_TILE_ROW = 29 << COARSE_Y_SHIFT
 
         attr_reader :vram_address, :temporary_address, :fine_x
 
@@ -91,6 +103,55 @@ module Ruby
         # A PPUDATA access outside rendering adds "either 1 or 32 to v"; v keeps its 15 bits.
         def increment_vram_address(increment)
           @vram_address = (@vram_address + increment) & VRAM_ADDRESS_MASK # glossary: low-bits
+        end
+
+        # Rendering, every 8 dots: "if coarse X == 31", coarse X = 0 and "switch horizontal nametable", else coarse X +
+        # 1.
+        def increment_coarse_x
+          if @vram_address.allbits?(COARSE_X_MASK)
+            @vram_address &= ~COARSE_X_MASK # glossary: clear-flag
+            @vram_address ^= HORIZONTAL_NAMETABLE_FLAG # glossary: toggle-flag
+          else
+            @vram_address += 1
+          end
+        end
+
+        # Rendering, dot 256: "if fine Y < 7", fine Y + 1; else fine Y = 0 and coarse Y moves to the next row.
+        def increment_y
+          if @vram_address.allbits?(FINE_Y_MASK)
+            @vram_address &= ~FINE_Y_MASK # glossary: clear-flag
+            increment_coarse_y
+          else
+            @vram_address += FINE_Y_STEP
+          end
+        end
+
+        # Rendering, dot 257: "v: ....A.. ...BCDEF <- t: ....A.. ...BCDEF".
+        def copy_horizontal_position
+          horizontal_position = @temporary_address & HORIZONTAL_POSITION_MASK # glossary: bitwise-and
+          @vram_address = (@vram_address & ~HORIZONTAL_POSITION_MASK) | horizontal_position # glossary: place-bit-field
+        end
+
+        # Rendering, dots 280-304 of the pre-render scanline: "v: GHIA.BC DEF..... <- t: GHIA.BC DEF.....".
+        def copy_vertical_position
+          vertical_position = @temporary_address & VERTICAL_POSITION_MASK # glossary: bitwise-and
+          @vram_address = (@vram_address & ~VERTICAL_POSITION_MASK) | vertical_position # glossary: place-bit-field
+        end
+
+        private
+
+        # "if (y == 29)" coarse Y = 0 and "switch vertical nametable"; "else if (y == 31)" coarse Y = 0, "nametable not
+        # switched"; else coarse Y + 1.
+        def increment_coarse_y
+          coarse_y = @vram_address & COARSE_Y_MASK # glossary: bitwise-and
+          if coarse_y == LAST_TILE_ROW
+            @vram_address &= ~COARSE_Y_MASK # glossary: clear-flag
+            @vram_address ^= VERTICAL_NAMETABLE_FLAG # glossary: toggle-flag
+          elsif coarse_y == COARSE_Y_MASK
+            @vram_address &= ~COARSE_Y_MASK # glossary: clear-flag
+          else
+            @vram_address += COARSE_Y_STEP
+          end
         end
       end
     end

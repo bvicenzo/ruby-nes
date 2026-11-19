@@ -13,32 +13,30 @@ module Ruby
       # bit is unused for access through $2007". The PPU tells the port its increment (PPUCTRL bit 2) and greyscale
       # (PPUMASK bit 0) when those registers are written.
       class DataPort
-        # The PPU bus is 14 bits wide.
-        BUS_ADDRESS_MASK = 0x3FFF
         # A palette read goes to the buffer from the nametable mirror $1000 below ($3Fxx -> $2Fxx).
         UNDERNEATH_PALETTE_OFFSET = 0x1000
         # A palette read returns the colour's 6 bits, or only bits 5-4 in greyscale; the top 2 come from the PPU's open
         # bus.
-        GREYSCALE_COLOUR_MASK = 0x30
         OPEN_BUS_BITS = 0xC0
 
         attr_writer :increment
 
-        def initialize(bus:, scroll_registers:, increment: ACROSS_INCREMENT, greyscale: false)
+        def initialize(bus:, scroll_registers:, frame_timing:, increment: ACROSS_INCREMENT, greyscale: false)
           @bus = bus
           @scroll_registers = scroll_registers
+          @frame_timing = frame_timing
           @increment = increment
           self.greyscale = greyscale
           @buffer = 0
         end
 
         def greyscale=(enabled)
-          @colour_mask = enabled ? GREYSCALE_COLOUR_MASK : PpuBus::PaletteRam::COLOUR_MASK
+          @colour_mask = enabled ? PpuBus::PaletteRam::GREYSCALE_COLOUR_MASK : PpuBus::PaletteRam::COLOUR_MASK
         end
 
         # The byte PPUDATA returns; `open_bus` is the PPU's I/O latch, whose top 2 bits a palette read keeps.
         def read(open_bus)
-          address = @scroll_registers.vram_address & BUS_ADDRESS_MASK # glossary: low-bits
+          address = @scroll_registers.vram_address & PpuBus::ADDRESS_MASK # glossary: low-bits
           if address >= PpuBus::PALETTE_START
             colour = @bus.read(address) & @colour_mask # glossary: bitwise-and
             byte = colour | (open_bus & OPEN_BUS_BITS) # glossary: bitwise-or, bitwise-and
@@ -47,7 +45,7 @@ module Ruby
             byte = @buffer
             @buffer = @bus.read(address)
           end
-          @scroll_registers.increment_vram_address(@increment)
+          advance_vram_address
           byte
         end
 
@@ -57,8 +55,21 @@ module Ruby
         end
 
         def write(value)
-          @bus.write(@scroll_registers.vram_address & BUS_ADDRESS_MASK, value) # glossary: low-bits
-          @scroll_registers.increment_vram_address(@increment)
+          @bus.write(@scroll_registers.vram_address & PpuBus::ADDRESS_MASK, value) # glossary: low-bits
+          advance_vram_address
+        end
+
+        private
+
+        # "During rendering", the access updates v by "triggering a coarse X increment and a Y increment
+        # simultaneously", "not affected by the status of the increment bit"; otherwise v advances by 1 or 32.
+        def advance_vram_address
+          if @frame_timing.rendering_in_progress?
+            @scroll_registers.increment_coarse_x
+            @scroll_registers.increment_y
+          else
+            @scroll_registers.increment_vram_address(@increment)
+          end
         end
       end
     end

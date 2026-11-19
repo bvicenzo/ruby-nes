@@ -120,12 +120,13 @@ RSpec.describe Ruby::Nes::Ppu do
 
     context 'when writes are accepted' do
       context 'and the address is $2000' do
-        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, vertical_blank:) }
+        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, vertical_blank:, background_renderer:) }
 
         let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
         let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, :nmi_enabled= => nil) }
+        let(:background_renderer) { instance_double(Ruby::Nes::Ppu::BackgroundRenderer, :pattern_table= => nil) }
 
         context 'and bits 1-0 select nametable 3' do
           before { ppu.cpu_write(0x2000, 0x03) }
@@ -152,6 +153,22 @@ RSpec.describe Ruby::Nes::Ppu do
           end
         end
 
+        context 'and bit 4 is clear' do
+          before { ppu.cpu_write(0x2000, 0xEF) }
+
+          it 'makes the background use the pattern table at $0000' do
+            expect(background_renderer).to have_received(:pattern_table=).with(0x0000)
+          end
+        end
+
+        context 'and bit 4 is set' do
+          before { ppu.cpu_write(0x2000, 0x10) }
+
+          it 'makes the background use the pattern table at $1000' do
+            expect(background_renderer).to have_received(:pattern_table=).with(0x1000)
+          end
+        end
+
         context 'and bit 7 is clear' do
           before { ppu.cpu_write(0x2000, 0x7F) }
 
@@ -170,12 +187,23 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the address is $2001' do
-        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, frame_timing:) }
+        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, frame_timing:, background_renderer:) }
 
         let(:bus) { instance_double(Ruby::Nes::PpuBus) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3F00) }
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, :rendering_enabled= => nil) }
+        let(:frame_timing) do
+          instance_double(Ruby::Nes::Ppu::FrameTiming, :rendering_enabled= => nil, rendering_in_progress?: false)
+        end
+        let(:background_renderer) do
+          instance_double(
+            Ruby::Nes::Ppu::BackgroundRenderer,
+            :greyscale= => nil,
+            :left_columns_shown= => nil,
+            :background_enabled= => nil,
+            :rendering_enabled= => nil
+          )
+        end
 
         context 'and bits 7-1 hold the other rendering settings' do
           before { ppu.cpu_write(0x2001, 0x1E) }
@@ -195,6 +223,10 @@ RSpec.describe Ruby::Nes::Ppu do
           it 'makes palette reads keep the colour' do
             expect(ppu.cpu_read(0x2007, 0x00)).to eq(0x2C)
           end
+
+          it 'turns greyscale off in the picture' do
+            expect(background_renderer).to have_received(:greyscale=).with(false)
+          end
         end
 
         context 'and bit 0 is set' do
@@ -207,29 +239,64 @@ RSpec.describe Ruby::Nes::Ppu do
           it "makes palette reads keep the colour's bits 5-4" do
             expect(ppu.cpu_read(0x2007, 0x00)).to eq(0x20)
           end
+
+          it 'turns greyscale on in the picture' do
+            expect(background_renderer).to have_received(:greyscale=).with(true)
+          end
+        end
+
+        context 'and bit 1 is clear' do
+          before { ppu.cpu_write(0x2001, 0xFD) }
+
+          it 'hides the background in the leftmost 8 columns' do
+            expect(background_renderer).to have_received(:left_columns_shown=).with(false)
+          end
+        end
+
+        context 'and bit 1 is set' do
+          before { ppu.cpu_write(0x2001, 0x02) }
+
+          it 'shows the background in the leftmost 8 columns' do
+            expect(background_renderer).to have_received(:left_columns_shown=).with(true)
+          end
         end
 
         context 'and bits 4-3 are clear' do
           before { ppu.cpu_write(0x2001, 0xE7) }
 
-          it 'disables rendering' do
+          it 'disables rendering', :aggregate_failures do
             expect(frame_timing).to have_received(:rendering_enabled=).with(false)
+            expect(background_renderer).to have_received(:rendering_enabled=).with(false)
+          end
+
+          it 'disables the background' do
+            expect(background_renderer).to have_received(:background_enabled=).with(false)
           end
         end
 
         context 'and bit 3 is set' do
           before { ppu.cpu_write(0x2001, 0x08) }
 
-          it 'enables rendering' do
+          it 'enables rendering', :aggregate_failures do
             expect(frame_timing).to have_received(:rendering_enabled=).with(true)
+            expect(background_renderer).to have_received(:rendering_enabled=).with(true)
+          end
+
+          it 'enables the background' do
+            expect(background_renderer).to have_received(:background_enabled=).with(true)
           end
         end
 
         context 'and bit 4 is set' do
           before { ppu.cpu_write(0x2001, 0x10) }
 
-          it 'enables rendering' do
+          it 'enables rendering', :aggregate_failures do
             expect(frame_timing).to have_received(:rendering_enabled=).with(true)
+            expect(background_renderer).to have_received(:rendering_enabled=).with(true)
+          end
+
+          it 'disables the background' do
+            expect(background_renderer).to have_received(:background_enabled=).with(false)
           end
         end
       end
@@ -487,7 +554,11 @@ RSpec.describe Ruby::Nes::Ppu do
     let(:bus) { instance_double(Ruby::Nes::PpuBus) }
     let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3EFE) }
     let(:oam) { Ruby::Nes::Ppu::Oam.new }
-    let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, :rendering_enabled= => nil, reset: nil) }
+    let(:frame_timing) do
+      instance_double(
+        Ruby::Nes::Ppu::FrameTiming, :rendering_enabled= => nil, reset: nil, rendering_in_progress?: false
+      )
+    end
     let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, :nmi_enabled= => nil) }
 
     before do
@@ -600,13 +671,14 @@ RSpec.describe Ruby::Nes::Ppu do
     end
 
     context 'when an NMI input is wired' do
-      subject(:ppu) { described_class.new(bus:, nmi_input:, frame_timing:) }
+      subject(:ppu) { described_class.new(bus:, nmi_input:, frame_timing:, background_renderer:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus) }
       let(:nmi_input) { instance_double(Ruby::Nes::Cpu, nmi_line_changed: nil) }
+      let(:background_renderer) { instance_double(Ruby::Nes::Ppu::BackgroundRenderer, run_dot: nil) }
 
       context 'and the PPU stands between two CPU cycles' do
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil) }
+        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 0, dot: 0) }
 
         before { ppu.catch_up(10) }
 
@@ -626,7 +698,7 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the change comes as the PPU enters the middle dot of a CPU cycle' do
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming) }
+        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0) }
 
         context 'and the output is asserted' do
           before do
@@ -652,7 +724,7 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the change comes as the PPU enters the last dot of a CPU cycle' do
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming) }
+        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0) }
 
         context 'and the output is asserted' do
           before do
@@ -678,7 +750,7 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the change comes as the PPU enters the first dot of a CPU cycle' do
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming) }
+        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0) }
 
         context 'and the output is asserted' do
           before do
@@ -706,10 +778,11 @@ RSpec.describe Ruby::Nes::Ppu do
   end
 
   describe '#catch_up' do
-    subject(:ppu) { described_class.new(bus:, frame_timing:) }
+    subject(:ppu) { described_class.new(bus:, frame_timing:, background_renderer:) }
 
     let(:bus) { instance_double(Ruby::Nes::PpuBus) }
-    let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil) }
+    let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 12, dot: 34) }
+    let(:background_renderer) { instance_double(Ruby::Nes::Ppu::BackgroundRenderer, run_dot: nil) }
 
     context 'when the CPU cycle is behind the PPU' do
       before do
@@ -741,6 +814,10 @@ RSpec.describe Ruby::Nes::Ppu do
 
       it 'advances three dots per CPU cycle of difference' do
         expect(frame_timing).to have_received(:advance).exactly(36).times
+      end
+
+      it 'runs the background on each dot, where the frame timing stands' do
+        expect(background_renderer).to have_received(:run_dot).with(12, 34).exactly(36).times
       end
     end
   end
@@ -775,6 +852,17 @@ RSpec.describe Ruby::Nes::Ppu do
 
     it "returns the frame timing's frame number" do
       expect(ppu.frame_number).to eq(7)
+    end
+  end
+
+  describe '#frame_buffer' do
+    subject(:ppu) { described_class.new(bus:, background_renderer:) }
+
+    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:background_renderer) { instance_double(Ruby::Nes::Ppu::BackgroundRenderer, frame_buffer: [0x0F] * 4) }
+
+    it 'is the picture the background renderer draws' do
+      expect(ppu.frame_buffer).to eq([0x0F] * 4)
     end
   end
 end

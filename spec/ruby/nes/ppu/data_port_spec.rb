@@ -6,13 +6,15 @@
 # greyscale "bitwise ANDing the color with $30", while "a normal read from PPU memory at the specified address,
 # "underneath" the palette data" fills the buffer (plan 11, decision 8: the nametable byte $1000 below). "After access,
 # the video memory address will increment by an amount determined by bit 2 of $2000"; "The highest bit [of v] is unused
-# for access through $2007" (https://www.nesdev.org/wiki/PPU_scrolling).
+# for access through $2007" (https://www.nesdev.org/wiki/PPU_scrolling); during rendering the access updates v another
+# way.
 RSpec.describe Ruby::Nes::Ppu::DataPort do
   describe '#read' do
     context 'when the address is below the palette' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:) }
+      subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
 
       context 'and nothing was read before' do
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
@@ -50,9 +52,10 @@ RSpec.describe Ruby::Nes::Ppu::DataPort do
     end
 
     context 'when the address is in the palette' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:, greyscale:) }
+      subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:, greyscale:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
 
       context 'and it is $3F00' do
         let(:greyscale) { false }
@@ -114,9 +117,10 @@ RSpec.describe Ruby::Nes::Ppu::DataPort do
     end
 
     context 'when v has its fifteenth bit set' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:) }
+      subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x6005) }
 
       before do
@@ -130,34 +134,67 @@ RSpec.describe Ruby::Nes::Ppu::DataPort do
       end
     end
 
-    context 'when the increment is 1' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:) }
+    context 'when rendering is not in progress' do
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
-      let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+      context 'and the increment is 1' do
+        subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
-      it 'advances v by 1' do
-        expect { data_port.read(0x00) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2006)
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
+        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+
+        it 'advances v by 1' do
+          expect { data_port.read(0x00) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2006)
+        end
+      end
+
+      context 'and the increment is 32' do
+        subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:, increment: 32) }
+
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
+        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+
+        it 'advances v by 32' do
+          expect { data_port.read(0x00) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2025)
+        end
       end
     end
 
-    context 'when the increment is 32' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:, increment: 32) }
+    # "triggering a coarse X increment and a Y increment simultaneously", "not affected by the status of the
+    # increment bit" (https://www.nesdev.org/wiki/PPU_scrolling). v: fine Y 1, nametable 0, coarse Y 0, coarse X 5.
+    context 'when rendering is in progress' do
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: true) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
-      let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+      context 'and the increment is 1' do
+        subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
-      it 'advances v by 32' do
-        expect { data_port.read(0x00) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2025)
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
+        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x1005) }
+
+        it 'increments coarse X and Y of v' do
+          expect { data_port.read(0x00) }.to change(scroll_registers, :vram_address).from(0x1005).to(0x2006)
+        end
+      end
+
+      context 'and the increment is 32' do
+        subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:, increment: 32) }
+
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
+        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x1005) }
+
+        it 'increments coarse X and Y of v' do
+          expect { data_port.read(0x00) }.to change(scroll_registers, :vram_address).from(0x1005).to(0x2006)
+        end
       end
     end
   end
 
   describe '#write' do
     context 'when v holds a 14-bit address' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:) }
+      subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
 
       before { data_port.write(0x5A) }
@@ -168,9 +205,10 @@ RSpec.describe Ruby::Nes::Ppu::DataPort do
     end
 
     context 'when v has its fifteenth bit set' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:) }
+      subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x6005) }
 
       before { data_port.write(0x5A) }
@@ -180,33 +218,66 @@ RSpec.describe Ruby::Nes::Ppu::DataPort do
       end
     end
 
-    context 'when the increment is 1' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:) }
+    context 'when rendering is not in progress' do
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
-      let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+      context 'and the increment is 1' do
+        subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
-      it 'advances v by 1' do
-        expect { data_port.write(0x5A) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2006)
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
+        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+
+        it 'advances v by 1' do
+          expect { data_port.write(0x5A) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2006)
+        end
+      end
+
+      context 'and the increment is 32' do
+        subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:, increment: 32) }
+
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
+        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+
+        it 'advances v by 32' do
+          expect { data_port.write(0x5A) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2025)
+        end
       end
     end
 
-    context 'when the increment is 32' do
-      subject(:data_port) { described_class.new(bus:, scroll_registers:, increment: 32) }
+    # "triggering a coarse X increment and a Y increment simultaneously", "not affected by the status of the
+    # increment bit" (https://www.nesdev.org/wiki/PPU_scrolling). v: fine Y 1, nametable 0, coarse Y 0, coarse X 5.
+    context 'when rendering is in progress' do
+      let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: true) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
-      let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+      context 'and the increment is 1' do
+        subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
-      it 'advances v by 32' do
-        expect { data_port.write(0x5A) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2025)
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
+        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x1005) }
+
+        it 'increments coarse X and Y of v' do
+          expect { data_port.write(0x5A) }.to change(scroll_registers, :vram_address).from(0x1005).to(0x2006)
+        end
+      end
+
+      context 'and the increment is 32' do
+        subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:, increment: 32) }
+
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
+        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x1005) }
+
+        it 'increments coarse X and Y of v' do
+          expect { data_port.write(0x5A) }.to change(scroll_registers, :vram_address).from(0x1005).to(0x2006)
+        end
       end
     end
   end
 
   describe '#clear_read_buffer' do
-    subject(:data_port) { described_class.new(bus:, scroll_registers:) }
+    subject(:data_port) { described_class.new(bus:, scroll_registers:, frame_timing:) }
 
     let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
     let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
 
     before do

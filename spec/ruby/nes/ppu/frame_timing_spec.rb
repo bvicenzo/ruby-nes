@@ -316,4 +316,52 @@ RSpec.describe Ruby::Nes::Ppu::FrameTiming do
       end
     end
   end
+
+  # PPUDATA's update of v changes "During rendering (on the pre-render line and the visible lines 0-239, provided
+  # either background or sprite rendering is enabled)" (https://www.nesdev.org/wiki/PPU_scrolling).
+  describe '#rendering_in_progress?' do
+    let(:events) { instance_double(Ruby::Nes::Ppu) }
+
+    context 'when rendering is disabled' do
+      subject(:frame_timing) { described_class.new(events:, scanline: 120, rendering_enabled: false) }
+
+      it 'is false' do
+        expect(frame_timing).not_to be_rendering_in_progress
+      end
+    end
+
+    context 'when rendering is enabled' do
+      context 'and the scanline is the post-render one' do
+        subject(:frame_timing) { described_class.new(events:, scanline: 240, rendering_enabled: true) }
+
+        it 'is false' do
+          expect(frame_timing).not_to be_rendering_in_progress
+        end
+      end
+
+      context 'and the scanline is a VBlank one' do
+        subject(:frame_timing) { described_class.new(events:, scanline: 260, rendering_enabled: true) }
+
+        it 'is false' do
+          expect(frame_timing).not_to be_rendering_in_progress
+        end
+      end
+
+      context 'and the scanline is a visible one' do
+        subject(:frame_timing) { described_class.new(events:, scanline: 239, rendering_enabled: true) }
+
+        it 'is true' do
+          expect(frame_timing).to be_rendering_in_progress
+        end
+      end
+
+      context 'and the scanline is the pre-render one' do
+        subject(:frame_timing) { described_class.new(events:, scanline: 261, rendering_enabled: true) }
+
+        it 'is true' do
+          expect(frame_timing).to be_rendering_in_progress
+        end
+      end
+    end
+  end
 end

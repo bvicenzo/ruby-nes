@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'digest'
+
 # The console (plan 12): the CPU and the PPU run together, the PPU 3 dots per CPU cycle
 # (https://www.nesdev.org/wiki/Cycle_reference_chart). Power-up (plan 12, decision 8) is the CPU's and the PPU's reset;
 # "The PPU comes out of power and reset at the top of the picture" (https://www.nesdev.org/wiki/PPU_power_up_state), and
@@ -109,6 +111,18 @@ RSpec.describe Ruby::Nes::Console do
         console.run_frame
         console.run_frame
         expect(console.cpu_bus.read(0x0010)).to eq(0x02)
+      end
+    end
+
+    context 'when the cartridge is nestest, run from its reset vector', test_rom: Nestest::ROM_PATH do
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(Nestest::ROM_PATH)) }
+
+      before { 10.times { console.run_frame } }
+
+      # The digest of the frame inspected with `rake debug:frame` (plan 13): nestest's text menu.
+      it 'draws its menu' do
+        expect(Digest::SHA256.hexdigest(console.ppu.frame_buffer.pack('C*')))
+          .to eq('5459d329572148703205cf288595cd2908e50593af454c300e9610bac07c15dd')
       end
     end
   end

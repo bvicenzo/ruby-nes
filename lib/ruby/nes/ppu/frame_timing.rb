@@ -19,6 +19,8 @@ module Ruby
         LAST_DOT = 340
         # The dot the odd frame skips from when rendering is enabled: the next one is (0, 0).
         SKIPPED_DOT = 339
+        # Scanlines 0-239 are visible; 240 is the post-render one.
+        POST_RENDER_SCANLINE = 240
         VERTICAL_BLANK_SCANLINE = 241
         PRE_RENDER_SCANLINE = 261
         # The VBlank flag changes at this dot of its scanlines.
@@ -41,6 +43,12 @@ module Ruby
         end
 
         def odd_frame? = @odd_frame
+
+        # "During rendering (on the pre-render line and the visible lines 0-239, provided either background or sprite
+        # rendering is enabled)" (https://www.nesdev.org/wiki/PPU_scrolling).
+        def rendering_in_progress?
+          @rendering_enabled && (@scanline < POST_RENDER_SCANLINE || @scanline == PRE_RENDER_SCANLINE)
+        end
 
         # Moves to the next dot, wrapping to the next scanline and to the next frame.
         def advance

@@ -41,8 +41,15 @@ module Ruby
       DOWN_INCREMENT = 32
       # PPUMASK bit 0: "Greyscale (0: normal color, 1: greyscale)".
       GREYSCALE_FLAG = 0x01
+      # PPUCTRL bit 4: "Background pattern table address (0: $0000; 1: $1000)".
+      BACKGROUND_PATTERN_TABLE_FLAG = 0x10
+      FIRST_PATTERN_TABLE = 0x0000
+      SECOND_PATTERN_TABLE = 0x1000
       # PPUCTRL bit 7: "Vblank NMI enable (0: off, 1: on)".
       NMI_ENABLE_FLAG = 0x80
+      # PPUMASK bit 1: "Show background in leftmost 8 pixels of screen, 0: Hide"; bit 3: "Enable background rendering".
+      LEFT_BACKGROUND_FLAG = 0x02
+      BACKGROUND_FLAG = 0x08
       # PPUMASK bits 3-4: show the background, show the sprites; either one is "rendering" for the frame timing.
       RENDERING_FLAGS = 0x18
       # PPUSTATUS bits 4-0 are "PPU open bus"; bit 7 is the VBlank flag; sprite 0 hit and overflow (bits 6-5) read 0
@@ -61,13 +68,19 @@ module Ruby
       # One optional keyword per collaborator, so specs can observe or stand in for each.
       # rubocop:disable-next Metrics/ParameterLists
       def initialize(bus:, nmi_input: nil, scroll_registers: ScrollRegisters.new, oam: Oam.new,
-                     frame_timing: FrameTiming.new(events: self), vertical_blank: VerticalBlank.new(nmi_output: self))
+                     frame_timing: FrameTiming.new(events: self), vertical_blank: VerticalBlank.new(nmi_output: self),
+                     background_renderer: BackgroundRenderer.new(
+                       scroll_registers:,
+                       fetcher: BackgroundFetcher.new(bus:, scroll_registers:),
+                       picture: Picture.new(bus:)
+                     ))
         @nmi_input = nmi_input
         @scroll_registers = scroll_registers
         @oam = oam
         @frame_timing = frame_timing
         @vertical_blank = vertical_blank
-        @data_port = DataPort.new(bus:, scroll_registers:)
+        @background_renderer = background_renderer
+        @data_port = DataPort.new(bus:, scroll_registers:, frame_timing:)
         @latch = 0
         @dots = 0
         @writes_ignored = false
@@ -79,6 +92,9 @@ module Ruby
 
       def frame_number = @frame_timing.frame_number
 
+      # The picture drawn so far, 256 × 240 palette indices row by row (docs/architecture.md, Frame buffer contract).
+      def frame_buffer = @background_renderer.frame_buffer
+
       # Advances the PPU to the start of the given CPU cycle: 3 dots per cycle; a cycle already reached advances
       # nothing.
       def catch_up(cpu_cycle)
@@ -87,6 +103,7 @@ module Ruby
           # The dot entered counts before the frame timing runs it, so its events carry that dot's CPU cycle.
           @dots += 1
           @frame_timing.advance
+          @background_renderer.run_dot(@frame_timing.scanline, @frame_timing.dot)
         end
       end
 
@@ -159,11 +176,19 @@ module Ruby
         @scroll_registers.write_control(value)
         @data_port.increment = value.anybits?(VRAM_INCREMENT_FLAG) ? DOWN_INCREMENT : ACROSS_INCREMENT
         @vertical_blank.nmi_enabled = value.anybits?(NMI_ENABLE_FLAG)
+        second_table = value.anybits?(BACKGROUND_PATTERN_TABLE_FLAG)
+        @background_renderer.pattern_table = second_table ? SECOND_PATTERN_TABLE : FIRST_PATTERN_TABLE
       end
 
       def write_mask(value)
-        @data_port.greyscale = value.anybits?(GREYSCALE_FLAG)
-        @frame_timing.rendering_enabled = value.anybits?(RENDERING_FLAGS)
+        greyscale = value.anybits?(GREYSCALE_FLAG)
+        rendering_enabled = value.anybits?(RENDERING_FLAGS)
+        @data_port.greyscale = greyscale
+        @background_renderer.greyscale = greyscale
+        @background_renderer.left_columns_shown = value.anybits?(LEFT_BACKGROUND_FLAG)
+        @background_renderer.background_enabled = value.anybits?(BACKGROUND_FLAG)
+        @frame_timing.rendering_enabled = rendering_enabled
+        @background_renderer.rendering_enabled = rendering_enabled
       end
     end
   end
@@ -174,3 +199,9 @@ require_relative 'ppu/oam'
 require_relative 'ppu/data_port'
 require_relative 'ppu/frame_timing'
 require_relative 'ppu/vertical_blank'
+require_relative 'ppu/background_fetcher'
+require_relative 'ppu/background_shifters'
+require_relative 'ppu/picture'
+require_relative 'ppu/background_visibility'
+require_relative 'ppu/background_schedule'
+require_relative 'ppu/background_renderer'

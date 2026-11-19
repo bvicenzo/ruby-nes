@@ -129,4 +129,150 @@ RSpec.describe Ruby::Nes::Ppu::ScrollRegisters do
       end
     end
   end
+
+  # Rendering's updates of v ("Wrapping around", https://www.nesdev.org/wiki/PPU_scrolling). The comments spell v as
+  # fine Y, nametable select, coarse Y and coarse X.
+  describe '#increment_coarse_x' do
+    context 'when coarse X is below 31' do
+      # 5, 2, 22, 14.
+      subject(:scroll_registers) do
+        described_class.new(vram_address: 0x5ACE, temporary_address: 0x1234, fine_x: 0b011, second_write: true)
+      end
+
+      before { scroll_registers.increment_coarse_x }
+
+      it 'adds 1 to coarse X and keeps the rest of v, t, x and w', :aggregate_failures do
+        expect(scroll_registers)
+          .to have_attributes(vram_address: 0x5ACF, temporary_address: 0x1234, fine_x: 0b011, second_write?: true)
+      end
+    end
+
+    context 'when coarse X is 31' do
+      context 'and the horizontal nametable is the left one' do
+        # 5, 2, 22, 31.
+        subject(:scroll_registers) { described_class.new(vram_address: 0x5ADF) }
+
+        before { scroll_registers.increment_coarse_x }
+
+        it 'clears coarse X and selects the right nametable' do
+          # 5, 3, 22, 0.
+          expect(scroll_registers.vram_address).to eq(0x5EC0)
+        end
+      end
+
+      context 'and the horizontal nametable is the right one' do
+        # 5, 3, 22, 31.
+        subject(:scroll_registers) { described_class.new(vram_address: 0x5EDF) }
+
+        before { scroll_registers.increment_coarse_x }
+
+        it 'clears coarse X and selects the left nametable' do
+          # 5, 2, 22, 0.
+          expect(scroll_registers.vram_address).to eq(0x5AC0)
+        end
+      end
+    end
+  end
+
+  describe '#increment_y' do
+    context 'when fine Y is below 7' do
+      # 5, 1, 22, 14.
+      subject(:scroll_registers) { described_class.new(vram_address: 0x56CE) }
+
+      before { scroll_registers.increment_y }
+
+      it 'adds 1 to fine Y and keeps coarse Y' do
+        # 6, 1, 22, 14.
+        expect(scroll_registers.vram_address).to eq(0x66CE)
+      end
+    end
+
+    context 'when fine Y is 7' do
+      context 'and coarse Y is below 29' do
+        # 7, 1, 22, 14.
+        subject(:scroll_registers) { described_class.new(vram_address: 0x76CE) }
+
+        before { scroll_registers.increment_y }
+
+        it 'clears fine Y and adds 1 to coarse Y' do
+          # 0, 1, 23, 14.
+          expect(scroll_registers.vram_address).to eq(0x06EE)
+        end
+      end
+
+      context 'and coarse Y is 29' do
+        context 'and the vertical nametable is the top one' do
+          # 7, 1, 29, 14.
+          subject(:scroll_registers) { described_class.new(vram_address: 0x77AE) }
+
+          before { scroll_registers.increment_y }
+
+          it 'clears fine Y and coarse Y and selects the bottom nametable' do
+            # 0, 3, 0, 14.
+            expect(scroll_registers.vram_address).to eq(0x0C0E)
+          end
+        end
+
+        context 'and the vertical nametable is the bottom one' do
+          # 7, 3, 29, 14.
+          subject(:scroll_registers) { described_class.new(vram_address: 0x7FAE) }
+
+          before { scroll_registers.increment_y }
+
+          it 'clears fine Y and coarse Y and selects the top nametable' do
+            # 0, 1, 0, 14.
+            expect(scroll_registers.vram_address).to eq(0x040E)
+          end
+        end
+      end
+
+      context 'and coarse Y is 30' do
+        # 7, 1, 30, 14.
+        subject(:scroll_registers) { described_class.new(vram_address: 0x77CE) }
+
+        before { scroll_registers.increment_y }
+
+        it 'clears fine Y and adds 1 to coarse Y' do
+          # 0, 1, 31, 14.
+          expect(scroll_registers.vram_address).to eq(0x07EE)
+        end
+      end
+
+      context 'and coarse Y is 31' do
+        # 7, 1, 31, 14.
+        subject(:scroll_registers) { described_class.new(vram_address: 0x77EE) }
+
+        before { scroll_registers.increment_y }
+
+        it 'clears fine Y and coarse Y and keeps the nametable' do
+          # 0, 1, 0, 14.
+          expect(scroll_registers.vram_address).to eq(0x040E)
+        end
+      end
+    end
+  end
+
+  describe '#copy_horizontal_position' do
+    # v: 7, 2, 31, 10; t: 0, 1, 0, 21.
+    subject(:scroll_registers) { described_class.new(vram_address: 0x7BEA, temporary_address: 0x0415) }
+
+    before { scroll_registers.copy_horizontal_position }
+
+    it 'takes bits 10 and 4-0 from t and keeps the other bits of v' do
+      # 7, 3, 31, 21.
+      expect(scroll_registers.vram_address).to eq(0x7FF5)
+    end
+  end
+
+  describe '#copy_vertical_position' do
+    # v: 2, 1, 10, 21; t: 5, 2, 21, 0.
+    subject(:scroll_registers) { described_class.new(vram_address: 0x2555, temporary_address: 0x5AA0) }
+
+    before { scroll_registers.copy_vertical_position }
+
+    it 'takes bits 14-11 and 9-5 from t and keeps the other bits of v' do
+      # 5, 3, 21, 21.
+      expect(scroll_registers.vram_address).to eq(0x5EB5)
+    end
+  end
 end
