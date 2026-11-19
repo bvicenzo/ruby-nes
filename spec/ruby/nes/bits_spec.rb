@@ -80,4 +80,10 @@ RSpec.describe Ruby::Nes::Bits do
       end
     end
   end
+
+  describe '.combine_bytes' do
+    it 'places the high byte above the low byte' do
+      expect(described_class.combine_bytes(low: 0x16, high: 0x80)).to eq(0x8016)
+    end
+  end
 end

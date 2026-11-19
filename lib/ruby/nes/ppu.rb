@@ -23,7 +23,11 @@ module Ruby
     # decision 11).
     # `Ppu.new` is ready: writes are accepted until the first reset (plan 12, decision 8).
     #
-    # Not yet: the sprite 0 hit and overflow flags (PPUSTATUS bits 6-5 read 0 until plan 14).
+    # OAMDATA writes "during rendering [...] do not modify values in OAM, but do perform a glitchy increment of OAMADDR";
+    # as NESdev advises for emulators, they are ignored completely (plan 14, decision 4) and only load the latch.
+    #
+    # Rendering (plans 13 and 14): the Renderer runs each dot's work, the SpriteRenderer its sprite part; the Ppu decodes
+    # PPUCTRL and PPUMASK and tells each the settings it uses. PPUSTATUS bits 6-5 are the SpriteStatus's.
     class Ppu
       PPUCTRL = 0x2000
       PPUMASK = 0x2001
@@ -45,15 +49,22 @@ module Ruby
       BACKGROUND_PATTERN_TABLE_FLAG = 0x10
       FIRST_PATTERN_TABLE = 0x0000
       SECOND_PATTERN_TABLE = 0x1000
+      # PPUCTRL bit 3: "Sprite pattern table address for 8x8 sprites (0: $0000; 1: $1000; ignored in 8x16 mode)"; bit 5:
+      # "Sprite size (0: 8x8 pixels; 1: 8x16 pixels)".
+      SPRITE_PATTERN_TABLE_FLAG = 0x08
+      SPRITE_SIZE_FLAG = 0x20
       # PPUCTRL bit 7: "Vblank NMI enable (0: off, 1: on)".
       NMI_ENABLE_FLAG = 0x80
       # PPUMASK bit 1: "Show background in leftmost 8 pixels of screen, 0: Hide"; bit 3: "Enable background rendering".
       LEFT_BACKGROUND_FLAG = 0x02
       BACKGROUND_FLAG = 0x08
+      # PPUMASK bit 2: "Show sprites in leftmost 8 pixels of screen, 0: Hide"; bit 4: "Enable sprite rendering".
+      LEFT_SPRITES_FLAG = 0x04
+      SPRITES_FLAG = 0x10
       # PPUMASK bits 3-4: show the background, show the sprites; either one is "rendering" for the frame timing.
       RENDERING_FLAGS = 0x18
-      # PPUSTATUS bits 4-0 are "PPU open bus"; bit 7 is the VBlank flag; sprite 0 hit and overflow (bits 6-5) read 0
-      # until plan 14.
+      # PPUSTATUS bits 4-0 are "PPU open bus"; bit 7 is the VBlank flag; bits 6-5, sprite 0 hit and overflow, come from
+      # the SpriteStatus.
       STATUS_OPEN_BUS_BITS = 0x1F
       VERTICAL_BLANK_FLAG = 0x80
       # "3 dots per CPU cycle" on NTSC (https://www.nesdev.org/wiki/Cycle_reference_chart).
@@ -69,17 +80,23 @@ module Ruby
       # rubocop:disable-next Metrics/ParameterLists
       def initialize(bus:, nmi_input: nil, scroll_registers: ScrollRegisters.new, oam: Oam.new,
                      frame_timing: FrameTiming.new(events: self), vertical_blank: VerticalBlank.new(nmi_output: self),
-                     background_renderer: BackgroundRenderer.new(
+                     sprite_status: SpriteStatus.new,
+                     sprite_renderer: SpriteRenderer.build(bus:, oam:, status: sprite_status),
+                     renderer: Renderer.new(
                        scroll_registers:,
                        fetcher: BackgroundFetcher.new(bus:, scroll_registers:),
-                       picture: Picture.new(bus:)
+                       picture: Picture.new(bus:),
+                       sprite_renderer:,
+                       multiplexer: PriorityMultiplexer.new(sprite_zero_hit: SpriteZeroHit.new(status: sprite_status))
                      ))
         @nmi_input = nmi_input
         @scroll_registers = scroll_registers
         @oam = oam
         @frame_timing = frame_timing
         @vertical_blank = vertical_blank
-        @background_renderer = background_renderer
+        @sprite_status = sprite_status
+        @sprite_renderer = sprite_renderer
+        @renderer = renderer
         @data_port = DataPort.new(bus:, scroll_registers:, frame_timing:)
         @latch = 0
         @dots = 0
@@ -93,7 +110,7 @@ module Ruby
       def frame_number = @frame_timing.frame_number
 
       # The picture drawn so far, 256 × 240 palette indices row by row (docs/architecture.md, Frame buffer contract).
-      def frame_buffer = @background_renderer.frame_buffer
+      def frame_buffer = @renderer.frame_buffer
 
       # Advances the PPU to the start of the given CPU cycle: 3 dots per cycle; a cycle already reached advances
       # nothing.
@@ -103,7 +120,7 @@ module Ruby
           # The dot entered counts before the frame timing runs it, so its events carry that dot's CPU cycle.
           @dots += 1
           @frame_timing.advance
-          @background_renderer.run_dot(@frame_timing.scanline, @frame_timing.dot)
+          @renderer.run_dot(@frame_timing.scanline, @frame_timing.dot)
         end
       end
 
@@ -123,9 +140,11 @@ module Ruby
         @vertical_blank.vertical_blank_started
       end
 
-      # The end of VBlank also clears the reset signal.
+      # The end of VBlank, dot 1 of the pre-render scanline, also clears the reset signal and the sprite flags, which
+      # "are automatically cleared on dot 1 of the prerender scanline".
       def vertical_blank_ended
         @vertical_blank.vertical_blank_ended
+        @sprite_status.clear
         @writes_ignored = false
       end
 
@@ -154,7 +173,7 @@ module Ruby
         when PPUCTRL then write_control(value) unless @writes_ignored
         when PPUMASK then write_mask(value) unless @writes_ignored
         when OAMADDR then @oam.address = value
-        when OAMDATA then @oam.write(value)
+        when OAMDATA then @oam.write(value) unless @frame_timing.rendering_in_progress?
         when PPUSCROLL then @scroll_registers.write_scroll(value) unless @writes_ignored
         when PPUADDR then @scroll_registers.write_address(value) unless @writes_ignored
         when PPUDATA then @data_port.write(value)
@@ -168,7 +187,7 @@ module Ruby
       def read_status
         @scroll_registers.reset_write_toggle
         @frame_timing.status_read
-        flags = @vertical_blank.read ? VERTICAL_BLANK_FLAG : 0
+        flags = (@vertical_blank.read ? VERTICAL_BLANK_FLAG : 0) | @sprite_status.bits # glossary: bitwise-or
         @latch = flags | (@latch & STATUS_OPEN_BUS_BITS) # glossary: bitwise-or, low-bits
       end
 
@@ -177,18 +196,27 @@ module Ruby
         @data_port.increment = value.anybits?(VRAM_INCREMENT_FLAG) ? DOWN_INCREMENT : ACROSS_INCREMENT
         @vertical_blank.nmi_enabled = value.anybits?(NMI_ENABLE_FLAG)
         second_table = value.anybits?(BACKGROUND_PATTERN_TABLE_FLAG)
-        @background_renderer.pattern_table = second_table ? SECOND_PATTERN_TABLE : FIRST_PATTERN_TABLE
+        @renderer.pattern_table = second_table ? SECOND_PATTERN_TABLE : FIRST_PATTERN_TABLE
+        write_sprite_control(value)
+      end
+
+      def write_sprite_control(value)
+        second_table = value.anybits?(SPRITE_PATTERN_TABLE_FLAG)
+        @sprite_renderer.pattern_table = second_table ? SECOND_PATTERN_TABLE : FIRST_PATTERN_TABLE
+        @sprite_renderer.tall_sprites = value.anybits?(SPRITE_SIZE_FLAG)
       end
 
       def write_mask(value)
         greyscale = value.anybits?(GREYSCALE_FLAG)
         rendering_enabled = value.anybits?(RENDERING_FLAGS)
         @data_port.greyscale = greyscale
-        @background_renderer.greyscale = greyscale
-        @background_renderer.left_columns_shown = value.anybits?(LEFT_BACKGROUND_FLAG)
-        @background_renderer.background_enabled = value.anybits?(BACKGROUND_FLAG)
+        @renderer.greyscale = greyscale
+        @renderer.left_columns_shown = value.anybits?(LEFT_BACKGROUND_FLAG)
+        @renderer.background_enabled = value.anybits?(BACKGROUND_FLAG)
+        @sprite_renderer.left_columns_shown = value.anybits?(LEFT_SPRITES_FLAG)
+        @sprite_renderer.enabled = value.anybits?(SPRITES_FLAG)
         @frame_timing.rendering_enabled = rendering_enabled
-        @background_renderer.rendering_enabled = rendering_enabled
+        @renderer.rendering_enabled = rendering_enabled
       end
     end
   end
@@ -196,12 +224,23 @@ end
 
 require_relative 'ppu/scroll_registers'
 require_relative 'ppu/oam'
+require_relative 'ppu/sprite_rows'
+require_relative 'ppu/overflow_search'
+require_relative 'ppu/secondary_oam'
+require_relative 'ppu/sprite_status'
+require_relative 'ppu/sprite_pattern_address'
+require_relative 'ppu/sprite_evaluation'
 require_relative 'ppu/data_port'
 require_relative 'ppu/frame_timing'
 require_relative 'ppu/vertical_blank'
 require_relative 'ppu/background_fetcher'
 require_relative 'ppu/background_shifters'
 require_relative 'ppu/picture'
-require_relative 'ppu/background_visibility'
-require_relative 'ppu/background_schedule'
-require_relative 'ppu/background_renderer'
+require_relative 'ppu/sprite_line'
+require_relative 'ppu/sprite_fetcher'
+require_relative 'ppu/sprite_zero_hit'
+require_relative 'ppu/priority_multiplexer'
+require_relative 'ppu/layer_visibility'
+require_relative 'ppu/render_schedule'
+require_relative 'ppu/sprite_renderer'
+require_relative 'ppu/renderer'

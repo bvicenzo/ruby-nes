@@ -63,4 +63,28 @@ RSpec.describe Ruby::Nes::Ppu::Oam do
       end
     end
   end
+
+  describe '#byte' do
+    context 'when nothing was written at the address' do
+      subject(:oam) { described_class.new(address: 0x10) }
+
+      it 'returns 0' do
+        expect(oam.byte(0x25)).to eq(0x00)
+      end
+    end
+
+    context 'when a byte was written at the address' do
+      subject(:oam) { described_class.new(address: 0x25) }
+
+      before { oam.write(0x7C) }
+
+      it 'returns the byte' do
+        expect(oam.byte(0x25)).to eq(0x7C)
+      end
+
+      it 'leaves OAMADDR where it is' do
+        expect { oam.byte(0x25) }.not_to change(oam, :address).from(0x26)
+      end
+    end
+  end
 end

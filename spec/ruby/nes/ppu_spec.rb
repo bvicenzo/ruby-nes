@@ -6,8 +6,12 @@
 # returns the latch's current value, as do the unused bits of PPUSTATUS"; "Reading the PPU's status port loads a value
 # onto bits 7-5 of the bus, leaving the rest unchanged"; "Reading a value from $2004 or $2007 loads a byte [...] onto
 # this bus". PPUSTATUS: "Reading this register has the side effect of clearing the PPU's internal w register"; its bit 7
-# is the VBlank flag, while sprite 0 hit and overflow (bits 6-5) read 0 until plan 14. PPUCTRL bit 7 enables NMI;
-# PPUMASK bits 3-4 show the background and the sprites, "rendering" for the frame timing.
+# is the VBlank flag, bit 6 the "Sprite 0 hit flag" and bit 5 the "Sprite overflow flag", both "cleared on dot 1 of the
+# prerender scanline" and left by the read (plan 14). PPUCTRL bit 7 enables NMI; bit 3 picks the 8×8 sprites' pattern
+# table, bit 5 the "Sprite size (0: 8x8 pixels; 1: 8x16 pixels)". PPUMASK bits 3-4 show the background and the
+# sprites, "rendering" for the frame timing, bits 1-2 their leftmost 8 columns. OAMDATA writes "during rendering [...]
+# do not modify values in OAM, but do perform a glitchy increment of OAMADDR"; "For emulation purposes, it is probably
+# best to completely ignore writes during rendering" (plan 14, decision 4): they only load the latch.
 #
 # Reset (https://www.nesdev.org/wiki/PPU_power_up_state): the reset signal clears PPUCTRL, PPUMASK, PPUSCROLL, PPUADDR,
 # their latch and the PPUDATA read buffer; "Note that the VRAM address itself (V) is _not_ cleared"; "The VBL flag
@@ -120,13 +124,18 @@ RSpec.describe Ruby::Nes::Ppu do
 
     context 'when writes are accepted' do
       context 'and the address is $2000' do
-        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, vertical_blank:, background_renderer:) }
+        subject(:ppu) do
+          described_class.new(bus:, scroll_registers:, oam:, vertical_blank:, sprite_renderer:, renderer:)
+        end
 
         let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
         let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, :nmi_enabled= => nil) }
-        let(:background_renderer) { instance_double(Ruby::Nes::Ppu::BackgroundRenderer, :pattern_table= => nil) }
+        let(:sprite_renderer) do
+          instance_double(Ruby::Nes::Ppu::SpriteRenderer, :pattern_table= => nil, :tall_sprites= => nil)
+        end
+        let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, :pattern_table= => nil) }
 
         context 'and bits 1-0 select nametable 3' do
           before { ppu.cpu_write(0x2000, 0x03) }
@@ -153,11 +162,27 @@ RSpec.describe Ruby::Nes::Ppu do
           end
         end
 
+        context 'and bit 3 is clear' do
+          before { ppu.cpu_write(0x2000, 0xF7) }
+
+          it 'makes the 8×8 sprites use the pattern table at $0000' do
+            expect(sprite_renderer).to have_received(:pattern_table=).with(0x0000)
+          end
+        end
+
+        context 'and bit 3 is set' do
+          before { ppu.cpu_write(0x2000, 0x08) }
+
+          it 'makes the 8×8 sprites use the pattern table at $1000' do
+            expect(sprite_renderer).to have_received(:pattern_table=).with(0x1000)
+          end
+        end
+
         context 'and bit 4 is clear' do
           before { ppu.cpu_write(0x2000, 0xEF) }
 
           it 'makes the background use the pattern table at $0000' do
-            expect(background_renderer).to have_received(:pattern_table=).with(0x0000)
+            expect(renderer).to have_received(:pattern_table=).with(0x0000)
           end
         end
 
@@ -165,7 +190,23 @@ RSpec.describe Ruby::Nes::Ppu do
           before { ppu.cpu_write(0x2000, 0x10) }
 
           it 'makes the background use the pattern table at $1000' do
-            expect(background_renderer).to have_received(:pattern_table=).with(0x1000)
+            expect(renderer).to have_received(:pattern_table=).with(0x1000)
+          end
+        end
+
+        context 'and bit 5 is clear' do
+          before { ppu.cpu_write(0x2000, 0xDF) }
+
+          it 'turns the 8×16 sprites off' do
+            expect(sprite_renderer).to have_received(:tall_sprites=).with(false)
+          end
+        end
+
+        context 'and bit 5 is set' do
+          before { ppu.cpu_write(0x2000, 0x20) }
+
+          it 'turns the 8×16 sprites on' do
+            expect(sprite_renderer).to have_received(:tall_sprites=).with(true)
           end
         end
 
@@ -187,17 +228,22 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the address is $2001' do
-        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, frame_timing:, background_renderer:) }
+        subject(:ppu) do
+          described_class.new(bus:, scroll_registers:, oam:, frame_timing:, sprite_renderer:, renderer:)
+        end
 
         let(:bus) { instance_double(Ruby::Nes::PpuBus) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3F00) }
+        let(:sprite_renderer) do
+          instance_double(Ruby::Nes::Ppu::SpriteRenderer, :enabled= => nil, :left_columns_shown= => nil)
+        end
         let(:frame_timing) do
           instance_double(Ruby::Nes::Ppu::FrameTiming, :rendering_enabled= => nil, rendering_in_progress?: false)
         end
-        let(:background_renderer) do
+        let(:renderer) do
           instance_double(
-            Ruby::Nes::Ppu::BackgroundRenderer,
+            Ruby::Nes::Ppu::Renderer,
             :greyscale= => nil,
             :left_columns_shown= => nil,
             :background_enabled= => nil,
@@ -225,7 +271,7 @@ RSpec.describe Ruby::Nes::Ppu do
           end
 
           it 'turns greyscale off in the picture' do
-            expect(background_renderer).to have_received(:greyscale=).with(false)
+            expect(renderer).to have_received(:greyscale=).with(false)
           end
         end
 
@@ -241,7 +287,7 @@ RSpec.describe Ruby::Nes::Ppu do
           end
 
           it 'turns greyscale on in the picture' do
-            expect(background_renderer).to have_received(:greyscale=).with(true)
+            expect(renderer).to have_received(:greyscale=).with(true)
           end
         end
 
@@ -249,7 +295,7 @@ RSpec.describe Ruby::Nes::Ppu do
           before { ppu.cpu_write(0x2001, 0xFD) }
 
           it 'hides the background in the leftmost 8 columns' do
-            expect(background_renderer).to have_received(:left_columns_shown=).with(false)
+            expect(renderer).to have_received(:left_columns_shown=).with(false)
           end
         end
 
@@ -257,7 +303,23 @@ RSpec.describe Ruby::Nes::Ppu do
           before { ppu.cpu_write(0x2001, 0x02) }
 
           it 'shows the background in the leftmost 8 columns' do
-            expect(background_renderer).to have_received(:left_columns_shown=).with(true)
+            expect(renderer).to have_received(:left_columns_shown=).with(true)
+          end
+        end
+
+        context 'and bit 2 is clear' do
+          before { ppu.cpu_write(0x2001, 0xFB) }
+
+          it 'hides the sprites in the leftmost 8 columns' do
+            expect(sprite_renderer).to have_received(:left_columns_shown=).with(false)
+          end
+        end
+
+        context 'and bit 2 is set' do
+          before { ppu.cpu_write(0x2001, 0x04) }
+
+          it 'shows the sprites in the leftmost 8 columns' do
+            expect(sprite_renderer).to have_received(:left_columns_shown=).with(true)
           end
         end
 
@@ -266,11 +328,15 @@ RSpec.describe Ruby::Nes::Ppu do
 
           it 'disables rendering', :aggregate_failures do
             expect(frame_timing).to have_received(:rendering_enabled=).with(false)
-            expect(background_renderer).to have_received(:rendering_enabled=).with(false)
+            expect(renderer).to have_received(:rendering_enabled=).with(false)
           end
 
           it 'disables the background' do
-            expect(background_renderer).to have_received(:background_enabled=).with(false)
+            expect(renderer).to have_received(:background_enabled=).with(false)
+          end
+
+          it 'disables the sprites' do
+            expect(sprite_renderer).to have_received(:enabled=).with(false)
           end
         end
 
@@ -279,11 +345,15 @@ RSpec.describe Ruby::Nes::Ppu do
 
           it 'enables rendering', :aggregate_failures do
             expect(frame_timing).to have_received(:rendering_enabled=).with(true)
-            expect(background_renderer).to have_received(:rendering_enabled=).with(true)
+            expect(renderer).to have_received(:rendering_enabled=).with(true)
           end
 
           it 'enables the background' do
-            expect(background_renderer).to have_received(:background_enabled=).with(true)
+            expect(renderer).to have_received(:background_enabled=).with(true)
+          end
+
+          it 'disables the sprites' do
+            expect(sprite_renderer).to have_received(:enabled=).with(false)
           end
         end
 
@@ -292,11 +362,15 @@ RSpec.describe Ruby::Nes::Ppu do
 
           it 'enables rendering', :aggregate_failures do
             expect(frame_timing).to have_received(:rendering_enabled=).with(true)
-            expect(background_renderer).to have_received(:rendering_enabled=).with(true)
+            expect(renderer).to have_received(:rendering_enabled=).with(true)
           end
 
           it 'disables the background' do
-            expect(background_renderer).to have_received(:background_enabled=).with(false)
+            expect(renderer).to have_received(:background_enabled=).with(false)
+          end
+
+          it 'enables the sprites' do
+            expect(sprite_renderer).to have_received(:enabled=).with(true)
           end
         end
       end
@@ -332,19 +406,40 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the address is $2004' do
-        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
+        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, frame_timing:) }
 
         let(:bus) { instance_double(Ruby::Nes::PpuBus) }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
         let(:oam) { Ruby::Nes::Ppu::Oam.new(address: 0x40) }
 
-        before { ppu.cpu_write(0x2004, 0x7C) }
+        context 'but rendering is in progress' do
+          let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: true) }
 
-        it 'writes the byte to OAM and loads the latch', :aggregate_failures do
-          expect(oam.address).to eq(0x41)
-          oam.address = 0x40
-          expect(oam.read).to eq(0x7C)
-          expect(ppu.cpu_read(0x2000, 0x00)).to eq(0x7C)
+          before { ppu.cpu_write(0x2004, 0x7C) }
+
+          it 'leaves OAM unchanged' do
+            expect(oam.byte(0x40)).to eq(0x00)
+          end
+
+          it 'leaves OAMADDR unchanged' do
+            expect(oam.address).to eq(0x40)
+          end
+
+          it 'loads the byte into the latch' do
+            expect(ppu.cpu_read(0x2000, 0x00)).to eq(0x7C)
+          end
+        end
+
+        context 'and rendering is not in progress' do
+          let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, rendering_in_progress?: false) }
+
+          before { ppu.cpu_write(0x2004, 0x7C) }
+
+          it 'writes the byte to OAM, moves OAMADDR and loads the latch', :aggregate_failures do
+            expect(oam.byte(0x40)).to eq(0x7C)
+            expect(oam.address).to eq(0x41)
+            expect(ppu.cpu_read(0x2000, 0x00)).to eq(0x7C)
+          end
         end
       end
 
@@ -437,15 +532,37 @@ RSpec.describe Ruby::Nes::Ppu do
     end
 
     context 'when the address is $2002' do
-      subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, frame_timing:, vertical_blank:) }
+      subject(:ppu) do
+        described_class.new(bus:, scroll_registers:, oam:, frame_timing:, vertical_blank:, sprite_status:)
+      end
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(second_write: true) }
       let(:oam) { Ruby::Nes::Ppu::Oam.new }
       let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, status_read: nil) }
 
+      context 'and the sprites overflowed and sprite 0 hit' do
+        let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, read: false) }
+        let(:sprite_status) { Ruby::Nes::Ppu::SpriteStatus.new }
+
+        before do
+          sprite_status.overflow_found
+          sprite_status.sprite_zero_hit
+          ppu.cpu_write(0x2002, 0x00)
+        end
+
+        it 'returns bits 6-5 set' do
+          expect(ppu.cpu_read(0x2002, 0x00)).to eq(0x60)
+        end
+
+        it 'leaves the sprite flags set' do
+          expect { ppu.cpu_read(0x2002, 0x00) }.not_to change(sprite_status, :bits).from(0x60)
+        end
+      end
+
       context 'and the VBlank flag is clear' do
         let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, read: false) }
+        let(:sprite_status) { Ruby::Nes::Ppu::SpriteStatus.new }
 
         before { ppu.cpu_write(0x2002, 0xFF) }
 
@@ -470,6 +587,7 @@ RSpec.describe Ruby::Nes::Ppu do
 
       context 'and the VBlank flag is set' do
         let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, read: true) }
+        let(:sprite_status) { Ruby::Nes::Ppu::SpriteStatus.new }
 
         before { ppu.cpu_write(0x2002, 0x7F) }
 
@@ -621,7 +739,7 @@ RSpec.describe Ruby::Nes::Ppu do
 
   describe '#vertical_blank_ended' do
     context 'when the PPU was reset' do
-      subject(:ppu) { described_class.new(bus:, scroll_registers:, frame_timing:, vertical_blank:) }
+      subject(:ppu) { described_class.new(bus:, scroll_registers:, frame_timing:, vertical_blank:, sprite_status:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
@@ -629,6 +747,7 @@ RSpec.describe Ruby::Nes::Ppu do
       let(:vertical_blank) do
         instance_double(Ruby::Nes::Ppu::VerticalBlank, :nmi_enabled= => nil, vertical_blank_ended: nil)
       end
+      let(:sprite_status) { instance_double(Ruby::Nes::Ppu::SpriteStatus, clear: nil) }
 
       before do
         ppu.reset
@@ -639,6 +758,10 @@ RSpec.describe Ruby::Nes::Ppu do
         expect(vertical_blank).to have_received(:vertical_blank_ended).once
       end
 
+      it 'clears the sprite flags' do
+        expect(sprite_status).to have_received(:clear).once
+      end
+
       it 'accepts writes to the registers again' do
         ppu.cpu_write(0x2000, 0x03)
         expect(scroll_registers.temporary_address).to eq(0x0C00)
@@ -646,15 +769,20 @@ RSpec.describe Ruby::Nes::Ppu do
     end
 
     context 'when the PPU was not reset' do
-      subject(:ppu) { described_class.new(bus:, vertical_blank:) }
+      subject(:ppu) { described_class.new(bus:, vertical_blank:, sprite_status:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus) }
       let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, vertical_blank_ended: nil) }
+      let(:sprite_status) { instance_double(Ruby::Nes::Ppu::SpriteStatus, clear: nil) }
 
       before { ppu.vertical_blank_ended }
 
       it 'tells the VBlank flag' do
         expect(vertical_blank).to have_received(:vertical_blank_ended).once
+      end
+
+      it 'clears the sprite flags' do
+        expect(sprite_status).to have_received(:clear).once
       end
     end
   end
@@ -671,11 +799,11 @@ RSpec.describe Ruby::Nes::Ppu do
     end
 
     context 'when an NMI input is wired' do
-      subject(:ppu) { described_class.new(bus:, nmi_input:, frame_timing:, background_renderer:) }
+      subject(:ppu) { described_class.new(bus:, nmi_input:, frame_timing:, renderer:) }
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus) }
       let(:nmi_input) { instance_double(Ruby::Nes::Cpu, nmi_line_changed: nil) }
-      let(:background_renderer) { instance_double(Ruby::Nes::Ppu::BackgroundRenderer, run_dot: nil) }
+      let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
 
       context 'and the PPU stands between two CPU cycles' do
         let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 0, dot: 0) }
@@ -778,11 +906,11 @@ RSpec.describe Ruby::Nes::Ppu do
   end
 
   describe '#catch_up' do
-    subject(:ppu) { described_class.new(bus:, frame_timing:, background_renderer:) }
+    subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
 
     let(:bus) { instance_double(Ruby::Nes::PpuBus) }
     let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 12, dot: 34) }
-    let(:background_renderer) { instance_double(Ruby::Nes::Ppu::BackgroundRenderer, run_dot: nil) }
+    let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
 
     context 'when the CPU cycle is behind the PPU' do
       before do
@@ -816,8 +944,8 @@ RSpec.describe Ruby::Nes::Ppu do
         expect(frame_timing).to have_received(:advance).exactly(36).times
       end
 
-      it 'runs the background on each dot, where the frame timing stands' do
-        expect(background_renderer).to have_received(:run_dot).with(12, 34).exactly(36).times
+      it 'runs the renderer on each dot, where the frame timing stands' do
+        expect(renderer).to have_received(:run_dot).with(12, 34).exactly(36).times
       end
     end
   end
@@ -856,12 +984,12 @@ RSpec.describe Ruby::Nes::Ppu do
   end
 
   describe '#frame_buffer' do
-    subject(:ppu) { described_class.new(bus:, background_renderer:) }
+    subject(:ppu) { described_class.new(bus:, renderer:) }
 
     let(:bus) { instance_double(Ruby::Nes::PpuBus) }
-    let(:background_renderer) { instance_double(Ruby::Nes::Ppu::BackgroundRenderer, frame_buffer: [0x0F] * 4) }
+    let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, frame_buffer: [0x0F] * 4) }
 
-    it 'is the picture the background renderer draws' do
+    it 'is the picture the renderer draws' do
       expect(ppu.frame_buffer).to eq([0x0F] * 4)
     end
   end

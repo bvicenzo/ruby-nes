@@ -17,6 +17,7 @@ module Ruby
       # The number of values a byte holds.
       BYTE_RANGE = 0x100
       NIBBLE_WIDTH = 4
+      BYTE_WIDTH = 8
       NIBBLE_MASK = 0x0F
 
       # glossary: wrap-to-byte — the low 8 bits, so $100 -> $00 and -3 -> $FD: a byte-wide register overflowing.
@@ -30,6 +31,10 @@ module Ruby
 
       # glossary: combine-nibbles — a byte from its two 4-bit halves (low: $1, high: $2 -> $21).
       def self.combine_nibbles(low:, high:) = (high << NIBBLE_WIDTH) | low
+
+      # glossary: combine-bytes — a 16-bit word from its two bytes (low: $16, high: $80 -> $8016), as the 6502 reads a
+      # little-endian address.
+      def self.combine_bytes(low:, high:) = (high << BYTE_WIDTH) | low
     end
   end
 end

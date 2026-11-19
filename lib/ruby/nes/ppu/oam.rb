@@ -10,8 +10,15 @@ module Ruby
       # power-up are "unspecified"; specs may give OAMADDR as a keyword.
       class Oam
         SIZE = 256
-        # The byte of its sprite an address holds: 0 Y, 1 tile, 2 attributes, 3 X.
+        SPRITE_COUNT = 64
+        # A sprite is 4 bytes, Y, tile, attributes and X: the address of its byte 0 is its number shifted left by 2, and
+        # an address's low 2 bits are the byte of its sprite it holds.
+        SPRITE_SIZE_SHIFT = 2
+        SPRITE_SIZE = 1 << SPRITE_SIZE_SHIFT
         SPRITE_BYTE_MASK = 0x03
+        TILE_OFFSET = 1
+        ATTRIBUTES_OFFSET = 2
+        X_POSITION_OFFSET = 3
         # What each sprite byte keeps of a write: attributes ($E3) lose their unimplemented bits 4-2.
         WRITABLE_BITS = [0xFF, 0xFF, 0xE3, 0xFF].freeze
 
@@ -25,6 +32,9 @@ module Ruby
 
         # OAMDATA read: the byte at OAMADDR, which stays where it is.
         def read = @bytes[@address]
+
+        # The byte at any address (0-255), for the sprite evaluation; OAMADDR stays where it is.
+        def byte(address) = @bytes[address]
 
         # OAMDATA write: stores the byte at OAMADDR, then moves OAMADDR to the next byte.
         def write(value)
