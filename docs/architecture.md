@@ -148,6 +148,19 @@ PPUDATA: the read buffer, the palette exception and the increment of v. `Ppu` te
 bit 2) and the greyscale (PPUMASK bit 0) when those registers are written. `Ppu#cpu_read` ignores the CPU's data bus:
 the PPU answers from its own latch.
 
+### Background rendering
+
+On every dot `Ppu#catch_up` runs `Ppu::BackgroundRenderer#run_dot` after the frame timing advances (plan 13). The
+renderer asks `Ppu::BackgroundSchedule` for the dot's steps, a set of flags from constant tables per kind of scanline
+(visible, pre-render, forced blank, idle), and tells each part: `Ppu::BackgroundFetcher` makes the nametable, attribute
+and pattern fetches from v, `Ppu::BackgroundShifters` holds the two tiles in flight and gives the 4-bit pixel under
+fine X, `Ppu::ScrollRegisters` increments and copies v, `Ppu::BackgroundVisibility` turns a pixel into its palette
+entry (background disabled, left 8 columns hidden, transparent pixel) and `Ppu::Picture` looks the entry up in palette
+RAM and stores it in the frame buffer, with greyscale and the forced blank's backdrop override. `Ppu` decodes PPUCTRL
+bit 4 and PPUMASK bits 0, 1, 3 and 4 and tells the renderer, which passes each setting to its part. The pixel of dot
+1-256 goes to x = dot − 1. `Debug::FrameDump` writes a frame as a PPM image with NESdev's `2C02G_U_wiki.pal`;
+`rake debug:frame[rom,frame_count,output]` runs a ROM and dumps its last frame.
+
 ## Clock
 
 Sources: [Cycle reference chart](https://www.nesdev.org/wiki/Cycle_reference_chart),
@@ -224,8 +237,8 @@ most calls.
 | `lib/ruby/nes/cpu/instructions/` | `Ruby::Nes::Cpu::Instructions::LoadStore`, `::Arithmetic`, `::Branches`…, `::ReadModifyWriteCombos`, `::ImmediateCombos`, `::Unstable` | one mixin of `Cpu` per instruction group, each instruction a method taking the resolved effective address; the last three hold unofficial opcodes only (plan 09) |
 | `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding |
 | `lib/ruby/nes/ppu_bus/` | `Ruby::Nes::PpuBus::Nametables`, `::PaletteRam` | VRAM through the mirroring, palette RAM |
-| `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder, the PPU's I/O latch, the catch-up to a CPU cycle, reset and the writes it ignores; rendering later |
-| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`… | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; renderer pieces later |
+| `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder, the PPU's I/O latch, the catch-up to a CPU cycle, reset and the writes it ignores; the PPUCTRL and PPUMASK settings told to the renderer |
+| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`, `::BackgroundRenderer`, `::BackgroundSchedule`, `::BackgroundFetcher`, `::BackgroundShifters`, `::BackgroundVisibility`, `::Picture` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; the background pipeline and the frame buffer (see Background rendering) |
 | `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller` | controllers |
 | `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Headless`… | headless, raylib/sdl2 (later) |
@@ -290,8 +303,8 @@ production code and specs alike.
 **Exception 1 — hardware acronyms** (decision 4). Documented hardware names are kept in class and constant names
 (`Cpu`, `Ppu`, `Apu`, `Oam`, `Dmc`, `PPUCTRL`) because they are what the reference documentation uses and what a reader
 searches for. Each is expanded in [`GLOSSARY.md`](GLOSSARY.md#hardware-terms), and the class or constant comment
-expands its own. Standard computing acronyms used by the tooling (URL, HTTP, YAML, SHA-256, SSL, JSON, and the JIT
-names JIT, YJIT, ZJIT) are allowed on the same terms (decision 5): each is expanded in
+expands its own. Standard computing acronyms used by the tooling (URL, HTTP, YAML, SHA-256, SSL, JSON, PPM, and the
+JIT names JIT, YJIT, ZJIT) are allowed on the same terms (decision 5): each is expanded in
 [`GLOSSARY.md`](GLOSSARY.md#computing-terms). Anything else is spelled out.
 
 **Exception 2 — inline bit operations on hot paths** (decision 3). On hot paths the operators `&`, `|`, `^`, `~`,
@@ -331,8 +344,9 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | OAM DMA alignment | Get and put cycles "are aligned to the first and second halves of the APU clock", and "At power-on, whether the first CPU cycle is get or put is random" ([DMA](https://www.nesdev.org/wiki/DMA)). The emulator takes even CPU cycles, counted from `Cpu.new`, as get cycles (a convention; plan 11, decision 3 compares it with Mesen2, which reaches the same alignment counting 8 reset cycles and odd get cycles), so a `$4014` write on an even cycle stalls 513 cycles and on an odd one 514. The copy also happens at once, before the stall, so the PPU sees OAM complete one instruction early. | Plan 23 (DMC DMA shares the get/put rule) |
 | VBlank flag at power | "The VBL flag (PPUSTATUS bit 7) is random at power" ([PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state)). It starts clear, a convention (plan 12, decision 8); reset leaves it as it is, as the hardware does. | — |
 | PPU registers ignored at power | The page gives the window of ignored writes to PPUCTRL, PPUMASK, PPUSCROLL and PPUADDR for the reset signal, "set on reset and cleared at the end of VBlank" ([PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state)). The emulator opens the same window at power-up, since `Console.new` resets the PPU (plan 12, decision 8); a plain `Ppu.new` accepts writes at once, for specs. | — |
-| Rendering toggle delay | "Toggling rendering takes effect approximately 3-4 dots after the write" ([PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing)). The frame timing sees PPUMASK's rendering bits at once, when it decides the odd-frame skip at dot 339 of the pre-render scanline. `ppu_vbl_nmi/10-even_odd_timing` fails #3, "Clock is skipped too late, relative to enabling BG". | Plan 13 (rendering) |
-| OAMDATA and PPUDATA during rendering | OAMDATA writes during rendering "do perform a glitchy increment of OAMADDR", its reads "expose internal OAM accesses"; PPUDATA "will update v in an odd way" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers), [PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling)). Both behave as outside rendering. | Plans 13, 14 |
+| Rendering toggle delay | "Toggling rendering takes effect approximately 3-4 dots after the write" ([PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing)). The frame timing sees PPUMASK's rendering bits at once, when it decides the odd-frame skip at dot 339 of the pre-render scanline. `ppu_vbl_nmi/10-even_odd_timing` fails #3, "Clock is skipped too late, relative to enabling BG". | A later PPU pass (no plan yet; plan 13, decision 4) |
+| OAMDATA during rendering | OAMDATA writes during rendering "do perform a glitchy increment of OAMADDR", its reads "expose internal OAM accesses" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). They behave as outside rendering. PPUDATA's coarse X and Y increment during rendering is modelled since plan 13. | Plan 14 |
+| Background fetches with no visible effect | The nametable fetches of dots 257-320 and the two of 337-340 ("only used by MMC5", [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)) are not made (plan 13, decision 6); a mapper that counts PPU reads would miss them. The sprite pattern fetches of 257-320, which clock MMC3's A12, belong to plan 14. | Plans 14 and 21 (MMC3), MMC5 if ever |
 | Byte under a palette read | A PPUDATA read of the palette fills the buffer from "a normal read from PPU memory at the specified address, "underneath" the palette data" ("usually mirrored nametables"). The emulator reads the nametable byte `$1000` below (the `$2F00-$2FFF` mirror), an inference from "$3000-3EFF is usually a mirror of" `$2000-$2EFF`. | When a board maps `$3000-$3FFF` differently |
 
 ## Frame buffer contract
@@ -340,6 +354,9 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 - The PPU writes **palette indices** (0–63; a 6-bit value selects one of the 64 colours, see
   [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes)) into a preallocated buffer of 256 × 240 entries, row by
   row. Colour emphasis bits are added on top when the PPU plans get there.
+- `Ppu#frame_buffer` is `Ppu::Picture`'s buffer, filled as the dots run (plan 13): there is one buffer, no double
+  buffering. `Console#run_frame` stops within the first instruction of the next frame, so up to the first few pixels
+  of row 0 already belong to it; plan 16 decides how a frontend gets a complete frame.
 - Converting indices to RGB, scaling and presenting are the **frontend's** job. The core never depends on a graphics
   library.
 
@@ -357,7 +374,7 @@ presentation, in a frontend).
 | 2 | 2026-11-17 | Memory container: `Array` of Integer | Most readable; plan 10 measured a binary `String` −4% and `IO::Buffer` −24% under YJIT, both slower without a JIT ([benchmarks](benchmarks.md#findings)) | — |
 | 3 | 2026-11-17 | Hot paths write bit operations inline with named constants and `# glossary:` tags; flag tests always use `anybits?`/`nobits?` | No method call per cycle, meaning still one lookup away; RuboCop enforces the predicates. Plan 10: `Bits` helpers on the per-instruction path cost nothing measurable under YJIT and ZJIT but 14% without a JIT, and that path is only a lower bound of a full conversion | Plan 25 (measure the whole hot path converted before narrowing the exception) |
 | 4 | 2026-11-17 | Hardware acronyms kept in names, expanded in the glossary | They match the reference documentation readers search | — |
-| 5 | 2026-11-17 | Standard computing acronyms (URL, HTTP, YAML, SHA-256, SSL; JSON, JIT, YJIT, ZJIT since plan 10) allowed in tooling names, expanded in the glossary | They are what the libraries and protocols call them; spelling them out (`address` for URL) would clash with emulator terms | — |
+| 5 | 2026-11-17 | Standard computing acronyms (URL, HTTP, YAML, SHA-256, SSL; JSON, JIT, YJIT, ZJIT since plan 10; PPM since plan 13) allowed in tooling names, expanded in the glossary | They are what the libraries and protocols call them; spelling them out (`address` for URL) would clash with emulator terms | — |
 | 6 | 2026-11-18 | The status register is a `Cpu::Status` object holding one boolean ivar per flag; the byte is composed for pushes and the trace, split by pulls | The object hides the representation, so plan 10 could swap it alone: one ivar per flag measured +5% under YJIT, +7% without a JIT and +5% under ZJIT against one Integer with bit masks (the first representation, 2026-11-18) | Plan 25 |
 | 7 | 2026-11-18 | The page-cross cycle of indexed reads is charged by `_for_read` resolvers; write and read-modify-write instructions use the plain ones | Tell, don't ask: no flag to query, no second return value | — |
 | 8 | 2026-11-18 | Dummy reads are not modelled (see Known gaps) | They matter only for registers with read side effects and open bus, which need the PPU | Superseded by 26 (plan 12) |
@@ -382,3 +399,5 @@ presentation, in a frontend).
 | 27 | 2026-11-19 | Power-up is `Console.new`: the CPU's and the PPU's reset, then the PPU catches up the reset's 7 cycles; `Ppu.new` accepts writes at once, `Ppu#reset` opens the window of ignored writes until VBlank ends | nestest.log's `PPU:  0, 21` at `CYC:7`; specs of single PPU registers stay simple | — |
 | 28 | 2026-11-19 | Test ROM runs are examples tagged `slow: true`, run only with `SLOW=1`; CI runs them in a job of its own under YJIT on every push and pull request, and `implement-plan` phase 5 runs `SLOW=1 bundle exec rake` for CPU, PPU, console and mapper plans | Each ROM runs seconds of emulated time; the default suite stays fast | — |
 | 29 | 2026-11-19 | `LAX #imm` ORs $FF into A (A and X get the operand), not "No More Secrets"' $EE | blargg's `instr_test-v5/03-immediate`, whose checksum comes from the console, passes only with $FF | — |
+| 30 | 2026-11-19 | The background is rendered per dot: `Ppu::BackgroundSchedule` maps each dot to step flags from constant tables, `Ppu::BackgroundRenderer` runs them on the fetcher, shifters, scroll registers, visibility and picture | Mid-scanline register writes (SMB3's status bar) land on the right dot; tables, not nested conditions, carry the NESdev timing (plan 13, decision 1) | Plan 25 (a measured fast path) |
+| 31 | 2026-11-19 | A PPUDATA access during rendering increments coarse X and Y instead of adding 1 or 32; `Ppu::DataPort` asks `FrameTiming#rendering_in_progress?` on each access | "During rendering [...] triggering a coarse X increment and a Y increment simultaneously" ([PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling)); the frame timing knows the scanline and the rendering flags (plan 13, decision 7) | — |
