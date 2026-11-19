@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
 # PPUDATA (https://www.nesdev.org/wiki/PPU_registers): reads return "the contents of an internal read buffer", which
-# starts at $00 (https://www.nesdev.org/wiki/PPU_power_up_state); palette data "is returned immediately instead of going
-# to the internal read buffer", with "PPU open bus in the top 2 bits", greyscale "bitwise ANDing the color with $30",
-# while "a normal read from PPU memory at the specified address, "underneath" the palette data" fills the buffer (plan
-# 11, decision 8: the nametable byte $1000 below). "After access, the video memory address will increment by an amount
-# determined by bit 2 of $2000"; "The highest bit [of v] is unused for access through $2007"
-# (https://www.nesdev.org/wiki/PPU_scrolling).
+# starts at $00 and is cleared by the PPU's reset signal (https://www.nesdev.org/wiki/PPU_power_up_state); palette data
+# "is returned immediately instead of going to the internal read buffer", with "PPU open bus in the top 2 bits",
+# greyscale "bitwise ANDing the color with $30", while "a normal read from PPU memory at the specified address,
+# "underneath" the palette data" fills the buffer (plan 11, decision 8: the nametable byte $1000 below). "After access,
+# the video memory address will increment by an amount determined by bit 2 of $2000"; "The highest bit [of v] is unused
+# for access through $2007" (https://www.nesdev.org/wiki/PPU_scrolling).
 RSpec.describe Ruby::Nes::Ppu::DataPort do
   describe '#read' do
     context 'when the address is below the palette' do
@@ -200,6 +200,24 @@ RSpec.describe Ruby::Nes::Ppu::DataPort do
       it 'advances v by 32' do
         expect { data_port.write(0x5A) }.to change(scroll_registers, :vram_address).from(0x2005).to(0x2025)
       end
+    end
+  end
+
+  describe '#clear_read_buffer' do
+    subject(:data_port) { described_class.new(bus:, scroll_registers:) }
+
+    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
+
+    before do
+      allow(bus).to receive(:read).with(0x2005).and_return(0x5A)
+      allow(bus).to receive(:read).with(0x2006).and_return(0xA5)
+      data_port.read(0x00)
+      data_port.clear_read_buffer
+    end
+
+    it 'makes the next read below the palette return 0' do
+      expect(data_port.read(0x00)).to eq(0x00)
     end
   end
 end

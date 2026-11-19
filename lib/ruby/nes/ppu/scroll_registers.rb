@@ -80,6 +80,14 @@ module Ruby
           @second_write = false
         end
 
+        # The PPU's reset signal clears PPUSCROLL, PPUADDR and their latch: t, fine x and w; "the VRAM address itself
+        # (V) is _not_ cleared" (https://www.nesdev.org/wiki/PPU_power_up_state).
+        def reset
+          @temporary_address = 0
+          @fine_x = 0
+          @second_write = false
+        end
+
         # A PPUDATA access outside rendering adds "either 1 or 32 to v"; v keeps its 15 bits.
         def increment_vram_address(increment)
           @vram_address = (@vram_address + increment) & VRAM_ADDRESS_MASK # glossary: low-bits

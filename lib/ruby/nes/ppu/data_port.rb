@@ -51,6 +51,11 @@ module Ruby
           byte
         end
 
+        # The PPU's reset signal clears the read buffer (https://www.nesdev.org/wiki/PPU_power_up_state).
+        def clear_read_buffer
+          @buffer = 0
+        end
+
         def write(value)
           @bus.write(@scroll_registers.vram_address & BUS_ADDRESS_MASK, value) # glossary: low-bits
           @scroll_registers.increment_vram_address(@increment)

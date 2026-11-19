@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 # The "Register controls" table of https://www.nesdev.org/wiki/PPU_scrolling: v and t are 15 bits, x is 3 bits, w is
-# the write toggle shared by $2005 and $2006; outside rendering $2007 "will add either 1 or 32 to v".
+# the write toggle shared by $2005 and $2006; outside rendering $2007 "will add either 1 or 32 to v". The PPU's reset
+# signal clears PPUSCROLL, PPUADDR and their latch, that is t, fine x and w, but "the VRAM address itself (V) is _not_
+# cleared" (https://www.nesdev.org/wiki/PPU_power_up_state).
 RSpec.describe Ruby::Nes::Ppu::ScrollRegisters do
   describe '#write_control' do
     subject(:scroll_registers) { described_class.new(temporary_address: 0x5555) }
@@ -72,6 +74,27 @@ RSpec.describe Ruby::Nes::Ppu::ScrollRegisters do
 
     it 'clears w' do
       expect(scroll_registers).not_to be_second_write
+    end
+  end
+
+  describe '#reset' do
+    subject(:scroll_registers) do
+      described_class.new(vram_address: 0x2345, temporary_address: 0x5555, fine_x: 0x05, second_write: true)
+    end
+
+    before { scroll_registers.reset }
+
+    it 'clears t and fine x', :aggregate_failures do
+      expect(scroll_registers.temporary_address).to eq(0x0000)
+      expect(scroll_registers.fine_x).to eq(0x00)
+    end
+
+    it 'clears w' do
+      expect(scroll_registers).not_to be_second_write
+    end
+
+    it 'keeps v' do
+      expect(scroll_registers.vram_address).to eq(0x2345)
     end
   end
 
