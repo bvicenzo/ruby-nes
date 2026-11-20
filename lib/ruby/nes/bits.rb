@@ -35,6 +35,9 @@ module Ruby
       # glossary: set-flag — the flag's bit turned on, the others untouched (%0010_0001 with $80 -> %1010_0001).
       def self.set_flag(register, flag) = register | flag
 
+      # glossary: clear-flag — the flag's bit turned off, the others untouched (%1010_0001 with $80 -> %0010_0001).
+      def self.clear_flag(register, flag) = register & ~flag
+
       # glossary: combine-bytes — a 16-bit word from its two bytes (low: $16, high: $80 -> $8016), as the 6502 reads a
       # little-endian address.
       def self.combine_bytes(low:, high:) = (high << BYTE_WIDTH) | low

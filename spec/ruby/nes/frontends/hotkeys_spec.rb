@@ -1,0 +1,154 @@
+# frozen_string_literal: true
+
+require 'ruby/nes/frontends/hotkeys'
+
+# The keys that drive the emulator rather than the controller (plan 18, decision 6): quit, pause, reset and the frame
+# rate overlay. A windowed frontend tells it once per frame which bound keys were pressed during that frame; pause and
+# the overlay toggle on each frame their key is pressed, reset is asked for during that frame only, quit stays asked.
+# Key codes here are arbitrary integers, as each graphics library numbers its keys its own way.
+RSpec.describe Ruby::Nes::Frontends::Hotkeys do
+  describe '.new' do
+    context 'when a binding names something that is not an action' do
+      let(:bindings) { { 80 => :pause, 83 => :save_state, 87 => :rewind } }
+
+      it 'raises ArgumentError naming it' do
+        expect { described_class.new(bindings) }.to raise_error(ArgumentError, /save_state, rewind/)
+      end
+    end
+
+    context 'when every binding names an action' do
+      let(:bindings) { { 80 => :pause, 82 => :reset, 256 => :quit, 70 => :frame_rate } }
+
+      it 'builds hotkeys' do
+        expect { described_class.new(bindings) }.not_to raise_error
+      end
+    end
+  end
+
+  describe '#quit?' do
+    subject(:hotkeys) { described_class.new({ 256 => :quit, 80 => :pause }) }
+
+    context 'when no quit key has been pressed' do
+      before { hotkeys.poll { |key_code| key_code == 80 } }
+
+      it 'is false' do
+        expect(hotkeys).not_to be_quit
+      end
+    end
+
+    context 'when a quit key has been pressed' do
+      before do
+        hotkeys.poll { |key_code| key_code == 256 }
+        hotkeys.poll { false }
+      end
+
+      it 'is true' do
+        expect(hotkeys).to be_quit
+      end
+    end
+  end
+
+  describe '#paused?' do
+    subject(:hotkeys) { described_class.new({ 80 => :pause, 19 => :pause, 82 => :reset }) }
+
+    context 'when no pause key has been pressed' do
+      before { hotkeys.poll { |key_code| key_code == 82 } }
+
+      it 'is false' do
+        expect(hotkeys).not_to be_paused
+      end
+    end
+
+    context 'when a pause key has been pressed once' do
+      before do
+        hotkeys.poll { |key_code| key_code == 80 }
+        hotkeys.poll { false }
+      end
+
+      it 'is true' do
+        expect(hotkeys).to be_paused
+      end
+    end
+
+    context 'when pause keys have been pressed in two polls' do
+      before do
+        hotkeys.poll { |key_code| key_code == 80 }
+        hotkeys.poll { |key_code| key_code == 19 }
+      end
+
+      it 'is false' do
+        expect(hotkeys).not_to be_paused
+      end
+    end
+
+    context 'when two pause keys are pressed in one poll' do
+      before { hotkeys.poll { |key_code| [80, 19].include?(key_code) } }
+
+      it 'is true' do
+        expect(hotkeys).to be_paused
+      end
+    end
+  end
+
+  describe '#reset_requested?' do
+    subject(:hotkeys) { described_class.new({ 82 => :reset, 80 => :pause }) }
+
+    context 'when no reset key has been pressed' do
+      before { hotkeys.poll { |key_code| key_code == 80 } }
+
+      it 'is false' do
+        expect(hotkeys).not_to be_reset_requested
+      end
+    end
+
+    context 'when the last poll pressed a reset key' do
+      before { hotkeys.poll { |key_code| key_code == 82 } }
+
+      it 'is true' do
+        expect(hotkeys).to be_reset_requested
+      end
+    end
+
+    context 'when only an earlier poll pressed a reset key' do
+      before do
+        hotkeys.poll { |key_code| key_code == 82 }
+        hotkeys.poll { false }
+      end
+
+      it 'is false' do
+        expect(hotkeys).not_to be_reset_requested
+      end
+    end
+  end
+
+  describe '#frame_rate_shown?' do
+    subject(:hotkeys) { described_class.new({ 70 => :frame_rate, 80 => :pause }) }
+
+    context 'when no frame rate key has been pressed' do
+      before { hotkeys.poll { |key_code| key_code == 80 } }
+
+      it 'is true' do
+        expect(hotkeys).to be_frame_rate_shown
+      end
+    end
+
+    context 'when a frame rate key has been pressed once' do
+      before do
+        hotkeys.poll { |key_code| key_code == 70 }
+        hotkeys.poll { false }
+      end
+
+      it 'is false' do
+        expect(hotkeys).not_to be_frame_rate_shown
+      end
+    end
+
+    context 'when frame rate keys have been pressed in two polls' do
+      before { 2.times { hotkeys.poll { |key_code| key_code == 70 } } }
+
+      it 'is true' do
+        expect(hotkeys).to be_frame_rate_shown
+      end
+    end
+  end
+end
