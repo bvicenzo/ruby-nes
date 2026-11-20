@@ -3,8 +3,8 @@
 require 'ruby/nes/frontends/base'
 
 # The contract every frontend honours (plan 16): a frontend presents each frame, gives the buttons held on both
-# controllers, says whether the emulation goes on, takes audio samples (ignored until plan 24), and releases what it
-# opened when the run ends (plan 17).
+# controllers, says whether the emulation goes on, whether it is paused and whether the console is to be reset
+# (plan 18), takes audio samples (ignored until plan 24), and releases what it opened when the run ends (plan 17).
 RSpec.describe Ruby::Nes::Frontends::Base do
   describe '#present' do
     subject(:frontend) { described_class.new }
@@ -27,6 +27,22 @@ RSpec.describe Ruby::Nes::Frontends::Base do
 
     it 'raises NotImplementedError' do
       expect { frontend.running? }.to raise_error(NotImplementedError, /running\?/)
+    end
+  end
+
+  describe '#paused?' do
+    subject(:frontend) { described_class.new }
+
+    it 'is false' do
+      expect(frontend).not_to be_paused
+    end
+  end
+
+  describe '#reset_requested?' do
+    subject(:frontend) { described_class.new }
+
+    it 'is false' do
+      expect(frontend).not_to be_reset_requested
     end
   end
 

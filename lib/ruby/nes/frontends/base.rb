@@ -15,6 +15,10 @@ module Ruby
       # - `present(frame_buffer)`: once per frame, the frame the PPU completed, 256 × 240 pixels of 0-511 (a palette
       #   index plus the emphasis bits; Frontends::Palette turns them into RGB). The PPU draws the next frame over the
       #   same array, so a frontend that keeps it past `present` copies it;
+      # - `paused?`: whether the emulation is paused: the driver then runs no frame and presents the last completed one
+      #   again, so the frontend keeps drawing and pacing (plan 18, decision 5); false by default;
+      # - `reset_requested?`: whether the console is to be reset (the reset button) before the next frame; false by
+      #   default;
       # - `queue_audio(samples)`: the audio samples of the frame; ignored until the APU exists (plan 24);
       # - `close`: once the run ends, however it ends, releases what the frontend opened (a window, an audio device;
       #   plan 17); nothing by default.
@@ -30,6 +34,10 @@ module Ruby
         def present(_frame_buffer)
           raise NotImplementedError, "#{self.class} must implement present"
         end
+
+        def paused? = false
+
+        def reset_requested? = false
 
         def queue_audio(_samples) = nil
 
