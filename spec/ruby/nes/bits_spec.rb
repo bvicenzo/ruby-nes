@@ -81,6 +81,20 @@ RSpec.describe Ruby::Nes::Bits do
     end
   end
 
+  describe '.set_flag' do
+    context 'when the flag is clear' do
+      it 'turns it on, leaving the other bits' do
+        expect(described_class.set_flag(0b0010_0001, 0b1000_0000)).to eq(0b1010_0001)
+      end
+    end
+
+    context 'when the flag is already set' do
+      it 'leaves the value as it is' do
+        expect(described_class.set_flag(0b1010_0001, 0b1000_0000)).to eq(0b1010_0001)
+      end
+    end
+  end
+
   describe '.combine_bytes' do
     it 'places the high byte above the low byte' do
       expect(described_class.combine_bytes(low: 0x16, high: 0x80)).to eq(0x8016)
