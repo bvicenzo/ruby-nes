@@ -17,6 +17,14 @@ the emulator's pace. Milestone M6: SMB3 with sound.
   the resampling ratio slightly (dynamic rate control) to avoid underruns and overruns without audible pitch change.
 - When the emulator is slower than real time, audio will underrun; the behaviour then must be a decision, not an
   accident.
+- The backend is raylib (plan 17, docs/backend-comparison.md). `Frontends::Raylib#queue_audio` pushes signed 16-bit
+  mono samples at 44.1 kHz into a raylib `AudioStream`: two sub-buffers of a fixed size (`SAMPLES_PER_FRAME`, 735,
+  set with `SetAudioStreamBufferSizeDefault` before the stream is loaded), refilled with `UpdateAudioStream` only when
+  `IsAudioStreamProcessed`; samples pushed while both are queued are dropped. So audio-driven pacing here means
+  waiting for a free sub-buffer and filling it whole: the ring buffer slices the APU's ~734.x samples per frame into
+  sub-buffer-sized chunks. raylib's callback mode (`SetAudioStreamCallback`) would run Ruby on the audio thread;
+  measure it before choosing it. In plan 17's smoke test, at ~18 frames per second every push found both sub-buffers
+  free: the stream ran dry two thirds of the time.
 
 ## Scope
 
