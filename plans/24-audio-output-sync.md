@@ -25,6 +25,10 @@ the emulator's pace. Milestone M6: SMB3 with sound.
   sub-buffer-sized chunks. raylib's callback mode (`SetAudioStreamCallback`) would run Ruby on the audio thread;
   measure it before choosing it. In plan 17's smoke test, at ~18 frames per second every push found both sub-buffers
   free: the stream ran dry two thirds of the time.
+- From plan 18: timer pacing is `Frontends::FramePacing` (wait for the next deadline at 60.0988 Hz, drift corrected,
+  no catch-up burst), a collaborator injected into `Frontends::Raylib` (`pacing:`) and called after each present;
+  audio-driven pacing is another strategy with the same `wait` message. While paused the window keeps presenting the
+  last frame (plan 18, decision 5): audio should then be silent, not underrun noise.
 
 ## Scope
 
