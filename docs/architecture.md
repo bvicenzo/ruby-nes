@@ -201,6 +201,13 @@ on), writes PNG screenshots and keeps each frame's SHA-256. `exe/ruby-nes ROM --
 [--screenshot FRAME:PATH] [--input SCRIPT]` is `CommandLine` (plan 16). The core never loads any of them:
 `lib/ruby/nes.rb` requires no frontend file, and a spec checks it in a process of its own.
 
+The windowed backend is raylib (plan 17, [backend comparison](backend-comparison.md)): `Frontends::Raylib` opens a
+3× window, presents the frame as an RGB24 texture, reads the keyboard through `Frontends::Keyboard` (library key codes
+to controller buttons) and pushes audio into a raylib audio stream. Its gem, `raylib-bindings` (FFI, the library built
+in for each platform), is in the optional `frontends` Gemfile group (`bundle config set --local with frontends`), so
+neither the core nor CI needs it; specs that open its window are tagged `frontend_library:` and skipped without it.
+`bench/frontends.rb` and `rake bench:frontends` run and time it.
+
 ## Clock
 
 Sources: [Cycle reference chart](https://www.nesdev.org/wiki/Cycle_reference_chart),
@@ -281,7 +288,7 @@ most calls.
 | `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::BackgroundShifters`, `::LayerVisibility`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
 | `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller`, `::ControllerPorts` | a standard controller; the device answering `$4016`/`$4017` |
-| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver`, `::Headless`, `::InputScript`, `::Palette`, `::Png` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); raylib/SDL2 later (plan 17). Never loaded by `lib/ruby/nes.rb` |
+| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver`, `::Headless`, `::InputScript`, `::Palette`, `::Png`, `::Keyboard`, `::Raylib` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); keys to controller buttons and the raylib window (plan 17). Never loaded by `lib/ruby/nes.rb` |
 | `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer` | tooling off the hot path |
 | `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | the bit constants hot paths use inline (`BYTE_MASK`, `PAGE_MASK`…) and readable bit helpers for code off the hot path |
 | `lib/ruby/nes/command_line.rb`, `command_line/` | `Ruby::Nes::CommandLine`, `::Options` | `exe/ruby-nes`: loads the core and the frontends, parses the arguments, runs a ROM (plan 16; plan 18 adds the window) |
@@ -289,6 +296,7 @@ most calls.
 | `spec/support/blargg.rb`, `spec/support/blargg/` | `Blargg`, `Blargg::Report`, `::LegacyReport`, `::Runner`, `::Programs` | blargg's "Output at $6000" protocol, the 2005 ROMs' result at `$F8` (plan 14), and a runner that presses reset when asked (plan 12): test tooling, also used by `rake blargg:run`; specs in `spec/blargg/`, the real ROMs tagged `slow: true` |
 | `spec/support/nestest.rb`, `spec/support/nestest/` | `Nestest`, `Nestest::Log`, `::Runner`, `::Divergence` | nestest in automation mode compared with its reference trace (plan 08): test tooling, also used by `rake nestest:diff` |
 | `bench/cpu.rb`, `bench/cpu_benchmark.rb`, `bench/cpu_benchmark/` | `CpuBenchmark`, `CpuBenchmark::Workload`, `::Session`, `::Report`… | the CPU benchmark (plan 10): nestest looped under no JIT, YJIT or ZJIT, run by `rake bench:cpu` and `rake bench:variants`; specs in `spec/cpu_benchmark/` |
+| `bench/frontends.rb`, `bench/frontend_benchmark.rb`, `bench/frontend_benchmark/` | `FrontendBenchmark`, `FrontendBenchmark::Probe`, `::Summary`, `::SquareWave`, `::Backends`, `::Options`, `::CommandLine` | the windowed backend benchmark (plan 17): a ROM in a backend, each present and frame timed, a test tone pushed; run by `rake bench:frontends`; specs in `spec/frontend_benchmark/` |
 | `bench/cpu_benchmark/variants/` | — | hot-path experiments that reopen core classes, each loaded only inside a benchmark process of its own (plan 10, decision 3) |
 
 Rules:
@@ -458,3 +466,4 @@ presentation, in a frontend).
 | 37 | 2026-11-19 | A pixel is 9 bits: the colour plus PPUMASK's emphasis bits in bits 6-8, ORed by `Ppu::Picture` | Mid-frame PPUMASK writes affect only the following pixels and the frontend never asks the PPU; one OR per pixel (plan 16, decision 2) | Plan 25 |
 | 38 | 2026-11-19 | Frontends live in `Ruby::Nes::Frontends` (`Base` contract, `Driver` loop), never loaded by the core; RGB is 3 bytes per pixel built with one `values_at` + `join` over a 512-entry table | The core never depends on a frontend; the join measured 2.8 ms per frame with and without a JIT, ahead of a preallocated `String` (2.4 ms under YJIT, 5.4 ms without one) and `flat_map` + `pack` (12-13 ms) (plan 16, decision 4) | Plan 17 (RGBA if a backend needs it), plan 25 |
 | 39 | 2026-11-19 | The command line is `Ruby::Nes::CommandLine`; `Debug::FrameDump` (PPM) and `rake debug:frame` are replaced by `exe/ruby-nes ROM --headless --screenshot FRAME:PATH` | One image path (PNG through the shared palette) instead of two; "CLI" would be an acronym outside the glossary (plan 16, decisions 5 and 7) | Plan 18 |
+| 40 | 2026-11-19 | The windowed backend is raylib, through `raylib-bindings` in an optional `frontends` Gemfile group; `Frontends::Keyboard` maps library key codes to controller buttons | It tied SDL3 on present cost (~3 ms, nearly all RGB conversion), frame time under every JIT, input and code size, and installs with `bundle install` alone on macOS, Linux and Windows, where SDL3 needs a system package per OS (none on Ubuntu before 26.04); its fixed audio sub-buffers are workable for plan 24 ([backend comparison](backend-comparison.md); plan 17) | Plan 24 (audio sync) |
