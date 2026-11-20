@@ -5,21 +5,56 @@ require 'optparse'
 module Ruby
   module Nes
     class CommandLine
-      # The arguments of `ruby-nes` (plan 16, decision 7): one ROM, then options. Frames count from 1, as the headless
-      # frontend counts them, and are read in decimal; without --frames it runs 60, one second of emulation. --help
-      # and --version only ask for `information` to print, so they need no ROM.
-      Options = Data.define(:rom_path, :headless, :frames, :screenshots, :input_path, :information)
+      # The arguments of `ruby-nes` (plan 16, decision 7; plan 18): one ROM, then options. The JIT applies to every run
+      # (YJIT by default, plan 18, decision 1); the window takes its scale, its pixel aspect (1, or 8/7) and whether to
+      # crop the overscan (plan 18, decision 4), and a config file path (nil for the default one); the headless run
+      # takes its frames, screenshots and input script. Each frontend ignores the other's options (plan 18, decision
+      # 9). Frames count from 1, as the headless frontend counts them, and numbers are decimal; without --frames it
+      # runs 60, one second of emulation. --help and --version only ask for `information` to print, so they need no ROM.
+      Options = Data.define(
+        :rom_path,
+        :jit,
+        :headless,
+        :scale,
+        :pixel_aspect,
+        :crop_overscan,
+        :config_path,
+        :frames,
+        :screenshots,
+        :input_path,
+        :information
+      )
 
       class Options
-        USAGE = 'Usage: ruby-nes ROM --headless [--frames COUNT] [--screenshot FRAME:PATH]... [--input SCRIPT]'
+        USAGE = <<~TEXT.chomp
+          Usage: ruby-nes ROM [--jit=none|yjit|zjit] [--scale N] [--aspect square|8:7] [--crop-overscan] [--config PATH]
+                 ruby-nes ROM [--jit=none|yjit|zjit] --headless [--frames COUNT] [--screenshot FRAME:PATH]... [--input SCRIPT]
+        TEXT
+        JITS = %w[none yjit zjit].freeze
+        DEFAULT_JIT = 'yjit'
+        DEFAULT_SCALE = 3
+        # A pixel's width over its height: square, or "exactly 8:7" (https://www.nesdev.org/wiki/Overscan).
+        PIXEL_ASPECTS = { 'square' => 1, '8:7' => Rational(8, 7) }.freeze
         DEFAULT_FRAMES = 60
         FIRST_FRAME = 1
+        MINIMUM_SCALE = 1
         # A frame number, a colon, then the path (which may hold colons of its own).
         SCREENSHOT = /\A(\d+):(.+)\z/
         DECIMAL = 10
 
         def self.parse(arguments)
-          options = { headless: false, frames: DEFAULT_FRAMES, screenshots: {}, input_path: nil, information: nil }
+          options = {
+            jit: DEFAULT_JIT,
+            headless: false,
+            scale: DEFAULT_SCALE,
+            pixel_aspect: PIXEL_ASPECTS.fetch('square'),
+            crop_overscan: false,
+            config_path: nil,
+            frames: DEFAULT_FRAMES,
+            screenshots: {},
+            input_path: nil,
+            information: nil
+          }
           rom_paths = parser(options).parse(arguments)
           return new(rom_path: nil, **options) if options[:information]
 
@@ -31,26 +66,47 @@ module Ruby
         def self.parser(options)
           OptionParser.new do |parser|
             parser.banner = USAGE
-            parser.on('--headless', 'Run without a window or sound') { options[:headless] = true }
-            parser.on('--frames COUNT', OptionParser::DecimalInteger, 'Frames to run') do |count|
-              options[:frames] = from_first_frame(count)
+            parser.on('--jit NAME', JITS, "JIT to run under: #{JITS.join(', ')} (#{DEFAULT_JIT})") do |name|
+              options[:jit] = name
             end
-            parser.on('--screenshot FRAME:PATH', SCREENSHOT, 'Write a frame as a PNG image') do |_argument, frame, path|
-              add_screenshot(options[:screenshots], from_first_frame(Integer(frame, DECIMAL)), path)
-            end
-            parser.on('--input SCRIPT', 'YAML input script: frame number to buttons held') do |path|
-              options[:input_path] = path
-            end
+            window_options(parser, options)
+            headless_options(parser, options)
             parser.on('--version', 'Print the version') { options[:information] = "ruby-nes #{VERSION}" }
             parser.on('-h', '--help', 'Print this help') { options[:information] = parser.help }
           end
         end
 
-        # OptionParser puts the option's name in front of the message: "invalid argument: --frames 0 (at least 1)".
-        def self.from_first_frame(frame)
-          return frame if frame >= FIRST_FRAME
+        def self.window_options(parser, options)
+          parser.on('--scale N', OptionParser::DecimalInteger, "Window scale (#{DEFAULT_SCALE})") do |scale|
+            options[:scale] = at_least(MINIMUM_SCALE, scale)
+          end
+          parser.on('--aspect RATIO', PIXEL_ASPECTS, 'Pixel aspect: square or 8:7 (square)') do |pixel_aspect|
+            options[:pixel_aspect] = pixel_aspect
+          end
+          parser.on('--crop-overscan', 'Show lines 8 to 231 only') { options[:crop_overscan] = true }
+          parser.on('--config PATH', 'Key config file (~/.config/ruby-nes/config.yml)') do |path|
+            options[:config_path] = path
+          end
+        end
 
-          raise OptionParser::InvalidArgument, "#{frame} (at least #{FIRST_FRAME})"
+        def self.headless_options(parser, options)
+          parser.on('--headless', 'Run without a window or sound') { options[:headless] = true }
+          parser.on('--frames COUNT', OptionParser::DecimalInteger, 'Frames to run') do |count|
+            options[:frames] = at_least(FIRST_FRAME, count)
+          end
+          parser.on('--screenshot FRAME:PATH', SCREENSHOT, 'Write a frame as a PNG image') do |_argument, frame, path|
+            add_screenshot(options[:screenshots], at_least(FIRST_FRAME, Integer(frame, DECIMAL)), path)
+          end
+          parser.on('--input SCRIPT', 'YAML input script: frame number to buttons held') do |path|
+            options[:input_path] = path
+          end
+        end
+
+        # OptionParser puts the option's name in front of the message: "invalid argument: --frames 0 (at least 1)".
+        def self.at_least(minimum, number)
+          return number if number >= minimum
+
+          raise OptionParser::InvalidArgument, "#{number} (at least #{minimum})"
         end
 
         def self.add_screenshot(screenshots, frame, path)
@@ -71,7 +127,15 @@ module Ruby
           raise OptionParser::InvalidArgument, "--screenshot frame #{late_frame} (the run has #{frames} frames)"
         end
 
-        private_class_method :parser, :from_first_frame, :add_screenshot, :ensure_one_rom, :ensure_screenshots_run
+        private_class_method(
+          :parser,
+          :window_options,
+          :headless_options,
+          :at_least,
+          :add_screenshot,
+          :ensure_one_rom,
+          :ensure_screenshots_run
+        )
       end
     end
   end

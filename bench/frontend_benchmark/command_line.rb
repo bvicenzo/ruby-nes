@@ -5,7 +5,8 @@ require 'json'
 module FrontendBenchmark
   # bench/frontends.rb: runs a ROM in the windowed backend asked for, through a probe that times each present and
   # frame and pushes the test tone (at amplitude 0 without --tone, so the audio stream is fed either way), then prints
-  # the medians as one JSON line for `rake bench:frontends` to collect. The window is closed however the run ends.
+  # the medians as one JSON line for `rake bench:frontends` to collect. The backend runs unpaced (plan 18), so the
+  # frames are timed without waiting. The window is closed however the run ends.
   class CommandLine
     TONE_FREQUENCY = 440
 
@@ -18,7 +19,7 @@ module FrontendBenchmark
       options = Options.parse(@arguments)
       backend = Backends.load(options.backend)
       console = Ruby::Nes::Console.new(Ruby::Nes::Cartridge::Loader.from_file(options.rom_path))
-      frontend = backend.new(hidden: options.hidden)
+      frontend = backend.new(hidden: options.hidden, pacing: Unpaced, jit_name: CpuBenchmark::Configuration.current)
       probe = Probe.new(
         frontend,
         audio: tone(options, backend),

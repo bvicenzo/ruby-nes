@@ -1,8 +1,15 @@
 # frozen_string_literal: true
 
-# A smoke test of the raylib backend (plan 17, decision 4): no assertion on the library's calls, only that a hidden
-# window opens, takes a frame and audio, and closes. Skipped when the optional `frontends` group is not installed.
+# A smoke test of the raylib backend (plan 17, decision 4; plan 18): no assertion on the library's calls, only that a
+# hidden window opens, names raylib's keys for the config file, takes a frame and audio, and closes. Its decisions are
+# specified in its collaborators. Skipped when the optional `frontends` group is not installed.
 RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/frontends/raylib' do
+  describe 'KEY_CODES' do
+    it "names raylib's keys as the config file does" do
+      expect(Ruby::Nes::Frontends::Raylib::KEY_CODES).to include('right_shift' => 344, 'enter' => 257, 'x' => 88)
+    end
+  end
+
   describe '#running?' do
     subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
 
@@ -23,6 +30,30 @@ RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/front
     context 'when no key is held' do
       it 'holds nothing on either controller' do
         expect(frontend.button_states).to eq([0, 0])
+      end
+    end
+  end
+
+  describe '#paused?' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    after { frontend.close }
+
+    context 'when no key is pressed' do
+      it 'is false' do
+        expect(frontend).not_to be_paused
+      end
+    end
+  end
+
+  describe '#reset_requested?' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    after { frontend.close }
+
+    context 'when no key is pressed' do
+      it 'is false' do
+        expect(frontend).not_to be_reset_requested
       end
     end
   end

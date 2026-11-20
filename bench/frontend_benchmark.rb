@@ -3,6 +3,7 @@
 require_relative '../lib/ruby/nes'
 require_relative '../lib/ruby/nes/frontends/base'
 require_relative '../lib/ruby/nes/frontends/driver'
+require_relative '../lib/ruby/nes/frontends/monotonic_clock'
 require_relative 'cpu_benchmark/configuration'
 
 # The windowed backend comparison (plans/17-backend-comparison-raylib-sdl3.md): runs a ROM in a backend, times its
@@ -13,6 +14,7 @@ end
 
 require_relative 'frontend_benchmark/square_wave'
 require_relative 'frontend_benchmark/probe'
+require_relative 'frontend_benchmark/unpaced'
 require_relative 'frontend_benchmark/summary'
 require_relative 'frontend_benchmark/backends'
 require_relative 'frontend_benchmark/options'

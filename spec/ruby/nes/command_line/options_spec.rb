@@ -2,9 +2,11 @@
 
 require 'ruby/nes/command_line'
 
-# The command line's arguments (plan 16, decision 7): `ruby-nes ROM --headless --frames N [--screenshot FRAME:PATH]
-# [--input SCRIPT]`. Frames count from 1, in decimal; 60 frames, one second of emulation, when --frames is not given.
-# --help and --version ask only for information, so they need no ROM.
+# The command line's arguments (plan 16, decision 7; plan 18): `ruby-nes ROM [--jit=none|yjit|zjit]`, then the window's
+# `[--scale N] [--aspect square|8:7] [--crop-overscan] [--config PATH]` or the headless run's `--headless [--frames N]
+# [--screenshot FRAME:PATH] [--input SCRIPT]`. Frames count from 1 and numbers are decimal; 60 frames, one second of
+# emulation, when --frames is not given; YJIT, a 3× window of square pixels showing the whole frame and the default
+# config otherwise. --help and --version ask only for information, so they need no ROM.
 RSpec.describe Ruby::Nes::CommandLine::Options do
   describe '.parse' do
     context 'when --help is given' do
@@ -50,6 +52,30 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
             end
           end
 
+          context 'but --jit is not none, yjit or zjit' do
+            let(:arguments) { %w[game.nes --jit mjit] }
+
+            it 'raises a parse error' do
+              expect { described_class.parse(arguments) }.to raise_error(OptionParser::ParseError, /--jit mjit/)
+            end
+          end
+
+          context 'but --scale is below 1' do
+            let(:arguments) { %w[game.nes --scale 0] }
+
+            it 'raises a parse error' do
+              expect { described_class.parse(arguments) }.to raise_error(OptionParser::ParseError, /--scale 0/)
+            end
+          end
+
+          context 'but --aspect is not square or 8:7' do
+            let(:arguments) { %w[game.nes --aspect 4:3] }
+
+            it 'raises a parse error' do
+              expect { described_class.parse(arguments) }.to raise_error(OptionParser::ParseError, /--aspect 4:3/)
+            end
+          end
+
           context 'but a --screenshot is not FRAME:PATH' do
             let(:arguments) { %w[game.nes --screenshot out.png] }
 
@@ -86,22 +112,38 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
             context 'and no option is given' do
               let(:arguments) { %w[game.nes] }
 
-              it 'runs 60 frames in a window, with no screenshot, no input script and no information asked' do
+              it 'holds the defaults' do
                 expect(described_class.parse(arguments)).to have_attributes(
-                  rom_path: 'game.nes', headless: false, frames: 60, screenshots: {}, input_path: nil, information: nil
+                  rom_path: 'game.nes',
+                  jit: 'yjit',
+                  headless: false,
+                  scale: 3,
+                  pixel_aspect: 1,
+                  crop_overscan: false,
+                  config_path: nil,
+                  frames: 60,
+                  screenshots: {},
+                  input_path: nil,
+                  information: nil
                 )
               end
             end
 
             context 'and every option is given' do
               let(:arguments) do
-                %w[--headless game.nes --frames 120 --screenshot 60:a.png --screenshot 120:b:c.png --input moves.yml]
+                %w[--headless game.nes --jit=zjit --scale 2 --aspect 8:7 --crop-overscan --config keys.yml] +
+                  %w[--frames 120 --screenshot 60:a.png --screenshot 120:b:c.png --input moves.yml]
               end
 
               it 'holds each of them' do
                 expect(described_class.parse(arguments)).to have_attributes(
                   rom_path: 'game.nes',
+                  jit: 'zjit',
                   headless: true,
+                  scale: 2,
+                  pixel_aspect: Rational(8, 7),
+                  crop_overscan: true,
+                  config_path: 'keys.yml',
                   frames: 120,
                   screenshots: { 60 => 'a.png', 120 => 'b:c.png' },
                   input_path: 'moves.yml'
@@ -110,10 +152,11 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
             end
 
             context 'and the numbers have leading zeros' do
-              let(:arguments) { %w[game.nes --frames 010 --screenshot 08:a.png] }
+              let(:arguments) { %w[game.nes --frames 010 --screenshot 08:a.png --scale 08] }
 
               it 'reads them as decimal' do
-                expect(described_class.parse(arguments)).to have_attributes(frames: 10, screenshots: { 8 => 'a.png' })
+                expect(described_class.parse(arguments))
+                  .to have_attributes(frames: 10, screenshots: { 8 => 'a.png' }, scale: 8)
               end
             end
           end

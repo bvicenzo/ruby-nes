@@ -6,14 +6,12 @@ module FrontendBenchmark
   # consecutive presents (the whole frame, emulation included); and after each present queues a frame's worth of an
   # audio source on the frontend, the audio smoke test.
   class Probe < Ruby::Nes::Frontends::Base
-    MONOTONIC_CLOCK = -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
-
     # Seconds each present took, in frame order.
     attr_reader :present_seconds
     # Seconds from each present's start to the next one's, in frame order: one fewer than the presents.
     attr_reader :frame_seconds
 
-    def initialize(frontend, audio:, samples_per_frame:, frames: nil, clock: MONOTONIC_CLOCK)
+    def initialize(frontend, audio:, samples_per_frame:, frames: nil, clock: Ruby::Nes::Frontends::MonotonicClock)
       super()
       @frontend = frontend
       @audio = audio
