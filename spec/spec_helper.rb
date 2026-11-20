@@ -19,6 +19,7 @@ end
 require 'ruby/nes'
 require_relative 'support/cartridges'
 require_relative 'support/flat_bus'
+require_relative 'support/frontend_libraries'
 require_relative 'support/hex_dump'
 # After hex_dump: the blargg programs are written as hex dumps.
 require_relative 'support/blargg'
@@ -39,6 +40,9 @@ RSpec.configure do |config|
 
   # Groups tagged with `local_rom:` are skipped when the user's own dump is not under roms/.
   LocalRoms.install(config, directory: LocalRoms::DIRECTORY)
+
+  # Groups tagged with `frontend_library:` are skipped when that windowed backend's gem is not installed (plan 17).
+  FrontendLibraries.install(config)
 
   # Examples tagged `slow: true` run a test ROM for seconds; they run only with SLOW=1, which CI always sets (plan 12,
   # decision 6).

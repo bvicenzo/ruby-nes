@@ -15,3 +15,9 @@ group :development, :test do
   gem 'rubocop-vicenzo', '~> 0.10.0', require: false
   gem 'simplecov', require: false
 end
+
+# The windowed backend chosen by plan 17 (raylib); the core never requires it. Install with
+# `bundle config set --local with frontends`.
+group :frontends, optional: true do
+  gem 'raylib-bindings', '~> 0.8.4', require: false
+end

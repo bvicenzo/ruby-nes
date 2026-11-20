@@ -70,6 +70,7 @@ kept in names because they are what the libraries and protocols call them.
 | Term | Stands for | Meaning | Reference |
 |---|---|---|---|
 | CRC | Cyclic Redundancy Check | The 32-bit checksum that closes every PNG chunk, computed over its type and data (`Zlib.crc32`). | [PNG](https://www.w3.org/TR/png-3/) |
+| FFI | Foreign Function Interface | Calling a C library from Ruby without a compiled extension: the `ffi` gem declares each function's signature and calls it at run time. The windowed backend's gem, `raylib-bindings`, is an FFI binding (plan 17). | [Ruby-FFI](https://github.com/ffi/ffi) |
 | HTTP | Hypertext Transfer Protocol | The protocol the test ROM downloader speaks; a `200` status is a delivered file. | [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) |
 | JIT | Just-In-Time (compiler) | A compiler that turns Ruby methods into machine code while the program runs. Ruby 4.0.9 ships two, YJIT and ZJIT, both off by default; the benchmark (plan 10) measures each against the interpreter. | [YJIT](https://docs.ruby-lang.org/en/master/yjit/yjit_md.html) |
 | JSON | JavaScript Object Notation | The one-line format `bench/cpu.rb` prints its measurement in, for the bench rake tasks to collect. | [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) |

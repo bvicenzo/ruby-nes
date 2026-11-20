@@ -3,7 +3,8 @@
 require 'ruby/nes/frontends/base'
 
 # The contract every frontend honours (plan 16): a frontend presents each frame, gives the buttons held on both
-# controllers, says whether the emulation goes on, and takes audio samples (ignored until plan 24).
+# controllers, says whether the emulation goes on, takes audio samples (ignored until plan 24), and releases what it
+# opened when the run ends (plan 17).
 RSpec.describe Ruby::Nes::Frontends::Base do
   describe '#present' do
     subject(:frontend) { described_class.new }
@@ -34,6 +35,14 @@ RSpec.describe Ruby::Nes::Frontends::Base do
 
     it 'ignores the samples' do
       expect(frontend.queue_audio([0.5, -0.5])).to be_nil
+    end
+  end
+
+  describe '#close' do
+    subject(:frontend) { described_class.new }
+
+    it 'has nothing to release' do
+      expect(frontend.close).to be_nil
     end
   end
 end

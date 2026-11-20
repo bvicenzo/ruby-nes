@@ -15,7 +15,9 @@ module Ruby
       # - `present(frame_buffer)`: once per frame, the frame the PPU completed, 256 × 240 pixels of 0-511 (a palette
       #   index plus the emphasis bits; Frontends::Palette turns them into RGB). The PPU draws the next frame over the
       #   same array, so a frontend that keeps it past `present` copies it;
-      # - `queue_audio(samples)`: the audio samples of the frame; ignored until the APU exists (plan 24).
+      # - `queue_audio(samples)`: the audio samples of the frame; ignored until the APU exists (plan 24);
+      # - `close`: once the run ends, however it ends, releases what the frontend opened (a window, an audio device;
+      #   plan 17); nothing by default.
       class Base
         def running?
           raise NotImplementedError, "#{self.class} must implement running?"
@@ -30,6 +32,8 @@ module Ruby
         end
 
         def queue_audio(_samples) = nil
+
+        def close = nil
       end
     end
   end
