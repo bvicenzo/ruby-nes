@@ -68,3 +68,9 @@ files:
   sprite_overflow_tests/3.Timing.nes: 2252ec8fc35932b408f409ef9b6863edf084aa871fc10ad180b0ac4c2468ef8c
   sprite_overflow_tests/4.Obscure.nes: aebf2199344321465ae0d8dcd81f6c528c7f661f31f1814711365b4e573a8263
   sprite_overflow_tests/5.Emulator.nes: cf994454219696de82794f0b84f2bd63458444d12a1171c85bba8697ab94acb4
+  mmc3_test_2/rom_singles/1-clocking.nes: b06d8a97f0ca672be92c841d6af7d1e650696e86e9cc0cf6eeb90d67a6ab499b
+  mmc3_test_2/rom_singles/2-details.nes: e7af16c764b119e60effb7b1cfeec3dd8e2e657041283693cdbbeedb4081f1e3
+  mmc3_test_2/rom_singles/3-A12_clocking.nes: b375f15b9f9d372c8084b9c50928be9e41a3ac48be831ce82d203c18891433ad
+  mmc3_test_2/rom_singles/4-scanline_timing.nes: 14a220b9d1272acc7a820ab38e9762a7cdf2d54c65e753be87f23dfcaf1bb845
+  mmc3_test_2/rom_singles/5-MMC3.nes: e0824123d60b83868dac1189b28250f8e10376a01be468a5a74aa59937cb32ca
+  mmc3_test_2/rom_singles/6-MMC3_alt.nes: 56698b6918453d161a8d4e51f66e363d6966b054939c8176c53c401a6b55269b

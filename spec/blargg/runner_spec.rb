@@ -5,13 +5,13 @@
 # 1.789773 MHz clock, 16.6 ms (https://www.nesdev.org/wiki/Cycle_reference_chart). The synthetic programs write the
 # signature $DE $B0 $61 at $6001-$6003; RAM is zero at power, so $00 tells a first boot from a run after the reset.
 #
-# The real ROMs below are the ones plans 12, 14, 19 and 20 pass: every instr_test-v5 and instr_misc single plan 12
+# The real ROMs below are the ones plans 12, 14, 19, 20 and 21 pass: every instr_test-v5 and instr_misc single plan 12
 # covers, instr_test-v5's two multi-test builds (MMC1, plan 20), ppu_vbl_nmi 01-09, sprite_hit_tests_2005.10.05 01-11,
-# sprite_overflow_tests 1, 2, 4 and 5, and cpu_dummy_reads; every ROM's result, failures included, is in
-# docs/test-roms.md. The 2005 suites report through $F8 (Blargg::LegacyReport), 1 meaning passed (a program that
-# reports that way is also given its report); cpu_dummy_reads only on screen (Blargg::ScreenReport). Each context's
-# cartridge is the ROM its `test_rom:` names. They take seconds each, so they are tagged `slow: true` and run only with
-# SLOW=1 (plan 12, decision 6).
+# sprite_overflow_tests 1, 2, 4 and 5, cpu_dummy_reads, and mmc3_test_2 1-3 and 5 (MMC3, plan 21); every ROM's
+# result, failures included, is in docs/test-roms.md. The 2005 suites report through $F8 (Blargg::LegacyReport), 1
+# meaning passed (a program that reports that way is also given its report); cpu_dummy_reads only on screen
+# (Blargg::ScreenReport). Each context's cartridge is the ROM its `test_rom:` names. They take seconds each, so they
+# are tagged `slow: true` and run only with SLOW=1 (plan 12, decision 6).
 RSpec.describe Blargg::Runner do
   describe '#run' do
     subject(:runner) { described_class.new(console, frame_limit:) }
@@ -408,6 +408,37 @@ RSpec.describe Blargg::Runner do
         it 'passes' do
           outcome = described_class.new(console, frame_limit:, report: Blargg::LegacyReport.new(console)).run
           expect(outcome).to have_attributes(state: :finished, code: Blargg::LegacyReport::PASSED)
+        end
+      end
+    end
+
+    context 'when the program is a single ROM of mmc3_test_2, on an MMC3 board' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
+      let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
+
+      context 'and it is 1-clocking', :slow, test_rom: 'mmc3_test_2/rom_singles/1-clocking.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 2-details', :slow, test_rom: 'mmc3_test_2/rom_singles/2-details.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 3-A12_clocking', :slow, test_rom: 'mmc3_test_2/rom_singles/3-A12_clocking.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      # The "new" revision's ROM (plan 21, decision 3); 6-MMC3_alt tests the other one.
+      context 'and it is 5-MMC3', :slow, test_rom: 'mmc3_test_2/rom_singles/5-MMC3.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
     end
