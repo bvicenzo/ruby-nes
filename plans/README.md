@@ -55,6 +55,7 @@ Conventions (see also `CLAUDE.md`):
 | 24 | [Audio output and synchronisation](24-audio-output-sync.md) | 18, 23 | todo |
 | 25 | [Performance pass](25-performance-pass.md) | 21, 24 | todo |
 | 26 | [Spinel AOT experiment](26-spinel-experiment.md) | 10 (minimum), 25 (full) | todo |
+| 27 | [Horizontal edge crop](27-horizontal-edge-crop.md) | 18 | todo |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
 
@@ -62,6 +63,8 @@ Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the
 
 - Battery-backed PRG RAM persistence (SMB3 has none; Zelda/Final Fantasy need it).
 - Save states.
+- A TV-like border in the backdrop colour around the picture (plan 27, decision 3), which needs the backdrop colour
+  of every frame from the PPU.
 - MMC5, MMC2/MMC4, NES 2.0 extended fields beyond detection.
 - PAL timing.
 - Ractors — discarded: CPU, PPU and APU are coupled at cycle granularity, so message passing would cost more than it
