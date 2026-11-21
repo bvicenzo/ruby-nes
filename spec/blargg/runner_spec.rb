@@ -5,13 +5,15 @@
 # 1.789773 MHz clock, 16.6 ms (https://www.nesdev.org/wiki/Cycle_reference_chart). The synthetic programs write the
 # signature $DE $B0 $61 at $6001-$6003; RAM is zero at power, so $00 tells a first boot from a run after the reset.
 #
-# The real ROMs below are the ones plans 12, 14, 19, 20 and 21 pass: every instr_test-v5 and instr_misc single plan 12
-# covers, instr_test-v5's two multi-test builds (MMC1, plan 20), ppu_vbl_nmi 01-09, sprite_hit_tests_2005.10.05 01-11,
-# sprite_overflow_tests 1, 2, 4 and 5, cpu_dummy_reads, and mmc3_test_2 1-3 and 5 (MMC3, plan 21); every ROM's
-# result, failures included, is in docs/test-roms.md. The 2005 suites report through $F8 (Blargg::LegacyReport), 1
-# meaning passed (a program that reports that way is also given its report); cpu_dummy_reads only on screen
-# (Blargg::ScreenReport). Each context's cartridge is the ROM its `test_rom:` names. They take seconds each, so they
-# are tagged `slow: true` and run only with SLOW=1 (plan 12, decision 6).
+# The real ROMs below are the ones plans 12, 14, 19, 20, 21 and 22 pass: every instr_test-v5 and instr_misc single plan
+# 12 covers, instr_test-v5's two multi-test builds (MMC1, plan 20), ppu_vbl_nmi 01-09, sprite_hit_tests_2005.10.05
+# 01-11, sprite_overflow_tests 1, 2, 4 and 5, cpu_dummy_reads, mmc3_test_2 1-3 and 5 (MMC3, plan 21), and with the APU
+# (plan 22) apu_test 1-6, apu_reset but works_immediately, cpu_interrupts_v2's singles and multi-test build,
+# instr_timing 1-2 and instr_misc's 04-dummy_reads_apu; every ROM's result, failures included, is in docs/test-roms.md.
+# The 2005 suites report through $F8 (Blargg::LegacyReport), 1 meaning passed (a program that reports that way is also
+# given its report); cpu_dummy_reads only on screen (Blargg::ScreenReport). Each context's cartridge is the ROM its
+# `test_rom:` names. They take seconds each, so they are tagged `slow: true` and run only with SLOW=1 (plan 12, decision
+# 6).
 RSpec.describe Blargg::Runner do
   describe '#run' do
     subject(:runner) { described_class.new(console, frame_limit:) }
@@ -278,6 +280,165 @@ RSpec.describe Blargg::Runner do
       end
 
       context 'and it is 03-dummy_reads', :slow, test_rom: 'instr_misc/rom_singles/03-dummy_reads.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 04-dummy_reads_apu', :slow, test_rom: 'instr_misc/rom_singles/04-dummy_reads_apu.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+    end
+
+    # The APU's length counters and frame counter (plan 22).
+    context 'when the program is a single ROM of apu_test' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
+      let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
+
+      context 'and it is 1-len_ctr', :slow, test_rom: 'apu_test/rom_singles/1-len_ctr.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 2-len_table', :slow, test_rom: 'apu_test/rom_singles/2-len_table.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 3-irq_flag', :slow, test_rom: 'apu_test/rom_singles/3-irq_flag.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 4-jitter', :slow, test_rom: 'apu_test/rom_singles/4-jitter.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 5-len_timing', :slow, test_rom: 'apu_test/rom_singles/5-len_timing.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 6-irq_flag_timing', :slow, test_rom: 'apu_test/rom_singles/6-irq_flag_timing.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+    end
+
+    # The APU at power and after reset, the runner pressing reset when the program asks (plan 22, decision 4).
+    context 'when the program is a ROM of apu_reset' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
+      let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
+
+      context 'and it is 4015_cleared', :slow, test_rom: 'apu_reset/4015_cleared.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 4017_timing', :slow, test_rom: 'apu_reset/4017_timing.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 4017_written', :slow, test_rom: 'apu_reset/4017_written.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is irq_flag_cleared', :slow, test_rom: 'apu_reset/irq_flag_cleared.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is len_ctrs_enabled', :slow, test_rom: 'apu_reset/len_ctrs_enabled.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+    end
+
+    # The CPU's interrupt timing, timed by the APU's frame IRQ (plan 22, decision 1).
+    context 'when the program is a single ROM of cpu_interrupts_v2' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
+      let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
+
+      context 'and it is 1-cli_latency', :slow, test_rom: 'cpu_interrupts_v2/rom_singles/1-cli_latency.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 2-nmi_and_brk', :slow, test_rom: 'cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 3-nmi_and_irq', :slow, test_rom: 'cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 4-irq_and_dma', :slow, test_rom: 'cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context(
+        'and it is 5-branch_delays_irq',
+        :slow,
+        test_rom: 'cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes'
+      ) do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+    end
+
+    # The five tests in one MMC1 build (plan 20).
+    context 'when the program is a multi-test build of cpu_interrupts_v2, on an MMC1 board' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
+      let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
+
+      context 'and it is cpu_interrupts', :slow, test_rom: 'cpu_interrupts_v2/cpu_interrupts.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+    end
+
+    # Each instruction timed with the APU's length counter.
+    context 'when the program is a single ROM of instr_timing' do
+      let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
+      let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
+
+      context 'and it is 1-instr_timing', :slow, test_rom: 'instr_timing/rom_singles/1-instr_timing.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 2-branch_timing', :slow, test_rom: 'instr_timing/rom_singles/2-branch_timing.nes' do
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
