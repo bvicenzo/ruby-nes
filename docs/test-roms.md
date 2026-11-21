@@ -27,7 +27,7 @@ The single-test builds run here are NROM boards, `cpu_dummy_reads.nes` a CNROM o
 `mmc3_test_2`'s singles MMC3 ones (plan 21). The collection
 has no multi-mapper ROM such as Holy Mapperel at the pinned commit (plan 19, decision 9). Two more MMC1 ROMs are in the
 collection and not run: `MMC1_A12/mmc1_a12.nes` is interactive (it reads the joypad and reports nothing automatically)
-and `instr_timing` times instructions with the APU (plan 22).
+and `instr_timing.nes`, the multi-test build of the two `instr_timing` singles run since plan 22.
 
 ## Results
 
@@ -122,6 +122,34 @@ rendered frame. Frames and times under `rake blargg:run` without a JIT.
 | `mmc3_test_2/rom_singles/4-scanline_timing.nes` | Failed (2) | 60 | "Scanline 0 IRQ should occur later when $2000=$08": the IRQ comes early (Known gaps: MMC3 IRQ timing, the IRQ polling point; plan 22). |
 | `mmc3_test_2/rom_singles/5-MMC3.nes` | Passed | 26 | The Sharp MMC3B/C "new" behaviour the board follows (plan 21, decision 3). |
 | `mmc3_test_2/rom_singles/6-MMC3_alt.nes` | Failed (2) | 31 | "IRQ shouldn't be set when reloading to 0 due to counter naturally reaching 0 previously": the old behaviour (MMC3A, NEC), expected to fail. |
+
+Plan 22, 2026-11-21, with the APU's frame counter and length counters and the CPU's interrupt timing. Frames and times
+under `rake blargg:run` without a JIT. Plan 12's `cpu_interrupts_v2` failures above are superseded by these rows.
+
+| ROM | Result | Frames | Notes |
+|---|---|---|---|
+| `apu_test/rom_singles/1-len_ctr.nes` | Passed | 21 | Needs the four main channels' length counters (plan 22, decision 8). |
+| `apu_test/rom_singles/2-len_table.nes` | Passed | 16 | |
+| `apu_test/rom_singles/3-irq_flag.nes` | Passed | 21 | |
+| `apu_test/rom_singles/4-jitter.nes` | Passed | 20 | |
+| `apu_test/rom_singles/5-len_timing.nes` | Passed | 114 | |
+| `apu_test/rom_singles/6-irq_flag_timing.nes` | Passed | 22 | Needs a `$4015` read on the cycle of the last set to clear the flag (decision 7). |
+| `cpu_interrupts_v2/rom_singles/1-cli_latency.nes` | Passed | 17 | The `CLI`/`SEI`/`PLP` delay. |
+| `cpu_interrupts_v2/rom_singles/2-nmi_and_brk.nes` | Passed | 108 | Hijacking, and the handler's first instruction before the next interrupt. |
+| `cpu_interrupts_v2/rom_singles/3-nmi_and_irq.nes` | Passed | 128 | |
+| `cpu_interrupts_v2/rom_singles/4-irq_and_dma.nes` | Passed | 69 | No poll during the DMA stall, and the `$4017` delay's parity against OAM DMA's (decisions 5 and 9). |
+| `cpu_interrupts_v2/rom_singles/5-branch_delays_irq.nes` | Passed | 381 | Taken branches without a page cross poll one cycle early. |
+| `cpu_interrupts_v2/cpu_interrupts.nes` | Passed | — | All 5 tests, on MMC1. |
+| `instr_misc/rom_singles/04-dummy_reads_apu.nes` | Passed | 140 | The indexed dummy reads through `$4015`. |
+| `instr_timing/rom_singles/1-instr_timing.nes` | Passed | — | Every instruction's cycles, timed with the length counter. |
+| `instr_timing/rom_singles/2-branch_timing.nes` | Passed | 141 | |
+| `apu_reset/4015_cleared.nes` | Passed | 33 | Presses reset; `$4015` cleared at power and reset. |
+| `apu_reset/4017_timing.nes` | Passed | 51 | Prints "Delay after effective $4017 write: 7" (the console gives 9-12; Known gaps). |
+| `apu_reset/4017_written.nes` | Passed | 58 | Reset writes `$4017`'s last value again (decision 4). |
+| `apu_reset/irq_flag_cleared.nes` | Passed | 33 | Reset clears the frame interrupt flag (decision 4). |
+| `apu_reset/len_ctrs_enabled.nes` | Passed | 35 | |
+| `apu_reset/works_immediately.nes` | Failed (2) | 22 | "At power, writes should work immediately": it plays the DMC and the triangle's linear counter (plan 23). |
+| `mmc3_test_2/rom_singles/4-scanline_timing.nes` | Failed (2) | 60 | Still "Scanline 0 IRQ should occur later when $2000=$08" with the IRQ polled at its cycle (Known gaps: MMC3 IRQ timing). |
 
 Super Mario Bros. 3 (the user's dump, `roms/smb3.nes`, never committed) reaches the title screen, its menu, the world
 map and world 1-1 headless; a slow `local_rom:` example of `Console#run_frame` plays into 1-1 with a scripted input and

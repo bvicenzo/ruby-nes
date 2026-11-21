@@ -17,7 +17,7 @@ compiler. The design favours code that is easy to read and easy for a JIT or an 
 +----------------------------------------------------------------------------+
 | Console: owns every component and runs the clock                           |
 |   Cpu#step -> cycles;  Ppu catches up 3 dots per cycle, also before every  |
-|   access to its registers;  Apu advances cycles (plan 22)                  |
+|   access to its registers;  Apu catches up 1 cycle at a time, the same way |
 +----------------------------------------------------------------------------+
 
   +-----+   CPU bus ($0000-$FFFF)
@@ -48,9 +48,10 @@ compiler. The design favours code that is easy to read and easy for a JIT or an 
   1. **Interrupt lines** — NMI from the PPU, IRQ from the APU and mappers. The PPU tells each change of its /NMI
      output with the CPU cycle it happened on, `Cpu#nmi_line_changed(asserted, cycle)`, and the CPU polls it as the
      hardware does, at the end of an instruction's second-to-last cycle (plan 12). The IRQ line is a level set with
-     `Cpu#assert_irq(source)` and `Cpu#release_irq(source)`: its sources combine as a wired-OR, each asserting and
-     releasing its own bit (`Cpu::InterruptLines::MAPPER_IRQ` for the cartridge board), and an IRQ is pending while any
-     asserts it (plan 12, decision 3; plan 21, decision 5).
+     `Cpu#assert_irq(source, cycle)` and `Cpu#release_irq(source, cycle)`: its sources combine as a wired-OR, each
+     asserting and releasing its own bit (`Cpu::InterruptLines::MAPPER_IRQ` for the cartridge board, `FRAME_IRQ` for
+     the APU's frame counter), and each change carries its CPU cycle, so the IRQ is polled at the same point as the NMI
+     (plan 12, decision 3; plan 21, decision 5; plan 22). See Interrupt timing below.
   2. **CPU stall cycles** — OAM DMA (a write to `$4014`, plan 11) and DMC sample fetches (plan 23) halt the CPU for a
      number of cycles. The bus reports the stall and `Cpu#step` adds it to the cycles it returns: after each step,
      `@cycles += bus.take_stall_cycles(@cycles)`, the argument being the CPU cycle the halt falls on.
@@ -86,6 +87,9 @@ own decoding (plan 15, decision 1). A device answers:
 - `cpu_read(address, data_bus)` → the byte left on the data bus after the read. A device that does not drive the bus
   at that address returns `data_bus` untouched (open bus); a register that drives only some bits keeps the others
   from `data_bus`. The bus stores every result as the next `data_bus`; writes do not change it (plan 04, decision 1).
+  The `apu_registers:` slot is the exception: `$4015` "is internal to the CPU and so the external CPU data bus is
+  disconnected when reading it" ([APU](https://www.nesdev.org/wiki/APU)), so the bus returns what the slot answers
+  without storing it (plan 22, decision 2); the rest of the slot is open bus anyway.
 - `cpu_write(address, value)`.
 
 `CpuBus` also owns the **OAM DMA unit**, `CpuBus::OamDma` (plan 11, decision 2): a write to `$4014` starts it instead of
@@ -151,6 +155,23 @@ two controllers (two released ones by default) and `Console#controllers` returns
 held with `Controller#buttons=`, a mask in report order (`Controller::BUTTONS`, bit 0 = A … bit 7 = Right). The core
 does not filter opposite directions; the frontend does (plan 15, decision 2). OAM DMA never clocks them: it reads
 through `CpuBus#read_for_dma`, where `$4000-$401F` is open bus ([DMA](https://www.nesdev.org/wiki/DMA)).
+
+### APU
+
+`Apu` answers the `apu_registers:` slot ([APU](https://www.nesdev.org/wiki/APU), plan 22): `$4000-$4003` and
+`$4004-$4007` go to two `Apu::Pulse`s, `$4008-$400B` to `Apu::Triangle`, `$400C-$400F` to `Apu::Noise` (only their
+length counters so far, plan 22 decision 8), `$4015` enables the channels and reads `IF-D NT21` (frame interrupt flag,
+the four length counters above 0, bit 5 from the data bus), and a `$4017` write goes to `Apu::FrameCounter`. A pulse
+is an `Apu::Timer` clocking an `Apu::DutySequencer`, an `Apu::Envelope`, an `Apu::Sweep` (pulse 1 negating with ones'
+complement, pulse 2 with two's) and an `Apu::LengthCounter`; its output is 0-15. The frame counter runs NTSC mode 0
+(4-step) or mode 1 (5-step) from two constant tables per mode in CPU cycles (the APU Frame Counter page's APU cycles
+× 2, + 1 on PUT), tells the APU's `quarter_frame` (envelopes) and `half_frame` (length counters, sweeps), and in mode
+0 triggers `Apu::FrameInterrupt`, the flag that asserts `FRAME_IRQ` on the CPU unless inhibited (`$4017` bit 6). A
+`$4017` write takes effect 3 CPU cycles after a write on an odd cycle and 4 after one on an even cycle, with a quarter
+and a half frame at once in mode 1 (decision 5). A `$4015` read clears the frame flag, even on the cycle it was set
+(decision 7). Power-up is mode 0 from cycle 0 with every channel disabled; reset disables the channels, clears the
+frame interrupt flag and writes `$4017`'s last value again, as the readme of blargg's `apu_reset` says (decision 4).
+The mixer and the remaining channels are plan 23's.
 
 ### PPU bus
 
@@ -295,12 +316,36 @@ flag toggles every frame either way.
 5. A frame ends when the PPU wraps to dot 0 of scanline 0; `Console#run_frame` steps until the PPU's frame number
    changes, so it stops within the first instruction of the next frame (plan 12, decision 7).
 
+6. The APU is caught up the same way (plan 22, decision 3): `Apu#catch_up(cpu_cycle)` runs every CPU cycle before
+   `cpu_cycle`, the frame counter on each and the pulse timers on the even ones; `Console#step` calls it after the
+   PPU, and an APU register access first catches it up through the access cycle (`Cpu#access_cycle`, `cycles - 1`),
+   the APU taking the CPU as its clock.
+
 **Relation to the [Catch-up](https://www.nesdev.org/wiki/Catch-up) page.** The page's recipe is to find the next
 time one component could affect another (for example the CPU writing to a PPU register), run the least predictable
 component (the CPU) up to that time, then run the others up to it. The PPU registers are such sync points now; the
 mapper registers are too since plan 21 (decision 6): the base asks `PpuRegisterSync#catch_up` before handing a write
-to `$8000-$FFFF` to its board, so a bank switch or an MMC3 IRQ acknowledge lands on its dot. The APU registers (plan 22)
-are not yet.
+to `$8000-$FFFF` to its board, so a bank switch or an MMC3 IRQ acknowledge lands on its dot. The APU registers are
+since plan 22.
+
+### Interrupt timing
+
+Plan 22 (decision 1), from [CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts). `Cpu::InterruptLines` is the
+arbiter of `Cpu::NmiDetector` (the edge, plan 12) and `Cpu::IrqLine` (the wired-OR level, each assert and release
+stamped with its cycle). A step starting on `cycle` polls what came before `cycle - 1`, the previous instruction's
+second-to-last cycle, with these exceptions, each told to the lines by the CPU and used by the next poll only:
+
+- `CLI`, `SEI` and `PLP` "change the I flag after polling for interrupts": the poll sees the I from before them.
+- A taken branch that does not cross a page polls one cycle earlier ("not before the third CPU cycle").
+- A DMA halts the CPU after the instruction polled, and a halted CPU polls nothing: the poll looks back past the
+  stall (decision 9, calibrated with `cpu_interrupts_v2/4-irq_and_dma`).
+- "The interrupt sequences themselves do not perform interrupt polling": after BRK, an IRQ or an NMI, the handler's
+  first instruction runs before another interrupt.
+- BRK and the interrupt sequence pick their vector after tick 4: the CPU asks its interrupt sync (the console's
+  `PpuRegisterSync`) to catch the PPU up, and an NMI edge by then hijacks them to `$FFFA`.
+
+An IRQ released on or after the poll cycle (a `$4015` read or `$E000` write on an instruction's last cycle) is still
+taken once.
 
 **Why not instruction-level catch-up any more.** With the PPU synchronised only after each instruction, a CPU write
 reached it early and a read saw stale state; `ppu_vbl_nmi/04-nmi_control` ("Immediate occurence should be after NEXT
@@ -329,13 +374,14 @@ most calls.
 | `lib/ruby/nes/cpu_bus.rb` | `Ruby::Nes::CpuBus` | CPU address decoding, RAM, open bus |
 | `lib/ruby/nes/cpu_bus/` | `Ruby::Nes::CpuBus::Disconnected`, `::OamDma` | the device in an empty slot; the OAM DMA unit the bus owns |
 | `lib/ruby/nes/cpu.rb` | `Ruby::Nes::Cpu` | registers, operand fetch, `step`, interrupts |
-| `lib/ruby/nes/cpu/` | `Ruby::Nes::Cpu::Status`, `::Stack`, `::Shifter`, `::AddressingModes`, `::Dispatch`, `::Opcodes`, `::Interrupts`, `::InterruptLines` | status flags, stack, the shift/rotate unit, addressing modes, the opcode dispatch and reset/NMI/IRQ (mixins of `Cpu`), the opcode table of all 256 opcodes (mnemonic, mode, base cycles, official or not), the NMI edge detector and IRQ level |
+| `lib/ruby/nes/cpu/` | `Ruby::Nes::Cpu::Status`, `::Stack`, `::Shifter`, `::AddressingModes`, `::Dispatch`, `::Opcodes`, `::Interrupts`, `::InterruptLines`, `::NmiDetector`, `::IrqLine` | status flags, stack, the shift/rotate unit, addressing modes, the opcode dispatch and reset/NMI/IRQ (mixins of `Cpu`), the opcode table of all 256 opcodes (mnemonic, mode, base cycles, official or not), the interrupt poll's arbiter, the NMI edge detector and the IRQ wired-OR level |
 | `lib/ruby/nes/cpu/instructions/` | `Ruby::Nes::Cpu::Instructions::LoadStore`, `::Arithmetic`, `::Branches`…, `::ReadModifyWriteCombos`, `::ImmediateCombos`, `::Unstable` | one mixin of `Cpu` per instruction group, each instruction a method taking the resolved effective address; the last three hold unofficial opcodes only (plan 09) |
 | `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding |
 | `lib/ruby/nes/ppu_bus/` | `Ruby::Nes::PpuBus::Nametables`, `::PaletteRam` | VRAM through the mirroring, palette RAM |
 | `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder, the PPU's I/O latch, the catch-up to a CPU cycle, reset and the writes it ignores; the PPUCTRL and PPUMASK settings told to the renderer |
 | `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::BackgroundShifters`, `::LayerVisibility`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
-| `lib/ruby/nes/apu.rb`, `apu/` | `Ruby::Nes::Apu`, `Ruby::Nes::Apu::…` | channels, frame counter, mixer |
+| `lib/ruby/nes/apu.rb` | `Ruby::Nes::Apu` | the APU's register decoder, `$4015`, the catch-up to a CPU cycle, power-up and reset |
+| `lib/ruby/nes/apu/` | `Ruby::Nes::Apu::Pulse`, `::Triangle`, `::Noise`, `::Timer`, `::DutySequencer`, `::Envelope`, `::Sweep`, `::LengthCounter`, `::FrameCounter`, `::FrameInterrupt` | the channels and their units (the triangle and the noise only their length counters so far), the frame counter and its interrupt flag (plan 22) |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller`, `::ControllerPorts` | a standard controller; the device answering `$4016`/`$4017` |
 | `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver`, `::Headless`, `::InputScript`, `::Palette`, `::Png`, `::Keyboard`, `::Raylib`, `::RaylibLibrary`, `::Viewport`, `::KeyConfig`, `::KeyBindings`, `::Hotkeys`, `::OppositeDirections`, `::FramePacing`, `::FrameRate`, `::MonotonicClock` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); keys to controller buttons and the raylib window (plan 17); the window's viewport, key config, hotkeys, direction filter, pacing and frame rate (plan 18). Never loaded by `lib/ruby/nes.rb` |
 | `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer` | tooling off the hot path |
@@ -430,15 +476,15 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 
 | Gap | Hardware | Revisit in |
 |---|---|---|
-| Dummy reads | The 6502 reads and throws away bytes in several addressing modes ([6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)). Since plan 12 the indexed modes (absolute,X, absolute,Y, (indirect),Y) make theirs, at the address whose high byte is not fixed yet, on a page cross for reads and always for writes and read-modify-write instructions (`instr_misc/03-dummy_reads` passes, and `cpu_dummy_reads` since plan 19). A read's dummy read reaches the PPU on its own cycle; a write's, and every access of a read-modify-write instruction, reach it on the instruction's last cycle, an approximation of the register sync. The other dummy reads (zero page indexed, implied, the stack) only reach RAM or ROM and are not made, so their open bus effect is missing. | Plan 22 (`instr_misc/04-dummy_reads_apu`) |
-| Interrupt polling point | Interrupts are polled "during the final cycle of the instruction", and what matters is the line status "at the end of the second-to-last cycle"; branches poll before their operand fetch and "not before the third CPU cycle on a taken branch" ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Branch_instructions_and_interrupts)). Since plan 12 the NMI edge carries its cycle and is polled at that point. The IRQ line is still polled before each instruction without a cycle, and taken branches get no special case (`cpu_interrupts_v2/5-branch_delays_irq` needs the APU's frame IRQ). | Plan 22, with `cpu_interrupts_v2` |
-| IRQ delay after `CLI`, `SEI`, `PLP` | These "change the I flag after polling for interrupts", so "executing CLI will execute the next instruction before the CPU invokes the IRQ handler", and an IRQ pending when `SEI` runs is still taken once ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Delayed_IRQ_response_after_CLI,_SEI,_and_PLP)). The emulator polls with the new I, so the IRQ comes one instruction early after `CLI`/`PLP` and is lost after `SEI`. `RTI` acts immediately, as modelled. `cpu_interrupts_v2/1-cli_latency` needs the APU's frame IRQ. | Plan 22, with `cpu_interrupts_v2` |
-| Interrupt hijacking | An NMI asserted during the first four ticks of `BRK` sends it through the NMI vector (with B still set in the pushed flags), and "an NMI can hijack an IRQ" ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Interrupt_hijacking)). The emulator finishes `BRK` or the IRQ through `$FFFE` and takes the NMI on the next step; the PPU does not advance inside the sequence. `cpu_interrupts_v2/2-nmi_and_brk` fails. | Plan 22, with `cpu_interrupts_v2` |
+| Dummy reads | The 6502 reads and throws away bytes in several addressing modes ([6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)). Since plan 12 the indexed modes (absolute,X, absolute,Y, (indirect),Y) make theirs, at the address whose high byte is not fixed yet, on a page cross for reads and always for writes and read-modify-write instructions (`instr_misc/03-dummy_reads` passes, `cpu_dummy_reads` since plan 19 and `instr_misc/04-dummy_reads_apu`, through `$4015`, since plan 22). A read's dummy read reaches the PPU on its own cycle; a write's, and every access of a read-modify-write instruction, reach it on the instruction's last cycle, an approximation of the register sync. The other dummy reads (zero page indexed, implied, the stack) only reach RAM or ROM and are not made, so their open bus effect is missing. | — |
+| Interrupt polling point | Modelled since plan 22 (Interrupt timing): the IRQ carries its cycle like the NMI edge, taken branches without a page cross poll one cycle early, DMA stalls and interrupt sequences do not poll; `cpu_interrupts_v2` 1-5 pass. What remains approximate is inside an instruction: read-modify-write instructions on registers, and the dummy reads above. | — |
+| IRQ delay after `CLI`, `SEI`, `PLP` | Modelled since plan 22: the poll after them sees the I from before them (`cpu_interrupts_v2/1-cli_latency` passes). | — |
+| Interrupt hijacking | Modelled since plan 22: BRK and the interrupt sequence catch the PPU up and pick their vector after tick 4, so an NMI by then sends them through `$FFFA` (`cpu_interrupts_v2` 2 and 3 pass). An IRQ hijacking BRK needs nothing: they share the vector. | — |
 | DMC conflict on controller reads | A DMC sample fetch that falls on a `$4016`/`$4017` read clocks the shift register again, so "the shift register will drop a bit out", "most common symptom of this is spurious Right presses" ([Controller reading](https://www.nesdev.org/wiki/Controller_reading), [Standard controller](https://www.nesdev.org/wiki/Standard_controller)). No DMC exists yet; a read clocks the controller once. The expansion port latches (bits 2-1 of a `$4016` write) and third-party controllers that return 0 after the 8th read are not modelled either (plan 15). | Plan 23 (DMC DMA) |
 | Jammed CPU | The `JAM` opcodes "halt the CPU until reset" ([CPU unofficial opcodes](https://www.nesdev.org/wiki/CPU_unofficial_opcodes)); no reference found says what the bus does meanwhile, how the cycles count, or whether NMI and IRQ act on a jammed CPU. The emulator's choice is a convention: each `Cpu#step` touches no bus, takes no interrupt and returns 2 cycles (`Cpu::JAMMED_STEP_CYCLES`), and the `JAM` opcode itself costs 2. **Technical debt:** search deeper (Visual6502 simulations, "No More Secrets") and replace the convention with a sourced behaviour. | A later CPU pass (no plan yet) |
 | Unstable unofficial opcodes | `ANE` (`XAA`), `LAX #imm`, `SHA` (`AHX`), `SHX`, `SHY`, `TAS` and `LAS` depend on the chip, the temperature and the RDY line ("No More Secrets", [csdb.dk/release/?id=198357](https://csdb.dk/release/?id=198357)). The emulator uses the documented formulas without DMA, $EF for `ANE` as the document advises for emulators, and Z and N from the result ([Visual6502 wiki](https://www.nesdev.org/wiki/Visual6502wiki/6502_Opcode_8B_(XAA,_ANE))). `LAX #imm` uses $FF, not the document's $EE: blargg's `instr_test-v5`, whose checksums come from the console, passes only with it, and it also checks `LAX #imm`'s flags, `SHX` and `SHY` (plan 12). `ANE`, `SHA`, `TAS` and `LAS` stay unchecked. | A later CPU pass (no plan yet) |
 | PPU I/O latch decay | "At least one bit in this value decays after 3ms to 30ms" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). The latch keeps its value forever (plan 12, decision 9): `ppu_open_bus` fails #3, "Decay value should become zero by one second". | A later PPU pass (no plan yet) |
-| OAM DMA alignment | Get and put cycles "are aligned to the first and second halves of the APU clock", and "At power-on, whether the first CPU cycle is get or put is random" ([DMA](https://www.nesdev.org/wiki/DMA)). The emulator takes even CPU cycles, counted from `Cpu.new`, as get cycles (a convention; plan 11, decision 3 compares it with Mesen2, which reaches the same alignment counting 8 reset cycles and odd get cycles), so a `$4014` write on an even cycle stalls 513 cycles and on an odd one 514. The copy also happens at once, before the stall, so the PPU sees OAM complete one instruction early. | Plan 23 (DMC DMA shares the get/put rule) |
+| OAM DMA alignment | Get and put cycles "are aligned to the first and second halves of the APU clock", and "At power-on, whether the first CPU cycle is get or put is random" ([DMA](https://www.nesdev.org/wiki/DMA)). The emulator takes even CPU cycles, counted from `Cpu.new`, as get cycles (a convention; plan 11, decision 3 compares it with Mesen2), so a `$4014` write on an even cycle stalls 513 cycles and on an odd one 514; the APU's `$4017` delay is calibrated against it (plan 22, decision 5, with `cpu_interrupts_v2/4-irq_and_dma`). The copy also happens at once, before the stall, so the PPU sees OAM complete one instruction early. | Plan 23 (DMC DMA shares the get/put rule) |
 | VBlank flag at power | "The VBL flag (PPUSTATUS bit 7) is random at power" ([PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state)). It starts clear, a convention (plan 12, decision 8); reset leaves it as it is, as the hardware does. | — |
 | PPU registers ignored at power | The page gives the window of ignored writes to PPUCTRL, PPUMASK, PPUSCROLL and PPUADDR for the reset signal, "set on reset and cleared at the end of VBlank" ([PPU power up state](https://www.nesdev.org/wiki/PPU_power_up_state)). The emulator opens the same window at power-up, since `Console.new` resets the PPU (plan 12, decision 8); a plain `Ppu.new` accepts writes at once, for specs. | — |
 | Rendering toggle delay | "Toggling rendering takes effect approximately 3-4 dots after the write" ([PPU frame timing](https://www.nesdev.org/wiki/PPU_frame_timing)). The frame timing sees PPUMASK's rendering bits at once, when it decides the odd-frame skip at dot 339 of the pre-render scanline. `ppu_vbl_nmi/10-even_odd_timing` fails #3, "Clock is skipped too late, relative to enabling BG". | A later PPU pass (no plan yet; plan 13, decision 4) |
@@ -448,8 +494,10 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | Sprite 0 hit dot | "Sprite 0 hit acts as if the image starts at cycle 2" ([PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)); the flag is set on the dot the pixel is composed, x + 1, one dot earlier (plan 14, decision 9). `sprite_hit_tests_2005.10.05` 09-11 pass with it. | — |
 | Background fetches with no visible effect | The nametable fetches of dots 257-320 and the two of 337-340 ("only used by MMC5", [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)) are not made (plan 13, decision 6); a mapper that counts PPU reads would miss them. MMC3 does not need them: nametable addresses have A12 low, and the lows they would put between sprite fetches are shorter than its filter (plan 21, decision 9). The sprite pattern fetches of 257-320 are made on their dots since plan 14 (decision 3); an empty slot's dummy fetch takes its row from Y `$FF`, where the hardware's first empty slot keeps sprite 63's Y. | MMC5, if ever |
 | Byte under a palette read | A PPUDATA read of the palette fills the buffer from "a normal read from PPU memory at the specified address, "underneath" the palette data" ("usually mirrored nametables"). The emulator reads the nametable byte `$1000` below (the `$2F00-$2FFF` mirror), an inference from "$3000-3EFF is usually a mirror of" `$2000-$2EFF`. | When a board maps `$3000-$3FFF` differently |
-| MMC3 IRQ timing | The counter is clocked on the dot a pattern fetch with A12 high happens (261 for the first sprite fetch, where NESdev says "PPU cycle 260"), M2 edges are counted as elapsed dots divided by 3 without their phase, and the IRQ is polled before each instruction without a cycle (the Interrupt polling point gap). `mmc3_test_2/4-scanline_timing` fails #2, "Scanline 0 IRQ should occur later when $2000=$08"; SMB3's status bar is still. | Plan 22 (IRQ polling point) |
+| MMC3 IRQ timing | The counter is clocked on the dot a pattern fetch with A12 high happens (261 for the first sprite fetch, where NESdev says "PPU cycle 260"), and M2 edges are counted as elapsed dots divided by 3 without their phase. Since plan 22 its IRQ carries the M2 cycle of the clock and is polled at the right point, yet `mmc3_test_2/4-scanline_timing` still fails #2, "Scanline 0 IRQ should occur later when $2000=$08"; SMB3's status bar is still. | A later mapper pass (no plan yet) |
 | OAM DMA from a read-modify-write | A read-modify-write instruction on `$4014` writes it twice (decision 48), so the emulator starts OAM DMA twice: two copies of 256 bytes, the second from the modified page, and one stall. NESdev's [DMA](https://www.nesdev.org/wiki/DMA) page does not describe a second `$4014` write during a transfer; the OAM left is the modified page's, as the last copy. | A later DMA pass (no plan yet; plan 23 shares the DMA unit) |
+| `$4015` read on the cycle the frame flag is set | The APU page says "If an interrupt flag was set at the same moment of the read, it will read back as 1 but it will not be cleared"; apu_test's `6-irq_flag_timing` (#5, "Flag last set too late"), written against the console, needs the read on the cycle of the last set to clear it. The emulator always clears (plan 22, decision 7); "the same moment" may be a finer timing than a CPU cycle. | — |
+| Frame counter at power-up and reset | `apu_reset`'s readme: "At power, it is as if $00 were written to $4017, then a 9-12 clock delay, then execution from address in reset vector", and at reset the last value is written again. The emulator starts mode 0 from cycle 0 when the console is built, and rewrites the value on the cycle the APU stands at when reset is pressed, without that delay; `apu_reset/4017_timing` passes all the same (it prints a delay of 7). | — |
 
 ## Frame buffer contract
 
@@ -533,3 +581,10 @@ presentation, in a frontend).
 | 54 | 2026-11-21 | MMC3's counter is clocked from A12 as seen in every address that reaches the board: pattern fetches, PPUDATA accesses and v left on the bus by PPUADDR writes and PPUDATA increments outside rendering (`ppu_address`); the filter counts M2 cycles as `Ppu#elapsed_dots / 3` (the board gets the PPU through `ppu=`) | "no matter what caused it", and mmc3_test_2 clocks through `$2006` and `$2007`; during rendering v's bit 12 is fine Y and the board sees every fetch, so v is not shown then, against the page's "regardless of whether PPU is/is not rendering" (plan 21, decision 10). The watch costs within noise under YJIT and 3-5% under ZJIT on SMB3 frames ([benchmarks](benchmarks.md); plan 21, decisions 1 and 2) | Plan 25 (the dot-260 shortcut is the fallback) |
 | 55 | 2026-11-21 | MMC3 follows the Sharp MMC3B/C "new" IRQ behaviour (an IRQ on every clock while the latch is 0), ignores `$A001` and keeps 8 KiB of PRG RAM always enabled | Mapper 4 submapper 0; 5-MMC3 passes, 6-MMC3_alt (the old behaviour) fails as expected; "Many emulators choose not to implement them [...] to avoid an incompatibility with the MMC6" (plan 21, decisions 3 and 4) | NES 2.0 submappers |
 | 56 | 2026-11-21 | A header asking for four-screen VRAM makes the base's mirroring `:four_screen`; MMC3 keeps it, boards that control their mirroring (AxROM, MMC1) set theirs over it | iNES flags 6 bit 3 is board-independent; MMC3's `$A000` "has no effect" then; no four-screen AxROM or MMC1 board is known (plan 21, decision 7) | — |
+| 57 | 2026-11-21 | The IRQ line carries cycle stamps: `Cpu#assert_irq(source, cycle)` and `#release_irq(source, cycle)`, `Cpu::IrqLine` keeping when it fell and rose; `Cpu::InterruptLines` arbitrates it with `Cpu::NmiDetector` and polls both at the same point, with the exceptions of Interrupt timing (`CLI`/`SEI`/`PLP`, taken branches, DMA stalls, interrupt sequences, hijacking through the console's register sync) | The frame IRQ makes `cpu_interrupts_v2` runnable, and every one of its five singles passes only with these; three units instead of one arbiter whose specification had grown past 30 leaves (plan 22, decisions 1 and 9) | Plan 25 (the per-instruction cost of the poll bookkeeping) |
+| 58 | 2026-11-21 | The CPU bus does not store what the `apu_registers:` slot returns | `$4015` "is internal to the CPU and so the external CPU data bus is disconnected when reading it"; the rest of the slot is open bus already, so the assignment moving into each branch costs nothing (plan 22, decision 2) | — |
+| 59 | 2026-11-21 | The APU is caught up like the PPU: one CPU cycle at a time, after each step and, before a register access, through the access cycle (`Cpu#access_cycle`); the pulse timers tick on even cycles | `$4015` reads and `$4017` writes land on their cycle; `apu_test` 1-6 pass (plan 22, decision 3) | Plan 25 (advancing the frame counter step to step) |
+| 60 | 2026-11-21 | A `$4017` write takes effect 3 CPU cycles after a write on an odd cycle, 4 after one on an even cycle; OAM DMA keeps even cycles as get cycles | No page says which parity is "during" an APU cycle; `apu_test` passes either way, `cpu_interrupts_v2/4-irq_and_dma` only with this pairing (plan 22, decision 5) | Plan 23 (DMC DMA) |
+| 61 | 2026-11-21 | A `$4015` read clears the frame interrupt flag even on the cycle the frame counter set it | `apu_test/6-irq_flag_timing` (#5) needs it, against the APU page's "it will not be cleared" (plan 22, decision 7) | — |
+| 62 | 2026-11-21 | The triangle's and the noise's length counters come before their channels (`Apu::Triangle`, `Apu::Noise`) | `apu_test` 1, 2 and 5 test the four main channels' length counters through `$4015` (plan 22, decision 8) | Plan 23 (the rest of both channels) |
+| 63 | 2026-11-21 | Reset clears the frame interrupt flag (releasing `FRAME_IRQ`) and writes `$4017`'s last value again; `InterruptLines#reset` also forgets the poll's exceptions | `apu_reset`'s readme, written against the console ("At power and reset, IRQ flag is clear", "last value written to $4017 is written again"); without them an IRQ could follow a reset at once (plan 22 review, decision 4) | — |
