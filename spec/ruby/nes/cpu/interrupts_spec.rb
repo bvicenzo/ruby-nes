@@ -142,6 +142,31 @@ RSpec.describe Ruby::Nes::Cpu::Interrupts do
       end
     end
 
+    # SEI "changes the I flag after polling for interrupts" (plan 22): the poll after it would see I clear. Reset sets I
+    # and starts afresh, so the IRQ line its device keeps asserted stays masked.
+    context 'when SEI ran last with the IRQ line asserted' do
+      subject(:cpu) do
+        Ruby::Nes::Cpu.new(bus:, program_counter: 0x8000, cycles: 10).tap do |cpu|
+          cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 11)
+          cpu.step
+        end
+      end
+
+      let(:bus) { FlatBus.new }
+
+      before do
+        bus.write(0x8000, 0x78)
+        bus.write_bytes(0xFFFC, [0x34, 0x12])
+        bus.write(0x1234, 0xEA)
+      end
+
+      it 'masks the IRQ: the next step runs the instruction at the reset vector', :aggregate_failures do
+        cpu.reset
+        expect(cpu.step).to eq(2)
+        expect(cpu.program_counter).to eq(0x1235)
+      end
+    end
+
     # The jam opcodes "halt the CPU until reset" (https://www.nesdev.org/wiki/CPU_unofficial_opcodes).
     context 'when the CPU is jammed' do
       subject(:cpu) { Ruby::Nes::Cpu.new(bus:).tap(&:jam) }

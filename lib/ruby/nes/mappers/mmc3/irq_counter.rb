@@ -10,8 +10,8 @@ module Ruby
         # the IRQ on every clock ("generate an IRQ on each scanline while $C000 is $00"). $C001 clears the counter at
         # once, without an IRQ; $C000 only changes the latch; $E000 disables and acknowledges, "the counter will
         # continue to run"; $E001 enables. Everything starts at 0, disabled (plan 19, decision 6). The CPU is the IRQ
-        # line, through its MAPPER_IRQ source (plan 21, decision 5). Clocked once per filtered A12 rise, about once per
-        # scanline: no allocation.
+        # line, through its MAPPER_IRQ source (plan 21, decision 5), told with the cycle of each change (plan 22,
+        # decision 6). Clocked once per filtered A12 rise, about once per scanline: no allocation.
         class IrqCounter
           attr_writer :cpu, :latch
 
@@ -22,13 +22,14 @@ module Ruby
             @enabled = false
           end
 
-          def clock
+          # A filtered A12 rise on CPU cycle `cycle`.
+          def clock(cycle)
             if @counter.zero?
               @counter = @latch
             else
               @counter -= 1
             end
-            @cpu.assert_irq(Cpu::InterruptLines::MAPPER_IRQ) if @counter.zero? && @enabled
+            @cpu.assert_irq(Cpu::InterruptLines::MAPPER_IRQ, cycle) if @counter.zero? && @enabled
           end
 
           # $C001: the counter is cleared now, so it loads the latch on the next clock. The wiki's reload flag changes
@@ -37,10 +38,10 @@ module Ruby
             @counter = 0
           end
 
-          # $E000: no more IRQs, and the one asserted is acknowledged.
+          # $E000: no more IRQs, and the one asserted is acknowledged on the write's cycle.
           def disable
             @enabled = false
-            @cpu.release_irq(Cpu::InterruptLines::MAPPER_IRQ)
+            @cpu.release_irq(Cpu::InterruptLines::MAPPER_IRQ, @cpu.access_cycle)
           end
 
           # $E001.

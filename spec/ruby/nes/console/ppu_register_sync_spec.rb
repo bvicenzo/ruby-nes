@@ -10,7 +10,7 @@ RSpec.describe Ruby::Nes::Console::PpuRegisterSync do
     subject(:register_sync) { described_class.new(ppu:, cpu:) }
 
     let(:ppu) { instance_double(Ruby::Nes::Ppu, catch_up: nil, cpu_read: 0x80) }
-    let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 14) }
+    let(:cpu) { instance_double(Ruby::Nes::Cpu, access_cycle: 13) }
 
     it "catches the PPU up to the start of the instruction's last cycle, then reads", :aggregate_failures do
       register_sync.cpu_read(0x2002, 0x20)
@@ -27,7 +27,7 @@ RSpec.describe Ruby::Nes::Console::PpuRegisterSync do
     subject(:register_sync) { described_class.new(ppu:, cpu:) }
 
     let(:ppu) { instance_double(Ruby::Nes::Ppu, catch_up: nil, cpu_write: nil) }
-    let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 14) }
+    let(:cpu) { instance_double(Ruby::Nes::Cpu, access_cycle: 13) }
 
     it "catches the PPU up to the start of the instruction's last cycle, then writes", :aggregate_failures do
       register_sync.cpu_write(0x2000, 0x80)
@@ -40,7 +40,7 @@ RSpec.describe Ruby::Nes::Console::PpuRegisterSync do
     subject(:register_sync) { described_class.new(ppu:, cpu:) }
 
     let(:ppu) { instance_double(Ruby::Nes::Ppu, catch_up: nil) }
-    let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 14) }
+    let(:cpu) { instance_double(Ruby::Nes::Cpu, access_cycle: 13) }
 
     it "catches the PPU up to the start of the instruction's last cycle" do
       register_sync.catch_up

@@ -54,7 +54,7 @@ RSpec.describe Ruby::Nes::Debug::Tracer do
       context 'and it is an IRQ' do
         let(:cpu) do
           Ruby::Nes::Cpu.new(bus:, accumulator: 0x0A, index_x: 0xB1, index_y: 0x2C, stack_pointer: 0x40).tap do |cpu|
-            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
           end
         end
         let(:reset_vector) { [0x00, 0xC0] }

@@ -18,7 +18,7 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
 
           let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
 
-          before { counter.clock }
+          before { counter.clock(120) }
 
           it 'asserts no IRQ' do
             expect(cpu).not_to have_received(:assert_irq)
@@ -30,10 +30,10 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
 
           let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
 
-          before { counter.clock }
+          before { counter.clock(120) }
 
           it 'asserts the IRQ' do
-            expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+            expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 120)
           end
         end
       end
@@ -49,7 +49,7 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
         let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
 
         it 'asserts no IRQ' do
-          counter.clock
+          counter.clock(120)
           expect(cpu).not_to have_received(:assert_irq)
         end
       end
@@ -62,13 +62,13 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
           described_class.new(cpu:).tap do |irq_counter|
             irq_counter.latch = 3
             irq_counter.enable
-            irq_counter.clock
+            irq_counter.clock(120)
           end
         end
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
 
-        before { counter.clock }
+        before { counter.clock(120) }
 
         it 'asserts no IRQ' do
           expect(cpu).not_to have_received(:assert_irq)
@@ -81,13 +81,13 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
           subject(:counter) do
             described_class.new(cpu:).tap do |irq_counter|
               irq_counter.latch = 1
-              irq_counter.clock
+              irq_counter.clock(120)
             end
           end
 
           let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
 
-          before { counter.clock }
+          before { counter.clock(120) }
 
           it 'asserts no IRQ' do
             expect(cpu).not_to have_received(:assert_irq)
@@ -100,16 +100,16 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
             described_class.new(cpu:).tap do |irq_counter|
               irq_counter.latch = 1
               irq_counter.enable
-              irq_counter.clock
+              irq_counter.clock(120)
             end
           end
 
           let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
 
-          before { counter.clock }
+          before { counter.clock(120) }
 
           it 'asserts the IRQ' do
-            expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+            expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 120)
           end
         end
       end
@@ -123,7 +123,7 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
       described_class.new(cpu:).tap do |irq_counter|
         irq_counter.latch = 2
         irq_counter.enable
-        2.times { irq_counter.clock }
+        2.times { irq_counter.clock(120) }
       end
     end
 
@@ -131,8 +131,8 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
 
     it 'leaves the counter counting from its value' do
       counter.latch = 100
-      counter.clock
-      expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+      counter.clock(120)
+      expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 120)
     end
   end
 
@@ -143,7 +143,7 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
         described_class.new(cpu:).tap do |irq_counter|
           irq_counter.latch = 3
           irq_counter.enable
-          2.times { irq_counter.clock }
+          2.times { irq_counter.clock(120) }
         end
       end
 
@@ -158,10 +158,10 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
       # 1-clocking: "Should reload (no decrement) on first clock after clear".
       it 'makes the next clock load the latch instead of decrementing', :aggregate_failures do
         counter.request_reload
-        3.times { counter.clock }
+        3.times { counter.clock(120) }
         expect(cpu).not_to have_received(:assert_irq)
-        counter.clock
-        expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+        counter.clock(120)
+        expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 120)
       end
     end
 
@@ -171,7 +171,7 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
         described_class.new(cpu:).tap do |irq_counter|
           irq_counter.latch = 3
           irq_counter.enable
-          2.times { irq_counter.clock }
+          2.times { irq_counter.clock(120) }
           irq_counter.latch = 0
         end
       end
@@ -180,8 +180,8 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
 
       it 'makes the next clock assert the IRQ' do
         counter.request_reload
-        counter.clock
-        expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+        counter.clock(120)
+        expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 120)
       end
     end
   end
@@ -194,22 +194,23 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
       end
     end
 
-    let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
+    # $E000 is written on the instruction's last cycle, its access cycle.
+    let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil, access_cycle: 41) }
 
-    it 'releases the IRQ' do
+    it 'releases the IRQ on the access cycle' do
       counter.disable
-      expect(cpu).to have_received(:release_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+      expect(cpu).to have_received(:release_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 41)
     end
 
     # 2-details: "Counter should run even when IRQ is disabled": five clocks while disabled (2, 1, 0, 2, 1), then the
     # first clock once enabled reaches 0.
     it 'keeps the counter running', :aggregate_failures do
       counter.disable
-      5.times { counter.clock }
+      5.times { counter.clock(120) }
       counter.enable
       expect(cpu).not_to have_received(:assert_irq)
-      counter.clock
-      expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+      counter.clock(120)
+      expect(cpu).to have_received(:assert_irq).with(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 120)
     end
   end
 

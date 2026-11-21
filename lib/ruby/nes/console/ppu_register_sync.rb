@@ -10,9 +10,6 @@ module Ruby
       # registers are approximated. The Console gives the CPU through the writer, since it builds the CPU after the bus.
       # The cartridge board asks for the same catch-up before each register write (plan 21, decision 6).
       class PpuRegisterSync
-        # The access falls on the instruction's last cycle, the one before the cycle it ends on.
-        ACCESS_CYCLE_OFFSET = 1
-
         attr_writer :cpu
 
         def initialize(ppu:, cpu: nil)
@@ -30,9 +27,9 @@ module Ruby
           @ppu.cpu_write(address, value)
         end
 
-        # Catches the PPU up to the start of the cycle the instruction's access falls on.
+        # Catches the PPU up to the start of the cycle the instruction's access falls on, Cpu#access_cycle.
         def catch_up
-          @ppu.catch_up(@cpu.cycles - ACCESS_CYCLE_OFFSET)
+          @ppu.catch_up(@cpu.access_cycle)
         end
       end
     end

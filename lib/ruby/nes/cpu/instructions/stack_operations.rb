@@ -23,8 +23,10 @@ module Ruby
             @status.update_zero_and_negative(@accumulator)
           end
 
-          # PLP. The one-instruction delay of a change to I on IRQ polling belongs to plan 07.
+          # PLP. It changes "the I flag after polling for interrupts" (https://www.nesdev.org/wiki/CPU_interrupts): the
+          # poll that follows it sees I as it was before (plan 22, decision 1).
           def pull_status
+            @interrupt_lines.poll_with_interrupt_disable(@status.interrupt_disable?)
             @status.restore(@stack.pull)
           end
         end

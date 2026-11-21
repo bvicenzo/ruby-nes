@@ -28,6 +28,19 @@ RSpec.describe Ruby::Nes::Cpu do
     end
   end
 
+  # Cpu#step charges an instruction's cycles before running it, and every non-read-modify-write instruction makes its
+  # data access on its last cycle (https://www.nesdev.org/6502_cpu.txt): the one before the cycle it ends on (plan 12,
+  # decision 1).
+  describe '#access_cycle' do
+    context 'when the instruction running ends on cycle 30' do
+      subject(:cpu) { described_class.new(bus: FlatBus.new, cycles: 30) }
+
+      it 'returns cycle 29' do
+        expect(cpu.access_cycle).to eq(29)
+      end
+    end
+  end
+
   describe '#fetch_byte' do
     subject(:cpu) { described_class.new(bus:, program_counter:) }
 

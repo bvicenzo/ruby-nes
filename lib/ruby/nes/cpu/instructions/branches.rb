@@ -49,10 +49,17 @@ module Ruby
           end
 
           # Moves the program counter (already past the operand) to the target: one cycle, and one more when the
-          # target is on another page.
+          # target is on another page. Branches poll interrupts "before the second CPU cycle (the operand fetch)", a
+          # taken one not before the third, and one that crosses a page again before its fix-up cycle
+          # (https://www.nesdev.org/wiki/CPU_interrupts): without a page cross the poll comes one cycle early.
           def take_branch(target)
             @cycles += 1
-            @cycles += 1 if (@program_counter & Bits::PAGE_MASK) != (target & Bits::PAGE_MASK) # glossary: page-crossed
+            page_crossed = (@program_counter & Bits::PAGE_MASK) != (target & Bits::PAGE_MASK) # glossary: page-crossed
+            if page_crossed
+              @cycles += 1
+            else
+              @interrupt_lines.poll_one_cycle_early
+            end
             @program_counter = target
           end
         end

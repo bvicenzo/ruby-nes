@@ -43,6 +43,8 @@ module Ruby
       # the cycles of a jammed CPU nor says whether NMI and IRQ act on it (plan 09, decision 2; docs/architecture.md,
       # Known gaps). The clock keeps running on hardware, so the console must keep advancing the PPU and APU.
       JAMMED_STEP_CYCLES = 2
+      # An instruction's data access falls on its last cycle, the one before the cycle it ends on.
+      ACCESS_CYCLE_OFFSET = 1
 
       include AddressingModes
       include Instructions::LoadStore
@@ -64,6 +66,9 @@ module Ruby
 
       attr_accessor :accumulator, :index_x, :index_y, :program_counter
       attr_reader :status, :stack, :cycles
+      # Catches the PPU up before an interrupt sequence picks its vector, so an NMI edge that hijacks it is known
+      # (plan 22, decision 1): the console's register sync. Without one, the sequence uses the edges already told.
+      attr_writer :interrupt_sync
 
       # One optional keyword per register of the register file, plus the cycle count, so specs can start anywhere.
       # rubocop:disable-next Metrics/ParameterLists
@@ -77,12 +82,18 @@ module Ruby
         @shifter = Shifter.new(status: @status)
         @stack = Stack.new(bus:, pointer: stack_pointer)
         @interrupt_lines = InterruptLines.new(status: @status)
+        @interrupt_sync = nil
         @cycles = cycles
         @jammed = false
       end
 
       # Whether a JAM opcode halted the CPU; only #reset releases it (plan 09, decision 2).
       def jammed? = @jammed
+
+      # The cycle the running instruction makes its data access on: its last one, before the cycle it ends on, since
+      # #step charges the cycles first and every non-read-modify-write instruction accesses memory on its last cycle
+      # (https://www.nesdev.org/6502_cpu.txt; plan 12, decision 1). Devices stamp register effects with it.
+      def access_cycle = @cycles - ACCESS_CYCLE_OFFSET
 
       # The byte at the program counter, which then moves to the next byte.
       def fetch_byte
@@ -117,11 +128,21 @@ module Ruby
           @cycles += Opcodes::TABLE[opcode].cycles
           execute(opcode)
         end
-        @cycles += @bus.take_stall_cycles(@cycles)
+        add_stall_cycles
         @cycles - cycles_before
       end
 
       private
+
+      # A DMA the step started halts the CPU for the cycles the bus reports. The CPU polled for interrupts before the
+      # halt and polls nothing during it, so the next poll looks back past the stall (plan 22, decision 9).
+      def add_stall_cycles
+        stall_cycles = @bus.take_stall_cycles(@cycles)
+        return if stall_cycles.zero?
+
+        @interrupt_lines.poll_before_stall(stall_cycles)
+        @cycles += stall_cycles
+      end
 
       def stay_jammed
         @cycles += JAMMED_STEP_CYCLES

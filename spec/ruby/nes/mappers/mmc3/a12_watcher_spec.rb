@@ -46,7 +46,7 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::A12Watcher do
         end
 
         it 'keeps the low period from its first low address' do
-          expect(counter).to have_received(:clock).once
+          expect(counter).to have_received(:clock).once.with(4)
         end
       end
     end
@@ -108,8 +108,8 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::A12Watcher do
             watcher.watch(0x1000)
           end
 
-          it 'clocks the counter' do
-            expect(counter).to have_received(:clock).once
+          it 'clocks the counter on the cycle of the rise' do
+            expect(counter).to have_received(:clock).once.with(4)
           end
         end
 
@@ -128,8 +128,8 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::A12Watcher do
             watcher.watch(0x1000)
           end
 
-          it 'clocks the counter' do
-            expect(counter).to have_received(:clock).once
+          it 'clocks the counter on the cycle of the rise' do
+            expect(counter).to have_received(:clock).once.with(100)
           end
         end
       end

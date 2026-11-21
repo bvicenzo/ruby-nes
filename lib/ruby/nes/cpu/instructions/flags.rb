@@ -5,7 +5,8 @@ module Ruby
     class Cpu
       module Instructions
         # Flag instructions (https://www.nesdev.org/wiki/Instruction_reference), included in Cpu: each changes one flag.
-        # The one-instruction delay of CLI and SEI on IRQ polling belongs to plan 07.
+        # CLI and SEI "change the I flag after polling for interrupts" (https://www.nesdev.org/wiki/CPU_interrupts): the
+        # poll that follows them sees I as it was before (plan 22, decision 1).
         module Flags
           # CLC
           def clear_carry
@@ -19,6 +20,7 @@ module Ruby
 
           # CLI
           def clear_interrupt_disable
+            @interrupt_lines.poll_with_interrupt_disable(@status.interrupt_disable?)
             @status.interrupt_disable = false
           end
 
@@ -39,6 +41,7 @@ module Ruby
 
           # SEI
           def set_interrupt_disable
+            @interrupt_lines.poll_with_interrupt_disable(@status.interrupt_disable?)
             @status.interrupt_disable = true
           end
         end

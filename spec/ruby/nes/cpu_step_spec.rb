@@ -71,9 +71,9 @@ RSpec.describe Ruby::Nes::Cpu do
 
       context 'and the IRQ line is asserted with interrupt disable clear' do
         subject(:cpu) do
-          described_class.new(bus:, program_counter: 0x8001, stack_pointer: 0xFD).tap do |cpu|
+          described_class.new(bus:, program_counter: 0x8001, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
             cpu.jam
-            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
           end
         end
 
@@ -150,9 +150,9 @@ RSpec.describe Ruby::Nes::Cpu do
     context 'when the IRQ line is asserted' do
       context 'but interrupt disable is set' do
         subject(:cpu) do
-          described_class.new(bus:, program_counter: 0x8000).tap do |cpu|
+          described_class.new(bus:, program_counter: 0x8000, cycles: 10).tap do |cpu|
             cpu.status.interrupt_disable = true
-            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
           end
         end
 
@@ -169,9 +169,9 @@ RSpec.describe Ruby::Nes::Cpu do
 
       context 'and interrupt disable is clear' do
         subject(:cpu) do
-          described_class.new(bus:, program_counter: 0x8123, stack_pointer: 0xFD).tap do |cpu|
+          described_class.new(bus:, program_counter: 0x8123, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
             cpu.status.carry = true
-            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
           end
         end
 
@@ -209,8 +209,8 @@ RSpec.describe Ruby::Nes::Cpu do
 
       context 'and its handler returns with RTI while the line stays asserted' do
         subject(:cpu) do
-          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD).tap do |cpu|
-            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
             cpu.step
             cpu.step
           end
@@ -227,21 +227,289 @@ RSpec.describe Ruby::Nes::Cpu do
           expect(cpu.program_counter).to eq(0x1234)
         end
       end
+
+      # "The CLI, SEI, and PLP instructions on the other hand change the I flag after polling for interrupts", so
+      # "executing CLI will execute the next instruction before the CPU invokes the IRQ handler", and an IRQ that comes
+      # while SEI runs is still taken once (https://www.nesdev.org/wiki/CPU_interrupts).
+      context 'and the previous instruction was CLI' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.status.interrupt_disable = true
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
+            cpu.step
+          end
+        end
+
+        before do
+          bus.write_bytes(0x8000, [0x58, 0xE8])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'runs one more instruction before taking the IRQ', :aggregate_failures do
+          expect(cpu.step).to eq(2)
+          expect(cpu.step).to eq(7)
+          expect(cpu.program_counter).to eq(0x1234)
+        end
+      end
+
+      context 'and the previous instruction was SEI' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 9)
+            cpu.step
+          end
+        end
+
+        before do
+          bus.write_bytes(0x8000, [0x78, 0xE8])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'takes the IRQ', :aggregate_failures do
+          expect(cpu.step).to eq(7)
+          expect(cpu.program_counter).to eq(0x1234)
+        end
+
+        it 'pushes the flags with interrupt disable set' do
+          cpu.step
+          expect(bus.read(0x01FB)).to eq(0x24)
+        end
+      end
+
+      context 'and the previous instruction was PLP, clearing interrupt disable' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.status.interrupt_disable = true
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
+            cpu.step
+          end
+        end
+
+        before do
+          bus.write(0x01FE, 0x00)
+          bus.write_bytes(0x8000, [0x28, 0xE8])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'runs one more instruction before taking the IRQ', :aggregate_failures do
+          expect(cpu.step).to eq(2)
+          expect(cpu.step).to eq(7)
+          expect(cpu.program_counter).to eq(0x1234)
+        end
+      end
+
+      # Branches poll "before the second CPU cycle (the operand fetch)", a taken branch not before the third, and one
+      # that crosses a page also "before the PCH fixup cycle" (https://www.nesdev.org/wiki/CPU_interrupts).
+      context 'and the line fell on the second cycle of a branch not taken' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 10)
+            cpu.step
+          end
+        end
+
+        before do
+          bus.write_bytes(0x8000, [0xF0, 0x00, 0xE8])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'takes the IRQ after the branch' do
+          expect(cpu.step).to eq(7)
+        end
+      end
+
+      context 'and the line fell on the second cycle of a taken branch that crossed no page' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 11)
+            cpu.step
+          end
+        end
+
+        before do
+          bus.write_bytes(0x8000, [0xD0, 0x00, 0xE8])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'runs one more instruction before taking the IRQ', :aggregate_failures do
+          expect(cpu.step).to eq(2)
+          expect(cpu.step).to eq(7)
+        end
+      end
+
+      context 'and the line fell on the third cycle of a taken branch that crossed a page' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x80FD, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 12)
+            cpu.step
+          end
+        end
+
+        before do
+          bus.write_bytes(0x80FD, [0xD0, 0x01])
+          bus.write(0x8100, 0xE8)
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'takes the IRQ after the branch' do
+          expect(cpu.step).to eq(7)
+        end
+      end
+    end
+
+    # Interrupt hijacking (https://www.nesdev.org/wiki/CPU_interrupts): "if NMI is asserted during the first four ticks
+    # of a BRK instruction, the BRK instruction will execute normally at first", then loads the NMI vector; "an NMI can
+    # hijack an IRQ". The sequence asks its interrupt sync to catch the PPU up, so an edge by then is known (plan 22,
+    # decision 1).
+    context 'when an NMI edge comes during BRK' do
+      context 'but after its fourth tick' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.interrupt_sync = interrupt_sync
+          end
+        end
+
+        let(:interrupt_sync) { instance_double(Ruby::Nes::Console::PpuRegisterSync) }
+
+        before do
+          bus.write_bytes(0x8000, [0x00, 0x00])
+          bus.write_bytes(0xFFFA, [0x78, 0x56])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+          bus.write(0x1234, 0xE8)
+          allow(interrupt_sync).to receive(:catch_up) { cpu.nmi_line_changed(true, 14) }
+        end
+
+        # "The interrupt sequences themselves do not perform interrupt polling, meaning at least one instruction from
+        # the interrupt handler will execute before another interrupt is serviced"
+        # (https://www.nesdev.org/wiki/CPU_interrupts).
+        it 'loads the IRQ vector, runs one handler instruction, then takes the NMI', :aggregate_failures do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x1234)
+          expect(cpu.step).to eq(2)
+          cpu.step
+          expect(cpu.program_counter).to eq(0x5678)
+        end
+      end
+
+      context 'and by its fourth tick' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.interrupt_sync = interrupt_sync
+          end
+        end
+
+        let(:interrupt_sync) { instance_double(Ruby::Nes::Console::PpuRegisterSync) }
+
+        before do
+          bus.write_bytes(0x8000, [0x00, 0x00])
+          bus.write_bytes(0xFFFA, [0x78, 0x56])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+          bus.write(0x5678, 0xE8)
+          allow(interrupt_sync).to receive(:catch_up) { cpu.nmi_line_changed(true, 13) }
+        end
+
+        it 'loads the program counter from the NMI vector, the flags pushed with break set', :aggregate_failures do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x5678)
+          expect(bus.read(0x01FB)).to eq(0x30)
+        end
+
+        it 'takes the NMI', :aggregate_failures do
+          cpu.step
+          expect(cpu.step).to eq(2)
+          expect(cpu.program_counter).to eq(0x5679)
+        end
+      end
+    end
+
+    context 'when an NMI edge comes during the IRQ sequence' do
+      context 'but after its fourth tick' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.interrupt_sync = interrupt_sync
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
+          end
+        end
+
+        let(:interrupt_sync) { instance_double(Ruby::Nes::Console::PpuRegisterSync) }
+
+        before do
+          bus.write(0x8000, 0xE8)
+          bus.write_bytes(0xFFFA, [0x78, 0x56])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+          allow(interrupt_sync).to receive(:catch_up) { cpu.nmi_line_changed(true, 14) }
+        end
+
+        it 'loads the program counter from the IRQ vector' do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x1234)
+        end
+      end
+
+      context 'and by its fourth tick' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.interrupt_sync = interrupt_sync
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 0)
+          end
+        end
+
+        let(:interrupt_sync) { instance_double(Ruby::Nes::Console::PpuRegisterSync) }
+
+        before do
+          bus.write(0x8000, 0xE8)
+          bus.write_bytes(0xFFFA, [0x78, 0x56])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+          allow(interrupt_sync).to receive(:catch_up) { cpu.nmi_line_changed(true, 13) }
+        end
+
+        it 'loads the program counter from the NMI vector, the flags pushed with break clear', :aggregate_failures do
+          cpu.step
+          expect(cpu.program_counter).to eq(0x5678)
+          expect(bus.read(0x01FB)).to eq(0x20)
+        end
+      end
     end
 
     # OAM DMA "halts the CPU" for "513 or 514 cycles" (https://www.nesdev.org/wiki/DMA); the bus reports the stall and
     # the step adds it (plan 11, decision 3), naming the cycle the halt falls on: the cycles run so far.
     context 'when the instruction makes the bus stall the CPU' do
-      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
+      context 'and no interrupt line changes' do
+        subject(:cpu) { described_class.new(bus:, program_counter: 0x8000) }
 
-      before do
-        bus.write_bytes(0x8000, [0xEA])
-        allow(bus).to receive(:take_stall_cycles).with(2).and_return(514)
+        before do
+          bus.write_bytes(0x8000, [0xEA])
+          allow(bus).to receive(:take_stall_cycles).with(2).and_return(514)
+        end
+
+        it 'adds the stall to the cycles of the step and to the count', :aggregate_failures do
+          expect(cpu.step).to eq(516)
+          expect(cpu.cycles).to eq(516)
+        end
       end
 
-      it 'adds the stall to the cycles of the step and to the count', :aggregate_failures do
-        expect(cpu.step).to eq(516)
-        expect(cpu.cycles).to eq(516)
+      # The CPU polled at the instruction's second-to-last cycle, before the DMA halted it, and polls nothing while
+      # halted: an IRQ that comes during the stall waits for the next instruction's poll. cpu_interrupts_v2's
+      # 4-irq_and_dma, written against the console, needs it (plan 22, decision 9).
+      context 'and the IRQ line falls during the stall' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.step
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 100)
+          end
+        end
+
+        before do
+          bus.write_bytes(0x8000, [0xEA, 0xE8])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+          allow(bus).to receive(:take_stall_cycles).and_return(0)
+          allow(bus).to receive(:take_stall_cycles).with(12).and_return(514)
+        end
+
+        it 'runs one more instruction before taking the IRQ', :aggregate_failures do
+          expect(cpu.step).to eq(2)
+          expect(cpu.step).to eq(7)
+        end
       end
     end
 

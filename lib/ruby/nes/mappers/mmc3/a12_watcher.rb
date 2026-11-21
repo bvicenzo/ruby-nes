@@ -39,7 +39,8 @@ module Ruby
 
           def rise
             @high = true
-            @counter.clock if m2_cycle - @low_since >= LOW_M2_CYCLES
+            cycle = m2_cycle
+            @counter.clock(cycle) if cycle - @low_since >= LOW_M2_CYCLES
           end
 
           def m2_cycle = @ppu.elapsed_dots / Ppu::DOTS_PER_CPU_CYCLE

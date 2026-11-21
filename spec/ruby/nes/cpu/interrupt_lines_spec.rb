@@ -1,296 +1,262 @@
 # frozen_string_literal: true
 
-# The CPU's two interrupt inputs (https://www.nesdev.org/wiki/CPU_interrupts). NMI is edge-sensitive: the edge detector
-# notices the line going from released to asserted, and the internal signal "stays high until the NMI has been
-# handled", so releasing the line does not cancel it and holding it asserted does not repeat it. IRQ is
-# level-sensitive: it is taken while the line is asserted, unless I is set ("When set, IRQ interrupts are inhibited.
-# NMI, BRK, and reset are not affected", https://www.nesdev.org/wiki/Status_flags). "If both an NMI and an IRQ are
-# pending at the end of an instruction, the NMI will be handled". Both lines start released.
+# The arbiter of the CPU's two interrupt inputs (https://www.nesdev.org/wiki/CPU_interrupts): the NMI edge
+# (Cpu::NmiDetector) and the IRQ level (Cpu::IrqLine). The CPU polls "the status of the interrupt lines at the end of
+# the second-to-last cycle" of an instruction: a poll at the start of a step on `cycle` sees the changes that came
+# before `cycle - 1`. "If both an NMI and an IRQ are pending at the end of an instruction, the NMI will be handled";
+# the IRQ is masked by the I the poll sees, and stays as long as its line.
 #
-# The IRQ line is a wired-OR (architecture decision 25, plan 21 decision 5): each source asserts and releases its own
-# bit, and the line is asserted while any source asserts it. MAPPER_IRQ is the only source so far; another bit stands
-# for the sources plans 22 and 23 add.
-#
-# The polling point (plan 12, decision 2): the CPU polls "the status of the interrupt lines at the end of the
-# second-to-last cycle" of an instruction, so an NMI edge on the instruction's last cycle is taken one instruction
-# later. The poll gives the cycle the next step starts on, one past the previous instruction's last cycle. The edge
-# detector "polls the status of the NMI line during φ2 of each CPU cycle" and sees an edge when the input goes "from
-# being high during one cycle to being low during the next", so a line asserted and released again within one cycle
-# leaves no edge (plan 12, decision 2).
+# Plan 22 adds the poll's exceptions: "The CLI, SEI, and PLP instructions on the other hand change the I flag after
+# polling for interrupts", so the poll that follows them sees the I from before them; a taken branch that does not
+# cross a page polls "before the second CPU cycle" and not before the third, one cycle earlier than usual; BRK and the
+# interrupt sequence pick their vector after tick 4, so an NMI by then hijacks them ("an NMI can hijack an IRQ"); and
+# the interrupt sequences do not poll, so the handler's first instruction runs before another interrupt.
 RSpec.describe Ruby::Nes::Cpu::InterruptLines do
   describe '#acknowledge' do
-    context 'when the NMI line stays released' do
-      context 'and the IRQ line stays released' do
-        subject(:interrupt_lines) { described_class.new(status:) }
-
-        let(:status) { Ruby::Nes::Cpu::Status.new }
-
-        it 'returns nothing' do
-          expect(interrupt_lines.acknowledge(10)).to be_nil
+    context 'when neither line is seen by the poll' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.nmi_line_changed(true, 9)
+          lines.assert_irq(described_class::MAPPER_IRQ, 9)
         end
       end
 
-      context 'and the IRQ line was asserted and released again' do
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'returns nothing' do
+        expect(interrupt_lines.acknowledge(10)).to be_nil
+      end
+    end
+
+    context 'when only the IRQ line is seen by the poll' do
+      context 'but interrupt disable is set' do
         subject(:interrupt_lines) do
-          described_class.new(status:).tap do |lines|
-            lines.assert_irq(described_class::MAPPER_IRQ)
-            lines.release_irq(described_class::MAPPER_IRQ)
-          end
+          described_class.new(status:).tap { |lines| lines.assert_irq(described_class::MAPPER_IRQ, 8) }
         end
 
-        let(:status) { Ruby::Nes::Cpu::Status.new }
+        let(:status) { Ruby::Nes::Cpu::Status.new.tap { |status| status.interrupt_disable = true } }
 
         it 'returns nothing' do
           expect(interrupt_lines.acknowledge(10)).to be_nil
         end
       end
 
-      context 'and the IRQ line is asserted' do
-        context 'but interrupt disable is set' do
-          subject(:interrupt_lines) do
-            described_class.new(status:).tap { |lines| lines.assert_irq(described_class::MAPPER_IRQ) }
-          end
-
-          let(:status) { Ruby::Nes::Cpu::Status.new.tap { |status| status.interrupt_disable = true } }
-
-          it 'returns nothing' do
-            expect(interrupt_lines.acknowledge(10)).to be_nil
-          end
+      context 'and interrupt disable is clear' do
+        subject(:interrupt_lines) do
+          described_class.new(status:).tap { |lines| lines.assert_irq(described_class::MAPPER_IRQ, 8) }
         end
 
-        context 'and interrupt disable is clear' do
-          context 'and the IRQ was already acknowledged' do
-            subject(:interrupt_lines) do
-              described_class.new(status:).tap do |lines|
-                lines.assert_irq(described_class::MAPPER_IRQ)
-                lines.acknowledge(10)
-              end
-            end
+        let(:status) { Ruby::Nes::Cpu::Status.new }
 
-            let(:status) { Ruby::Nes::Cpu::Status.new }
+        it 'returns the IRQ vector' do
+          expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
+        end
 
-            it 'returns the IRQ vector' do
-              expect(interrupt_lines.acknowledge(17)).to eq(0xFFFE)
-            end
-          end
-
-          context 'and the IRQ was not acknowledged yet' do
-            subject(:interrupt_lines) do
-              described_class.new(status:).tap { |lines| lines.assert_irq(described_class::MAPPER_IRQ) }
-            end
-
-            let(:status) { Ruby::Nes::Cpu::Status.new }
-
-            it 'returns the IRQ vector' do
-              expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
-            end
-          end
+        it 'leaves the IRQ to take again' do
+          interrupt_lines.acknowledge(10)
+          expect(interrupt_lines.acknowledge(17)).to eq(0xFFFE)
         end
       end
     end
 
-    context 'when the NMI line rose from released to asserted' do
-      context 'but it was released again within the same CPU cycle' do
+    context 'when the NMI edge is seen by the poll' do
+      context 'and the IRQ line is not' do
+        subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 8) } }
+
+        let(:status) { Ruby::Nes::Cpu::Status.new }
+
+        it 'returns the NMI vector' do
+          expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
+        end
+
+        it 'takes the NMI' do
+          interrupt_lines.acknowledge(10)
+          expect(interrupt_lines.acknowledge(17)).to be_nil
+        end
+      end
+
+      context 'and the IRQ line is too' do
         subject(:interrupt_lines) do
           described_class.new(status:).tap do |lines|
             lines.nmi_line_changed(true, 8)
-            lines.nmi_line_changed(false, 8)
+            lines.assert_irq(described_class::MAPPER_IRQ, 8)
           end
         end
 
         let(:status) { Ruby::Nes::Cpu::Status.new }
 
-        it 'returns nothing' do
-          expect(interrupt_lines.acknowledge(10)).to be_nil
-        end
-      end
-
-      context 'but the edge came on the last cycle of the previous instruction' do
-        context 'and the IRQ line is released' do
-          subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 9) } }
-
-          let(:status) { Ruby::Nes::Cpu::Status.new }
-
-          it 'returns nothing' do
-            expect(interrupt_lines.acknowledge(10)).to be_nil
-          end
-
-          it 'leaves the NMI for the next poll' do
-            interrupt_lines.acknowledge(10)
-            expect(interrupt_lines.acknowledge(12)).to eq(0xFFFA)
-          end
+        it 'returns the NMI vector' do
+          expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
         end
 
-        context 'and the IRQ line is asserted' do
-          context 'but interrupt disable is set' do
-            subject(:interrupt_lines) do
-              described_class.new(status:).tap do |lines|
-                lines.assert_irq(described_class::MAPPER_IRQ)
-                lines.nmi_line_changed(true, 9)
-              end
-            end
-
-            let(:status) { Ruby::Nes::Cpu::Status.new.tap { |status| status.interrupt_disable = true } }
-
-            it 'returns nothing' do
-              expect(interrupt_lines.acknowledge(10)).to be_nil
-            end
-          end
-
-          context 'and interrupt disable is clear' do
-            subject(:interrupt_lines) do
-              described_class.new(status:).tap do |lines|
-                lines.assert_irq(described_class::MAPPER_IRQ)
-                lines.nmi_line_changed(true, 9)
-              end
-            end
-
-            let(:status) { Ruby::Nes::Cpu::Status.new }
-
-            it 'returns the IRQ vector' do
-              expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
-            end
-
-            it 'leaves the NMI for the next poll' do
-              interrupt_lines.acknowledge(10)
-              expect(interrupt_lines.acknowledge(17)).to eq(0xFFFA)
-            end
-          end
-        end
-      end
-
-      context 'and the edge came before the last cycle of the previous instruction' do
-        context 'and the NMI was already acknowledged' do
-          context 'and the line is asserted again without being released' do
-            subject(:interrupt_lines) do
-              described_class.new(status:).tap do |lines|
-                lines.nmi_line_changed(true, 8)
-                lines.acknowledge(10)
-                lines.nmi_line_changed(true, 11)
-              end
-            end
-
-            let(:status) { Ruby::Nes::Cpu::Status.new }
-
-            it 'returns nothing' do
-              expect(interrupt_lines.acknowledge(17)).to be_nil
-            end
-          end
-
-          context 'and the line is released and asserted again' do
-            subject(:interrupt_lines) do
-              described_class.new(status:).tap do |lines|
-                lines.nmi_line_changed(true, 8)
-                lines.acknowledge(10)
-                lines.nmi_line_changed(false, 11)
-                lines.nmi_line_changed(true, 12)
-              end
-            end
-
-            let(:status) { Ruby::Nes::Cpu::Status.new }
-
-            it 'returns the NMI vector' do
-              expect(interrupt_lines.acknowledge(17)).to eq(0xFFFA)
-            end
-          end
-        end
-
-        context 'and a second edge came on the last cycle of the previous instruction' do
-          subject(:interrupt_lines) do
-            described_class.new(status:).tap do |lines|
-              lines.nmi_line_changed(true, 7)
-              lines.nmi_line_changed(false, 8)
-              lines.nmi_line_changed(true, 9)
-            end
-          end
-
-          let(:status) { Ruby::Nes::Cpu::Status.new }
-
-          it 'returns the NMI vector' do
-            expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
-          end
-        end
-
-        context 'and the line was released before acknowledging' do
-          subject(:interrupt_lines) do
-            described_class.new(status:).tap do |lines|
-              lines.nmi_line_changed(true, 8)
-              lines.nmi_line_changed(false, 9)
-            end
-          end
-
-          let(:status) { Ruby::Nes::Cpu::Status.new }
-
-          it 'returns the NMI vector' do
-            expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
-          end
-        end
-
-        context 'and the line is still asserted' do
-          context 'and interrupt disable is set' do
-            context 'and the IRQ line is released' do
-              subject(:interrupt_lines) do
-                described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 8) }
-              end
-
-              let(:status) { Ruby::Nes::Cpu::Status.new.tap { |status| status.interrupt_disable = true } }
-
-              it 'returns the NMI vector' do
-                expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
-              end
-            end
-
-            context 'and the IRQ line is asserted' do
-              subject(:interrupt_lines) do
-                described_class.new(status:).tap do |lines|
-                  lines.nmi_line_changed(true, 8)
-                  lines.assert_irq(described_class::MAPPER_IRQ)
-                end
-              end
-
-              let(:status) { Ruby::Nes::Cpu::Status.new.tap { |status| status.interrupt_disable = true } }
-
-              it 'returns the NMI vector' do
-                expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
-              end
-            end
-          end
-
-          context 'and interrupt disable is clear' do
-            context 'and the IRQ line is released' do
-              subject(:interrupt_lines) do
-                described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 8) }
-              end
-
-              let(:status) { Ruby::Nes::Cpu::Status.new }
-
-              it 'returns the NMI vector' do
-                expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
-              end
-            end
-
-            context 'and the IRQ line is asserted' do
-              subject(:interrupt_lines) do
-                described_class.new(status:).tap do |lines|
-                  lines.nmi_line_changed(true, 8)
-                  lines.assert_irq(described_class::MAPPER_IRQ)
-                end
-              end
-
-              let(:status) { Ruby::Nes::Cpu::Status.new }
-
-              it 'returns the NMI vector' do
-                expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
-              end
-            end
-          end
+        it 'leaves the IRQ for the next poll' do
+          interrupt_lines.acknowledge(10)
+          expect(interrupt_lines.acknowledge(17)).to eq(0xFFFE)
         end
       end
     end
   end
 
+  describe '#poll_with_interrupt_disable' do
+    context 'when the I before the instruction was set and the status clears it (CLI)' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 4)
+          lines.poll_with_interrupt_disable(true)
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'lets the next poll see I set' do
+        expect(interrupt_lines.acknowledge(10)).to be_nil
+      end
+
+      it 'lets the poll after it see the status' do
+        interrupt_lines.acknowledge(10)
+        expect(interrupt_lines.acknowledge(12)).to eq(0xFFFE)
+      end
+    end
+
+    context 'when the I before the instruction was clear and the status sets it (SEI)' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 4)
+          lines.poll_with_interrupt_disable(false)
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new.tap { |status| status.interrupt_disable = true } }
+
+      it 'lets the next poll see I clear' do
+        expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
+      end
+
+      it 'lets the poll after it see the status' do
+        interrupt_lines.acknowledge(10)
+        expect(interrupt_lines.acknowledge(17)).to be_nil
+      end
+    end
+  end
+
+  describe '#poll_one_cycle_early' do
+    context 'when the NMI edge came two cycles before the step' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.nmi_line_changed(true, 8)
+          lines.poll_one_cycle_early
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'keeps the next poll from seeing it' do
+        expect(interrupt_lines.acknowledge(10)).to be_nil
+      end
+
+      it 'lets the poll after it see it' do
+        interrupt_lines.acknowledge(10)
+        expect(interrupt_lines.acknowledge(12)).to eq(0xFFFA)
+      end
+    end
+
+    context 'when the IRQ line was asserted two cycles before the step' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 8)
+          lines.poll_one_cycle_early
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'keeps the next poll from seeing it' do
+        expect(interrupt_lines.acknowledge(10)).to be_nil
+      end
+    end
+
+    context 'when the NMI edge came three cycles before the step' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.nmi_line_changed(true, 7)
+          lines.poll_one_cycle_early
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'lets the next poll see it' do
+        expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
+      end
+    end
+  end
+
+  # "The interrupt sequences themselves do not perform interrupt polling, meaning at least one instruction from the
+  # interrupt handler will execute before another interrupt is serviced" (https://www.nesdev.org/wiki/CPU_interrupts).
+  describe '#skip_next_poll' do
+    context 'when an NMI edge came during the interrupt sequence' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.nmi_line_changed(true, 25)
+          lines.skip_next_poll
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'keeps the next poll from seeing it' do
+        expect(interrupt_lines.acknowledge(27)).to be_nil
+      end
+
+      it 'lets the poll after it see it' do
+        interrupt_lines.acknowledge(27)
+        expect(interrupt_lines.acknowledge(29)).to eq(0xFFFA)
+      end
+    end
+  end
+
+  # A DMA halts the CPU after it polled at the instruction's second-to-last cycle; it polls nothing while halted (plan
+  # 22, decision 9). The instruction here ended on cycle 87 and the stall took 513 cycles, so the next step starts on
+  # 600.
+  describe '#poll_before_stall' do
+    context "when the IRQ line fell before the instruction's poll cycle" do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 85)
+          lines.poll_before_stall(513)
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'lets the next poll see it' do
+        expect(interrupt_lines.acknowledge(600)).to eq(0xFFFE)
+      end
+    end
+
+    context 'when the IRQ line fell during the stall' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 90)
+          lines.poll_before_stall(513)
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'keeps the next poll from seeing it' do
+        expect(interrupt_lines.acknowledge(600)).to be_nil
+      end
+
+      it 'lets the poll after it see it' do
+        interrupt_lines.acknowledge(600)
+        expect(interrupt_lines.acknowledge(602)).to eq(0xFFFE)
+      end
+    end
+  end
+
   describe '#pending' do
-    context 'when no interrupt is due' do
+    context 'when nothing is seen by the poll' do
       subject(:interrupt_lines) { described_class.new(status:) }
 
       let(:status) { Ruby::Nes::Cpu::Status.new }
@@ -300,17 +266,43 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
       end
     end
 
-    context 'when the NMI edge came on the last cycle of the previous instruction' do
-      subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 9) } }
+    context 'when the poll holds the I from before the instruction' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 4)
+          lines.poll_with_interrupt_disable(true)
+        end
+      end
 
       let(:status) { Ruby::Nes::Cpu::Status.new }
 
       it 'returns nothing' do
         expect(interrupt_lines.pending(10)).to be_nil
       end
+
+      it 'leaves the held I to the acknowledge' do
+        interrupt_lines.pending(10)
+        expect(interrupt_lines.acknowledge(10)).to be_nil
+      end
     end
 
-    context 'when an NMI is due' do
+    context 'when the poll comes one cycle early' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.nmi_line_changed(true, 8)
+          lines.poll_one_cycle_early
+        end
+      end
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'leaves the early poll to the acknowledge' do
+        interrupt_lines.pending(10)
+        expect(interrupt_lines.acknowledge(10)).to be_nil
+      end
+    end
+
+    context 'when the NMI edge is seen by the poll' do
       subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 8) } }
 
       let(:status) { Ruby::Nes::Cpu::Status.new }
@@ -319,156 +311,119 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
         expect(interrupt_lines.pending(10)).to eq(0xFFFA)
       end
 
-      it 'leaves the NMI to acknowledge' do
+      it 'leaves the NMI to the acknowledge' do
         interrupt_lines.pending(10)
         expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
       end
     end
+  end
 
-    context 'when an IRQ is due' do
-      subject(:interrupt_lines) do
-        described_class.new(status:).tap { |lines| lines.assert_irq(described_class::MAPPER_IRQ) }
-      end
+  describe '#hijacked_vector' do
+    context 'when no NMI is pending' do
+      subject(:interrupt_lines) { described_class.new(status:) }
 
       let(:status) { Ruby::Nes::Cpu::Status.new }
 
-      it 'returns the IRQ vector' do
-        expect(interrupt_lines.pending(10)).to eq(0xFFFE)
+      it 'returns the vector the sequence was taking' do
+        expect(interrupt_lines.hijacked_vector(0xFFFE, 20)).to eq(0xFFFE)
+      end
+    end
+
+    context 'when the NMI edge came after the fourth tick' do
+      subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 24) } }
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'returns the vector the sequence was taking' do
+        expect(interrupt_lines.hijacked_vector(0xFFFE, 20)).to eq(0xFFFE)
+      end
+
+      it 'leaves the NMI for the next poll' do
+        interrupt_lines.hijacked_vector(0xFFFE, 20)
+        expect(interrupt_lines.acknowledge(27)).to eq(0xFFFA)
+      end
+    end
+
+    context 'when the NMI edge came by the fourth tick' do
+      subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.nmi_line_changed(true, 23) } }
+
+      let(:status) { Ruby::Nes::Cpu::Status.new }
+
+      it 'returns the NMI vector' do
+        expect(interrupt_lines.hijacked_vector(0xFFFE, 20)).to eq(0xFFFA)
+      end
+
+      it 'takes the NMI' do
+        interrupt_lines.hijacked_vector(0xFFFE, 20)
+        expect(interrupt_lines.acknowledge(27)).to be_nil
       end
     end
   end
 
-  describe '#discard_pending_nmi' do
-    context 'when an NMI is pending' do
-      context 'and the NMI line stays asserted' do
-        subject(:interrupt_lines) do
-          described_class.new(status:).tap do |lines|
-            lines.nmi_line_changed(true, 0)
-            lines.discard_pending_nmi
-          end
-        end
-
-        let(:status) { Ruby::Nes::Cpu::Status.new }
-
-        it 'leaves no NMI to acknowledge' do
-          expect(interrupt_lines.acknowledge(10)).to be_nil
-        end
-      end
-
-      context 'and the NMI line is then released and asserted again' do
-        subject(:interrupt_lines) do
-          described_class.new(status:).tap do |lines|
-            lines.nmi_line_changed(true, 0)
-            lines.discard_pending_nmi
-            lines.nmi_line_changed(false, 1)
-            lines.nmi_line_changed(true, 2)
-          end
-        end
-
-        let(:status) { Ruby::Nes::Cpu::Status.new }
-
-        it 'returns the NMI vector' do
-          expect(interrupt_lines.acknowledge(10)).to eq(0xFFFA)
-        end
-      end
-    end
-
-    context 'when the IRQ line is asserted' do
+  # Reset forgets an NMI not yet taken (plan 07, decision 6) and the poll's exceptions told by the instructions before
+  # it; the lines keep the levels their devices set.
+  describe '#reset' do
+    context 'when an NMI and an IRQ are pending' do
       subject(:interrupt_lines) do
         described_class.new(status:).tap do |lines|
-          lines.assert_irq(described_class::MAPPER_IRQ)
-          lines.discard_pending_nmi
+          lines.nmi_line_changed(true, 0)
+          lines.assert_irq(described_class::MAPPER_IRQ, 0)
+          lines.reset
         end
       end
 
       let(:status) { Ruby::Nes::Cpu::Status.new }
 
-      it 'keeps the IRQ' do
+      it 'keeps only the IRQ' do
         expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
       end
     end
-  end
 
-  describe '#release_irq' do
-    context 'when the source did not assert the line' do
-      context 'and no other source asserts it' do
-        subject(:interrupt_lines) do
-          described_class.new(status:).tap { |lines| lines.release_irq(described_class::MAPPER_IRQ) }
-        end
-
-        let(:status) { Ruby::Nes::Cpu::Status.new }
-
-        it 'leaves no IRQ to take' do
-          expect(interrupt_lines.acknowledge(10)).to be_nil
+    context 'when the poll holds the I from before an SEI' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 0)
+          lines.poll_with_interrupt_disable(false)
+          lines.reset
         end
       end
 
-      context 'and another source asserts it' do
-        subject(:interrupt_lines) do
-          described_class.new(status:).tap do |lines|
-            lines.assert_irq(another_source)
-            lines.release_irq(described_class::MAPPER_IRQ)
-          end
-        end
+      let(:status) { Ruby::Nes::Cpu::Status.new.tap { |status| status.interrupt_disable = true } }
 
-        let(:status) { Ruby::Nes::Cpu::Status.new }
-        let(:another_source) { 0x02 }
-
-        it 'leaves the IRQ to take' do
-          expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
-        end
+      it 'lets the next poll see the status' do
+        expect(interrupt_lines.acknowledge(10)).to be_nil
       end
     end
 
-    context 'when the source asserted the line' do
-      context 'but another source asserts it too' do
-        subject(:interrupt_lines) do
-          described_class.new(status:).tap do |lines|
-            lines.assert_irq(described_class::MAPPER_IRQ)
-            lines.assert_irq(another_source)
-            lines.release_irq(described_class::MAPPER_IRQ)
-          end
-        end
-
-        let(:status) { Ruby::Nes::Cpu::Status.new }
-        let(:another_source) { 0x02 }
-
-        it 'leaves the IRQ to take' do
-          expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
+    context 'when a taken branch asked for an early poll' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 8)
+          lines.poll_one_cycle_early
+          lines.reset
         end
       end
 
-      context 'and no other source asserts it' do
-        context 'and it asserted the line once' do
-          subject(:interrupt_lines) do
-            described_class.new(status:).tap do |lines|
-              lines.assert_irq(described_class::MAPPER_IRQ)
-              lines.release_irq(described_class::MAPPER_IRQ)
-            end
-          end
+      let(:status) { Ruby::Nes::Cpu::Status.new }
 
-          let(:status) { Ruby::Nes::Cpu::Status.new }
+      it 'lets the next poll look at the usual cycle' do
+        expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
+      end
+    end
 
-          it 'leaves no IRQ to take' do
-            expect(interrupt_lines.acknowledge(10)).to be_nil
-          end
+    context 'when an interrupt sequence asked to skip the next poll' do
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap do |lines|
+          lines.assert_irq(described_class::MAPPER_IRQ, 0)
+          lines.skip_next_poll
+          lines.reset
         end
+      end
 
-        context 'and it asserted the line twice' do
-          subject(:interrupt_lines) do
-            described_class.new(status:).tap do |lines|
-              lines.assert_irq(described_class::MAPPER_IRQ)
-              lines.assert_irq(described_class::MAPPER_IRQ)
-              lines.release_irq(described_class::MAPPER_IRQ)
-            end
-          end
+      let(:status) { Ruby::Nes::Cpu::Status.new }
 
-          let(:status) { Ruby::Nes::Cpu::Status.new }
-
-          it 'leaves no IRQ to take' do
-            expect(interrupt_lines.acknowledge(10)).to be_nil
-          end
-        end
+      it 'lets the next poll happen' do
+        expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
       end
     end
   end
