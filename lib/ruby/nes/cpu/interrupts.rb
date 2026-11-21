@@ -35,9 +35,14 @@ module Ruby
         # The vector of the interrupt the next step takes, or nil, without taking it: the tracer shows it as a step.
         def pending_interrupt = @interrupt_lines.pending(@cycles)
 
-        # The IRQ input, `true` while any device asserts it, `false` otherwise (booleans only; see InterruptLines).
-        def irq_line=(asserted)
-          @interrupt_lines.irq_line = asserted
+        # A source (InterruptLines::MAPPER_IRQ…) pulls the IRQ input low; see InterruptLines for the wired-OR.
+        def assert_irq(source)
+          @interrupt_lines.assert_irq(source)
+        end
+
+        # The source lets go of the IRQ input; it stays asserted while another source asserts it.
+        def release_irq(source)
+          @interrupt_lines.release_irq(source)
         end
 
         private

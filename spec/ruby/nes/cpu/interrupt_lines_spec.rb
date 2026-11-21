@@ -7,6 +7,10 @@
 # NMI, BRK, and reset are not affected", https://www.nesdev.org/wiki/Status_flags). "If both an NMI and an IRQ are
 # pending at the end of an instruction, the NMI will be handled". Both lines start released.
 #
+# The IRQ line is a wired-OR (architecture decision 25, plan 21 decision 5): each source asserts and releases its own
+# bit, and the line is asserted while any source asserts it. MAPPER_IRQ is the only source so far; another bit stands
+# for the sources plans 22 and 23 add.
+#
 # The polling point (plan 12, decision 2): the CPU polls "the status of the interrupt lines at the end of the
 # second-to-last cycle" of an instruction, so an NMI edge on the instruction's last cycle is taken one instruction
 # later. The poll gives the cycle the next step starts on, one past the previous instruction's last cycle. The edge
@@ -29,8 +33,8 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
       context 'and the IRQ line was asserted and released again' do
         subject(:interrupt_lines) do
           described_class.new(status:).tap do |lines|
-            lines.irq_line = true
-            lines.irq_line = false
+            lines.assert_irq(described_class::MAPPER_IRQ)
+            lines.release_irq(described_class::MAPPER_IRQ)
           end
         end
 
@@ -43,7 +47,9 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
 
       context 'and the IRQ line is asserted' do
         context 'but interrupt disable is set' do
-          subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.irq_line = true } }
+          subject(:interrupt_lines) do
+            described_class.new(status:).tap { |lines| lines.assert_irq(described_class::MAPPER_IRQ) }
+          end
 
           let(:status) { Ruby::Nes::Cpu::Status.new.tap { |status| status.interrupt_disable = true } }
 
@@ -56,7 +62,7 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
           context 'and the IRQ was already acknowledged' do
             subject(:interrupt_lines) do
               described_class.new(status:).tap do |lines|
-                lines.irq_line = true
+                lines.assert_irq(described_class::MAPPER_IRQ)
                 lines.acknowledge(10)
               end
             end
@@ -69,7 +75,9 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
           end
 
           context 'and the IRQ was not acknowledged yet' do
-            subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.irq_line = true } }
+            subject(:interrupt_lines) do
+              described_class.new(status:).tap { |lines| lines.assert_irq(described_class::MAPPER_IRQ) }
+            end
 
             let(:status) { Ruby::Nes::Cpu::Status.new }
 
@@ -117,7 +125,7 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
           context 'but interrupt disable is set' do
             subject(:interrupt_lines) do
               described_class.new(status:).tap do |lines|
-                lines.irq_line = true
+                lines.assert_irq(described_class::MAPPER_IRQ)
                 lines.nmi_line_changed(true, 9)
               end
             end
@@ -132,7 +140,7 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
           context 'and interrupt disable is clear' do
             subject(:interrupt_lines) do
               described_class.new(status:).tap do |lines|
-                lines.irq_line = true
+                lines.assert_irq(described_class::MAPPER_IRQ)
                 lines.nmi_line_changed(true, 9)
               end
             end
@@ -236,7 +244,7 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
               subject(:interrupt_lines) do
                 described_class.new(status:).tap do |lines|
                   lines.nmi_line_changed(true, 8)
-                  lines.irq_line = true
+                  lines.assert_irq(described_class::MAPPER_IRQ)
                 end
               end
 
@@ -265,7 +273,7 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
               subject(:interrupt_lines) do
                 described_class.new(status:).tap do |lines|
                   lines.nmi_line_changed(true, 8)
-                  lines.irq_line = true
+                  lines.assert_irq(described_class::MAPPER_IRQ)
                 end
               end
 
@@ -318,7 +326,9 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
     end
 
     context 'when an IRQ is due' do
-      subject(:interrupt_lines) { described_class.new(status:).tap { |lines| lines.irq_line = true } }
+      subject(:interrupt_lines) do
+        described_class.new(status:).tap { |lines| lines.assert_irq(described_class::MAPPER_IRQ) }
+      end
 
       let(:status) { Ruby::Nes::Cpu::Status.new }
 
@@ -366,7 +376,7 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
     context 'when the IRQ line is asserted' do
       subject(:interrupt_lines) do
         described_class.new(status:).tap do |lines|
-          lines.irq_line = true
+          lines.assert_irq(described_class::MAPPER_IRQ)
           lines.discard_pending_nmi
         end
       end
@@ -375,6 +385,90 @@ RSpec.describe Ruby::Nes::Cpu::InterruptLines do
 
       it 'keeps the IRQ' do
         expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
+      end
+    end
+  end
+
+  describe '#release_irq' do
+    context 'when the source did not assert the line' do
+      context 'and no other source asserts it' do
+        subject(:interrupt_lines) do
+          described_class.new(status:).tap { |lines| lines.release_irq(described_class::MAPPER_IRQ) }
+        end
+
+        let(:status) { Ruby::Nes::Cpu::Status.new }
+
+        it 'leaves no IRQ to take' do
+          expect(interrupt_lines.acknowledge(10)).to be_nil
+        end
+      end
+
+      context 'and another source asserts it' do
+        subject(:interrupt_lines) do
+          described_class.new(status:).tap do |lines|
+            lines.assert_irq(another_source)
+            lines.release_irq(described_class::MAPPER_IRQ)
+          end
+        end
+
+        let(:status) { Ruby::Nes::Cpu::Status.new }
+        let(:another_source) { 0x02 }
+
+        it 'leaves the IRQ to take' do
+          expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
+        end
+      end
+    end
+
+    context 'when the source asserted the line' do
+      context 'but another source asserts it too' do
+        subject(:interrupt_lines) do
+          described_class.new(status:).tap do |lines|
+            lines.assert_irq(described_class::MAPPER_IRQ)
+            lines.assert_irq(another_source)
+            lines.release_irq(described_class::MAPPER_IRQ)
+          end
+        end
+
+        let(:status) { Ruby::Nes::Cpu::Status.new }
+        let(:another_source) { 0x02 }
+
+        it 'leaves the IRQ to take' do
+          expect(interrupt_lines.acknowledge(10)).to eq(0xFFFE)
+        end
+      end
+
+      context 'and no other source asserts it' do
+        context 'and it asserted the line once' do
+          subject(:interrupt_lines) do
+            described_class.new(status:).tap do |lines|
+              lines.assert_irq(described_class::MAPPER_IRQ)
+              lines.release_irq(described_class::MAPPER_IRQ)
+            end
+          end
+
+          let(:status) { Ruby::Nes::Cpu::Status.new }
+
+          it 'leaves no IRQ to take' do
+            expect(interrupt_lines.acknowledge(10)).to be_nil
+          end
+        end
+
+        context 'and it asserted the line twice' do
+          subject(:interrupt_lines) do
+            described_class.new(status:).tap do |lines|
+              lines.assert_irq(described_class::MAPPER_IRQ)
+              lines.assert_irq(described_class::MAPPER_IRQ)
+              lines.release_irq(described_class::MAPPER_IRQ)
+            end
+          end
+
+          let(:status) { Ruby::Nes::Cpu::Status.new }
+
+          it 'leaves no IRQ to take' do
+            expect(interrupt_lines.acknowledge(10)).to be_nil
+          end
+        end
       end
     end
   end

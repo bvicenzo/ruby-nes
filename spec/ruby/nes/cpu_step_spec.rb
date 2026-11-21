@@ -73,7 +73,7 @@ RSpec.describe Ruby::Nes::Cpu do
         subject(:cpu) do
           described_class.new(bus:, program_counter: 0x8001, stack_pointer: 0xFD).tap do |cpu|
             cpu.jam
-            cpu.irq_line = true
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
           end
         end
 
@@ -152,7 +152,7 @@ RSpec.describe Ruby::Nes::Cpu do
         subject(:cpu) do
           described_class.new(bus:, program_counter: 0x8000).tap do |cpu|
             cpu.status.interrupt_disable = true
-            cpu.irq_line = true
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
           end
         end
 
@@ -171,7 +171,7 @@ RSpec.describe Ruby::Nes::Cpu do
         subject(:cpu) do
           described_class.new(bus:, program_counter: 0x8123, stack_pointer: 0xFD).tap do |cpu|
             cpu.status.carry = true
-            cpu.irq_line = true
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
           end
         end
 
@@ -210,7 +210,7 @@ RSpec.describe Ruby::Nes::Cpu do
       context 'and its handler returns with RTI while the line stays asserted' do
         subject(:cpu) do
           described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD).tap do |cpu|
-            cpu.irq_line = true
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ)
             cpu.step
             cpu.step
           end
