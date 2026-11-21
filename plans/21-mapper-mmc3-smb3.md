@@ -23,8 +23,9 @@ Registers (even/odd addresses within each range):
 
 Banking: PRG in 8 KiB banks (R6, R7, second-to-last fixed, last fixed; PRG mode swaps `$8000` and `$C000`). CHR: R0,
 R1 are 2 KiB, R2–R5 are 1 KiB; A12 inversion swaps the halves. `Mappers::Base` (plan 19, decision 1) reads PRG
-through 16 KiB windows and CHR through one 8 KiB window; MMC3 needs 8 KiB PRG windows and 1 KiB CHR windows, so this
-plan refines the base's granularity (and measures it with `rake bench:cpu`, as plan 19 did).
+through 16 KiB windows and CHR through two 4 KiB windows (plan 20, decision 5); MMC3 needs 8 KiB PRG windows and 1 KiB
+CHR windows, so this plan refines the base's granularity, including `select_whole_prg_bank` and `select_whole_chr_bank`
+(and measures it as plans 19 and 20 did: `rake bench:cpu` for PRG, headless frames for CHR, `docs/benchmarks.md`).
 
 IRQ counter: clocked on each **rising edge of PPU address line A12** (filtered: A12 must have been low for a while).
 When clocked: if the counter is 0 or a reload was requested, load the latch; otherwise decrement. If it is 0 after

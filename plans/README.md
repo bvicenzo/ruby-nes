@@ -48,7 +48,7 @@ Conventions (see also `CLAUDE.md`):
 | 17 | [Backend comparison: raylib vs SDL3](17-backend-comparison-raylib-sdl3.md) | 14, 15, 16 | done |
 | 18 | [Interactive frontend and CLI](18-interactive-frontend-cli.md) | 17 | done |
 | 19 | [Simple mappers: UxROM, CNROM, AxROM](19-simple-mappers-uxrom-cnrom-axrom.md) | 04 | done |
-| 20 | [Mapper MMC1](20-mapper-mmc1.md) | 19 | todo |
+| 20 | [Mapper MMC1](20-mapper-mmc1.md) | 19 | done |
 | 21 | [Mapper MMC3 and Super Mario Bros. 3](21-mapper-mmc3-smb3.md) | 14, 18, 20 | todo |
 | 22 | [APU: pulse channels and frame counter](22-apu-pulse-frame-counter.md) | 12 | todo |
 | 23 | [APU: triangle, noise, DMC and mixer](23-apu-triangle-noise-dmc-mixer.md) | 22 | todo |
