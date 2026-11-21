@@ -28,6 +28,12 @@ module Ruby
         end
       end
 
+      # The PPU leaves `address` on its bus without reading or writing (v outside rendering, plan 21 decision 1): the
+      # mapper sees it, as a board watching A12 must (https://www.nesdev.org/wiki/MMC3).
+      def place_address(address)
+        @mapper.ppu_address(address)
+      end
+
       def write(address, value)
         if address < NAMETABLES_START
           @mapper.ppu_write(address, value)

@@ -128,32 +128,43 @@ RSpec.describe Ruby::Nes::Mappers::Base do
       end
 
       context 'and the PRG ROM is larger than 32 KiB' do
-        # 128 KiB: the six middle 16 KiB banks are all $55, so $C000 tells the last 16 KiB from the second.
-        let(:cartridge) { Cartridges.build(prg_rom: [*first_sixteen_kib, *Array.new(98_304, 0x55), *last_sixteen_kib]) }
-        let(:first_sixteen_kib) { [0x11, *Array.new(16_382, 0xEA), 0x22] }
-        let(:last_sixteen_kib) { [0x33, *Array.new(16_382, 0xEA), 0x44] }
+        # 128 KiB in sixteen 8 KiB banks, each byte holding its bank's number: $8000-$BFFF shows banks 0 and 1,
+        # $C000-$FFFF banks 14 and 15, one per 8 KiB window.
+        let(:cartridge) { Cartridges.build(prg_rom: Cartridges.numbered_banks(count: 16, size: 8_192)) }
 
         context 'and the address is $8000' do
-          it 'returns the first PRG ROM byte' do
-            expect(board.cpu_read(0x8000, 0x5A)).to eq(0x11)
+          it 'returns a byte of the first 8 KiB' do
+            expect(board.cpu_read(0x8000, 0x5A)).to eq(0)
           end
         end
 
-        context 'and the address is $BFFF' do
-          it 'returns the last byte of the first 16 KiB' do
-            expect(board.cpu_read(0xBFFF, 0x5A)).to eq(0x22)
+        context 'and the address is $9FFF' do
+          it 'returns a byte of the first 8 KiB' do
+            expect(board.cpu_read(0x9FFF, 0x5A)).to eq(0)
+          end
+        end
+
+        context 'and the address is $A000' do
+          it 'returns a byte of the second 8 KiB' do
+            expect(board.cpu_read(0xA000, 0x5A)).to eq(1)
           end
         end
 
         context 'and the address is $C000' do
-          it 'returns the first byte of the last 16 KiB' do
-            expect(board.cpu_read(0xC000, 0x5A)).to eq(0x33)
+          it 'returns a byte of the second-last 8 KiB' do
+            expect(board.cpu_read(0xC000, 0x5A)).to eq(14)
+          end
+        end
+
+        context 'and the address is $E000' do
+          it 'returns a byte of the last 8 KiB' do
+            expect(board.cpu_read(0xE000, 0x5A)).to eq(15)
           end
         end
 
         context 'and the address is $FFFF' do
-          it 'returns the last PRG ROM byte' do
-            expect(board.cpu_read(0xFFFF, 0x5A)).to eq(0x44)
+          it 'returns a byte of the last 8 KiB' do
+            expect(board.cpu_read(0xFFFF, 0x5A)).to eq(15)
           end
         end
       end
@@ -208,18 +219,42 @@ RSpec.describe Ruby::Nes::Mappers::Base do
     end
 
     context 'when the address is in PRG ROM' do
-      subject(:board) { described_class.new(cartridge, prg_ram: true) }
+      context 'and no register sync was given' do
+        subject(:board) { described_class.new(cartridge, prg_ram: true) }
 
-      let(:cartridge) { Cartridges.build(prg_rom: [0x11, *Array.new(16_382, 0xEA), 0x22]) }
+        let(:cartridge) { Cartridges.build(prg_rom: [0x11, *Array.new(16_382, 0xEA), 0x22]) }
 
-      before { board.cpu_write(0x8000, 0x77) }
+        before { board.cpu_write(0x8000, 0x77) }
 
-      it 'leaves the PRG ROM byte unchanged' do
-        expect(board.cpu_read(0x8000, 0x5A)).to eq(0x11)
+        it 'leaves the PRG ROM byte unchanged' do
+          expect(board.cpu_read(0x8000, 0x5A)).to eq(0x11)
+        end
+
+        it 'leaves PRG RAM unchanged' do
+          expect(board.cpu_read(0x6000, 0x5A)).to eq(0x00)
+        end
       end
 
-      it 'leaves PRG RAM unchanged' do
-        expect(board.cpu_read(0x6000, 0x5A)).to eq(0x00)
+      context 'and a register sync was given' do
+        # A board with a register (UxROM's bank select) shows whether the PPU caught up before the write took effect:
+        # the sync looks at $8000 while it runs.
+        subject(:board) do
+          Ruby::Nes::Mappers::Uxrom.new(cartridge).tap { |uxrom| uxrom.register_sync = register_sync }
+        end
+
+        let(:cartridge) { Cartridges.build(prg_rom: Cartridges.numbered_banks(count: 4, size: 16_384)) }
+        let(:register_sync) { instance_double(Ruby::Nes::Console::PpuRegisterSync) }
+        let(:bank_while_catching_up) { [] }
+
+        before do
+          allow(register_sync).to receive(:catch_up) { bank_while_catching_up.replace([board.cpu_read(0x8000, 0x5A)]) }
+          board.cpu_write(0x8000, 2)
+        end
+
+        it 'catches the PPU up before the board takes the write', :aggregate_failures do
+          expect(bank_while_catching_up).to eq([0])
+          expect(board.cpu_read(0x8000, 0x5A)).to eq(2)
+        end
       end
     end
   end
@@ -228,32 +263,36 @@ RSpec.describe Ruby::Nes::Mappers::Base do
     subject(:board) { described_class.new(cartridge) }
 
     context 'when the board has CHR ROM' do
-      # Two 4 KiB halves; each starts with $33 or $55 and ends with $44 or $66.
-      let(:cartridge) do
-        Cartridges.build(chr_rom: [0x33, *Array.new(4_094, 0xEA), 0x66, 0x55, *Array.new(4_094, 0xEA), 0x44])
-      end
+      # Eight 1 KiB banks, each byte holding its bank's number, one per 1 KiB window.
+      let(:cartridge) { Cartridges.build(chr_rom: Cartridges.numbered_banks(count: 8, size: 1_024)) }
 
       context 'and the address is $0000' do
-        it 'returns the first CHR ROM byte' do
-          expect(board.ppu_read(0x0000)).to eq(0x33)
+        it 'returns a byte of the first 1 KiB' do
+          expect(board.ppu_read(0x0000)).to eq(0)
         end
       end
 
-      context 'and the address is $0FFF' do
-        it 'returns the last byte of the first 4 KiB' do
-          expect(board.ppu_read(0x0FFF)).to eq(0x66)
+      context 'and the address is $03FF' do
+        it 'returns a byte of the first 1 KiB' do
+          expect(board.ppu_read(0x03FF)).to eq(0)
+        end
+      end
+
+      context 'and the address is $0400' do
+        it 'returns a byte of the second 1 KiB' do
+          expect(board.ppu_read(0x0400)).to eq(1)
         end
       end
 
       context 'and the address is $1000' do
-        it 'returns the first byte of the second 4 KiB' do
-          expect(board.ppu_read(0x1000)).to eq(0x55)
+        it 'returns a byte of the fifth 1 KiB' do
+          expect(board.ppu_read(0x1000)).to eq(4)
         end
       end
 
       context 'and the address is $1FFF' do
-        it 'returns the last CHR ROM byte' do
-          expect(board.ppu_read(0x1FFF)).to eq(0x44)
+        it 'returns a byte of the last 1 KiB' do
+          expect(board.ppu_read(0x1FFF)).to eq(7)
         end
       end
     end
@@ -301,31 +340,45 @@ RSpec.describe Ruby::Nes::Mappers::Base do
     end
   end
 
-  describe '#mirroring' do
+  describe '#ppu_address' do
     subject(:board) { described_class.new(cartridge) }
 
-    context 'when the header says horizontal' do
-      let(:cartridge) { Cartridges.build(mirroring: :horizontal) }
+    let(:cartridge) { Cartridges.build(chr_rom: Cartridges.numbered_banks(count: 8, size: 1_024)) }
 
-      it 'is horizontal' do
-        expect(board.mirroring).to eq(:horizontal)
-      end
-    end
+    before { board.ppu_address(0x1000) }
 
-    context 'when the header says vertical' do
-      let(:cartridge) { Cartridges.build(mirroring: :vertical) }
-
-      it 'is vertical' do
-        expect(board.mirroring).to eq(:vertical)
-      end
+    it 'leaves the pattern tables as they are' do
+      expect(board.ppu_read(0x1000)).to eq(4)
     end
   end
 
-  describe '#irq?' do
-    subject(:board) { described_class.new(Cartridges.build) }
+  describe '#mirroring' do
+    subject(:board) { described_class.new(cartridge) }
 
-    it 'is false' do
-      expect(board).not_to be_irq
+    context 'when the header asks for four-screen VRAM' do
+      let(:cartridge) { Cartridges.build(mirroring: :vertical, alternative_nametables: true) }
+
+      it 'is four-screen' do
+        expect(board.mirroring).to eq(:four_screen)
+      end
+    end
+
+    context 'when the header does not ask for four-screen VRAM' do
+      context 'and it says horizontal' do
+        let(:cartridge) { Cartridges.build(mirroring: :horizontal) }
+
+        it 'is horizontal' do
+          expect(board.mirroring).to eq(:horizontal)
+        end
+      end
+
+      context 'and it says vertical' do
+        let(:cartridge) { Cartridges.build(mirroring: :vertical) }
+
+        it 'is vertical' do
+          expect(board.mirroring).to eq(:vertical)
+        end
+      end
     end
   end
 end

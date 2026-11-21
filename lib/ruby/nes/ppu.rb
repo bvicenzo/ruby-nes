@@ -106,6 +106,10 @@ module Ruby
         @writes_ignored = false
       end
 
+      # The dots run since the PPU was built: a clock that never wraps, which MMC3's A12 filter reads (plan 21,
+      # decision 2).
+      def elapsed_dots = @dots
+
       def scanline = @frame_timing.scanline
 
       def dot = @frame_timing.dot
@@ -184,7 +188,7 @@ module Ruby
         when OAMADDR then @oam.address = value
         when OAMDATA then @oam.write(value) unless @frame_timing.rendering_in_progress?
         when PPUSCROLL then @scroll_registers.write_scroll(value) unless @writes_ignored
-        when PPUADDR then @scroll_registers.write_address(value) unless @writes_ignored
+        when PPUADDR then write_address(value) unless @writes_ignored
         when PPUDATA then @data_port.write(value)
         end
       end
@@ -198,6 +202,13 @@ module Ruby
         @frame_timing.status_read
         flags = (@vertical_blank.read ? VERTICAL_BLANK_FLAG : 0) | @sprite_status.bits # glossary: bitwise-or
         @latch = flags | (@latch & STATUS_OPEN_BUS_BITS) # glossary: bitwise-or, low-bits
+      end
+
+      # PPUADDR: the first write fills t's high byte, the second loads v from t. Outside rendering the PPU's bus shows v
+      # after either (DataPort#show_address); after the first it is unchanged, so only the second can raise A12.
+      def write_address(value)
+        @scroll_registers.write_address(value)
+        @data_port.show_address
       end
 
       def write_control(value)

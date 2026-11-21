@@ -32,7 +32,7 @@ module Ruby
 
         # The base wraps a bank past the PRG ROM; whole 32 KiB banks keep the two halves of one bank together.
         def write_register(_address, value)
-          select_whole_prg_bank(Bits.low_bits(value, BANK_MASK))
+          select_prg_bank(PRG_ROM_START, Bits.low_bits(value, BANK_MASK), PRG_AREA_SIZE)
           @mirroring = value.anybits?(SCREEN_FLAG) ? :single_screen_upper : :single_screen_lower
         end
       end

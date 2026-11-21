@@ -54,6 +54,8 @@ module Ruby
         # bank of a smaller PRG ROM (plan 20, review).
         BANKS_PER_OUTER_BANK = 16
         LAST_INNER_BANK = 15
+        # The 32 KiB PRG mode and the 8 KiB CHR mode select a bank twice as large as a register's unit.
+        HALVES_PER_WHOLE_BANK = 2
 
         def initialize(cartridge)
           super(cartridge, prg_ram: true)
@@ -96,15 +98,18 @@ module Ruby
           bank = first_bank + Bits.low_bits(@registers[PRG_BANK], PRG_BANK_MASK)
           case mode
           when FIX_FIRST_BANK_MODE
-            select_prg_bank(FIRST_PRG_WINDOW, first_bank)
-            select_prg_bank(SECOND_PRG_WINDOW, bank)
+            select_prg_bank(PRG_ROM_START, first_bank, PRG_HALF_AREA_SIZE)
+            select_prg_bank(PRG_UPPER_HALF_START, bank, PRG_HALF_AREA_SIZE)
           when FIX_LAST_BANK_MODE
-            select_prg_bank(FIRST_PRG_WINDOW, bank)
-            select_prg_bank(SECOND_PRG_WINDOW, [first_bank + LAST_INNER_BANK, last_prg_bank].min)
+            select_prg_bank(PRG_ROM_START, bank, PRG_HALF_AREA_SIZE)
+            select_prg_bank(PRG_UPPER_HALF_START, fixed_last_bank(first_bank), PRG_HALF_AREA_SIZE)
           else
-            select_whole_prg_bank(bank / HALVES_PER_WHOLE_BANK)
+            select_prg_bank(PRG_ROM_START, bank / HALVES_PER_WHOLE_BANK, PRG_AREA_SIZE)
           end
         end
+
+        # Mode 3's fixed 16 KiB bank: the last of the 256 KiB from `first_bank`, or PRG ROM's last bank before it.
+        def fixed_last_bank(first_bank) = [first_bank + LAST_INNER_BANK, last_prg_bank(PRG_HALF_AREA_SIZE)].min
 
         # The first 16 KiB bank of the 256 KiB the windows see: the second 256 KiB of a SUROM when CHR bank 0 bit 4
         # says so.
@@ -116,10 +121,10 @@ module Ruby
 
         def select_chr_banks(two_banks)
           if two_banks
-            select_chr_bank(FIRST_CHR_WINDOW, @registers[CHR_BANK_0])
-            select_chr_bank(SECOND_CHR_WINDOW, @registers[CHR_BANK_1])
+            select_chr_bank(CHR_START, @registers[CHR_BANK_0], CHR_HALF_AREA_SIZE)
+            select_chr_bank(CHR_UPPER_HALF_START, @registers[CHR_BANK_1], CHR_HALF_AREA_SIZE)
           else
-            select_whole_chr_bank(@registers[CHR_BANK_0] / HALVES_PER_WHOLE_BANK)
+            select_chr_bank(CHR_START, @registers[CHR_BANK_0] / HALVES_PER_WHOLE_BANK, CHR_AREA_SIZE)
           end
         end
       end

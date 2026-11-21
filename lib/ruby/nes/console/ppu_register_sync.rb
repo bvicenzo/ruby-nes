@@ -8,6 +8,7 @@ module Ruby
       # the instruction, so `cpu.cycles` is then the cycle it ends on, and every non-read-modify-write instruction makes
       # its data access on its last cycle (https://www.nesdev.org/6502_cpu.txt); read-modify-write instructions on PPU
       # registers are approximated. The Console gives the CPU through the writer, since it builds the CPU after the bus.
+      # The cartridge board asks for the same catch-up before each register write (plan 21, decision 6).
       class PpuRegisterSync
         # The access falls on the instruction's last cycle, the one before the cycle it ends on.
         ACCESS_CYCLE_OFFSET = 1
@@ -20,13 +21,18 @@ module Ruby
         end
 
         def cpu_read(address, data_bus)
-          @ppu.catch_up(@cpu.cycles - ACCESS_CYCLE_OFFSET)
+          catch_up
           @ppu.cpu_read(address, data_bus)
         end
 
         def cpu_write(address, value)
-          @ppu.catch_up(@cpu.cycles - ACCESS_CYCLE_OFFSET)
+          catch_up
           @ppu.cpu_write(address, value)
+        end
+
+        # Catches the PPU up to the start of the cycle the instruction's access falls on.
+        def catch_up
+          @ppu.catch_up(@cpu.cycles - ACCESS_CYCLE_OFFSET)
         end
       end
     end

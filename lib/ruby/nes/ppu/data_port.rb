@@ -49,6 +49,18 @@ module Ruby
           byte
         end
 
+        # Puts v (its low 14 bits) on the PPU's bus outside rendering, so a board watching A12 sees each move of v by
+        # PPUADDR or PPUDATA: MMC3 can be clocked "by writing to $2006" (https://www.nesdev.org/wiki/MMC3), and
+        # mmc3_test_2's 3-A12_clocking clocks it by a PPUDATA access taking v from $0FFF to $1000. During rendering
+        # nothing is shown, a deliberate divergence (plan 21, decision 10): the MMC3 page says the $2006 clock happens
+        # "regardless of whether PPU is/is not rendering", but there v's bit 12 is fine Y, and the board already sees
+        # every rendering fetch, which uses v.
+        def show_address
+          return if @frame_timing.rendering_in_progress?
+
+          @bus.place_address(@scroll_registers.vram_address & PpuBus::ADDRESS_MASK) # glossary: low-bits
+        end
+
         # The PPU's reset signal clears the read buffer (https://www.nesdev.org/wiki/PPU_power_up_state).
         def clear_read_buffer
           @buffer = 0
@@ -69,6 +81,7 @@ module Ruby
             @scroll_registers.increment_y
           else
             @scroll_registers.increment_vram_address(@increment)
+            show_address
           end
         end
       end

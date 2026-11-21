@@ -13,7 +13,7 @@ module Ruby
         private
 
         # The first window is the switchable one; the second keeps the last bank the base puts there.
-        def write_register(_address, value) = select_prg_bank(FIRST_PRG_WINDOW, value)
+        def write_register(_address, value) = select_prg_bank(PRG_ROM_START, value, PRG_HALF_AREA_SIZE)
       end
     end
   end

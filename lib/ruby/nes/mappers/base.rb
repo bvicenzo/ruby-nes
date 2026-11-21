@@ -3,61 +3,83 @@
 module Ruby
   module Nes
     module Mappers
-      # The cartridge board every mapper is built on (plan 19, decision 1). The CPU sees PRG ROM through two 16 KiB
-      # windows, $8000-$BFFF and $C000-$FFFF, and the PPU sees CHR through two 4 KiB windows, $0000-$0FFF and
-      # $1000-$1FFF (plan 20, decision 5); a board with registers only turns their writes into window offsets
-      # (`write_register`). Out of the box the first PRG window shows the first 16 KiB of PRG ROM and the second the
-      # last 16 KiB, which is NROM-128 (both the same 16 KiB), NROM-256 and the fixed bank of UxROM
-      # (https://www.nesdev.org/wiki/UxROM); the CHR windows show the first 8 KiB of CHR.
+      # The cartridge board every mapper is built on (plan 19, decision 1). The CPU sees PRG ROM through four 8 KiB
+      # windows, $8000, $A000, $C000 and $E000, and the PPU sees CHR through eight 1 KiB windows from $0000 (plan 21,
+      # decision 8): MMC3's granularity (https://www.nesdev.org/wiki/MMC3), with which every other board's banks are a
+      # whole number of windows (BankWindows). A board with registers only turns their writes into bank selections
+      # (`write_register`). Out of the box $8000-$BFFF shows the first 16 KiB of PRG ROM and $C000-$FFFF the last 16
+      # KiB, which is NROM-128 (both the same 16 KiB), NROM-256 and the fixed bank of UxROM
+      # (https://www.nesdev.org/wiki/UxROM); CHR shows its first 8 KiB.
       #
       # PRG RAM at $6000-$7FFF is 8 KiB when the board says it has some (`prg_ram: true`), and a board may turn it off
       # (MMC1); without it, or off, the board does not drive the bus there. Nothing answers $4020-$5FFF. No CHR ROM
       # means 8 KiB of CHR RAM (iNES page: CHR ROM size 0 "means the board uses CHR RAM"). Mirroring is the header's
-      # until a board changes it; `irq?` is always false. Every board is handed the CPU as its clock (`cpu=`); only
-      # MMC1 reads it (plan 20, decision 1).
+      # until a board changes it; flags 6 bit 3 asks for four-screen VRAM, whatever the mirroring bit says (plan 21,
+      # decision 7), until a board that controls its mirroring (AxROM, MMC1) sets its own; MMC3 keeps it. Every board is
+      # handed the CPU (`cpu=`: MMC1's clock, MMC3's IRQ line), the PPU (`ppu=`: MMC3's A12 clock) and the register sync
+      # that catches the PPU up before a register write (`register_sync=`; plan 20 decision 1, plan 21 decisions 2 and
+      # 6).
       class Base
         PRG_RAM_START = 0x6000
         PRG_ROM_START = 0x8000
         # $6000-$7FFF folds onto the 8 KiB of PRG RAM.
         PRG_RAM_MIRROR_MASK = 0x1FFF
-        PRG_WINDOW_SIZE = 16_384
         PRG_RAM_SIZE = 8_192
-        # The two PRG ROM windows, as select_prg_bank numbers them.
-        FIRST_PRG_WINDOW = 0
-        SECOND_PRG_WINDOW = 1
-        # Address bit 14 tells the window: $8000-$BFFF is 0, $C000-$FFFF is 1.
-        PRG_WINDOW_SELECT_MASK = 0x4000
-        PRG_WINDOW_SELECT_SHIFT = 14
-        # The address bits within a 16 KiB window.
-        PRG_WINDOW_OFFSET_MASK = 0x3FFF
-        CHR_WINDOW_SIZE = 4_096
+        PRG_WINDOW_SIZE = 8_192
+        PRG_WINDOW_COUNT = 4
+        # Address bits 14-13 tell the window: $8000-$9FFF is 0 … $E000-$FFFF is 3.
+        PRG_WINDOW_SELECT_MASK = 0x6000
+        PRG_WINDOW_SELECT_SHIFT = 13
+        # The address bits within an 8 KiB window.
+        PRG_WINDOW_OFFSET_MASK = 0x1FFF
+        # $C000-$FFFF, the upper half of PRG ROM's 32 KiB; banks of 16 and 32 KiB.
+        PRG_UPPER_HALF_START = 0xC000
+        PRG_HALF_AREA_SIZE = 16_384
+        PRG_AREA_SIZE = 32_768
+        CHR_START = 0x0000
         CHR_RAM_SIZE = 8_192
-        # The two CHR windows, as select_chr_bank numbers them.
-        FIRST_CHR_WINDOW = 0
-        SECOND_CHR_WINDOW = 1
-        # Address bit 12 tells the window: $0000-$0FFF is 0, $1000-$1FFF is 1.
-        CHR_WINDOW_SELECT_MASK = 0x1000
-        CHR_WINDOW_SELECT_SHIFT = 12
-        # The address bits within a 4 KiB window.
-        CHR_WINDOW_OFFSET_MASK = 0x0FFF
-        # A 32 KiB PRG bank or an 8 KiB CHR bank fills both windows of its side with its two halves.
-        HALVES_PER_WHOLE_BANK = 2
+        CHR_WINDOW_SIZE = 1_024
+        CHR_WINDOW_COUNT = 8
+        # Address bits 12-10 tell the window: $0000-$03FF is 0 … $1C00-$1FFF is 7.
+        CHR_WINDOW_SELECT_MASK = 0x1C00
+        CHR_WINDOW_SELECT_SHIFT = 10
+        # The address bits within a 1 KiB window.
+        CHR_WINDOW_OFFSET_MASK = 0x03FF
+        # $1000-$1FFF, the upper half of the pattern tables; banks of 4 and 8 KiB.
+        CHR_UPPER_HALF_START = 0x1000
+        CHR_HALF_AREA_SIZE = 4_096
+        CHR_AREA_SIZE = 8_192
 
         attr_reader :mirroring
-        attr_writer :cpu
+        # The CPU, the board's clock (MMC1, plan 20 decision 1); the PPU, A12's clock (MMC3, plan 21 decision 2); the
+        # Console::PpuRegisterSync that catches the PPU up before a register write (plan 21, decision 6).
+        attr_writer :cpu, :ppu, :register_sync
 
         def initialize(cartridge, prg_ram: false)
           @prg_rom = cartridge.prg_rom
-          @prg_window_offsets = [0, @prg_rom.size - PRG_WINDOW_SIZE]
-          @prg_bank_count = @prg_rom.size / PRG_WINDOW_SIZE
+          @prg_windows = BankWindows.new(
+            memory_size: @prg_rom.size,
+            window_size: PRG_WINDOW_SIZE,
+            window_count: PRG_WINDOW_COUNT,
+            first_address: PRG_ROM_START
+          )
+          @prg_window_offsets = @prg_windows.offsets
           @prg_ram_enabled = prg_ram
           @prg_ram = prg_ram ? Array.new(PRG_RAM_SIZE, 0) : []
           @chr_writable = cartridge.chr_rom.empty?
           @chr = @chr_writable ? Array.new(CHR_RAM_SIZE, 0) : cartridge.chr_rom
-          @chr_window_offsets = [0, CHR_WINDOW_SIZE]
-          @chr_bank_count = @chr.size / CHR_WINDOW_SIZE
-          @mirroring = cartridge.header.mirroring
+          @chr_windows = BankWindows.new(
+            memory_size: @chr.size,
+            window_size: CHR_WINDOW_SIZE,
+            window_count: CHR_WINDOW_COUNT,
+            first_address: CHR_START
+          )
+          @chr_window_offsets = @chr_windows.offsets
+          @mirroring = cartridge.header.alternative_nametables? ? :four_screen : cartridge.header.mirroring
           @cpu = nil
+          @ppu = nil
+          @register_sync = nil
+          show_power_up_banks
         end
 
         # Returns what is left on the CPU data bus: a PRG ROM byte through its window, a PRG RAM byte, or `data_bus`
@@ -73,9 +95,11 @@ module Ruby
           end
         end
 
-        # $8000-$FFFF goes to the board's registers; $6000-$7FFF to PRG RAM when it is on; the rest is ignored.
+        # $8000-$FFFF goes to the board's registers, once the PPU caught up with the write (without a register sync,
+        # in specs, at once); $6000-$7FFF to PRG RAM when it is on; the rest is ignored.
         def cpu_write(address, value)
           if address >= PRG_ROM_START
+            @register_sync&.catch_up
             write_register(address, value)
           elsif address >= PRG_RAM_START && @prg_ram_enabled
             @prg_ram[address & PRG_RAM_MIRROR_MASK] = value # glossary: mirror-down
@@ -88,6 +112,11 @@ module Ruby
           @chr[@chr_window_offsets[window] + (address & CHR_WINDOW_OFFSET_MASK)] # glossary: low-bits
         end
 
+        # The PPU put `address` on its bus without reading or writing: v after a PPUADDR write or a PPUDATA increment,
+        # outside rendering (plan 21, decision 10). Only a board that watches the bus (MMC3's A12) does anything with
+        # it.
+        def ppu_address(_address); end
+
         # CHR ROM ignores writes; CHR RAM keeps them.
         def ppu_write(address, value)
           return unless @chr_writable
@@ -96,49 +125,38 @@ module Ruby
           @chr[@chr_window_offsets[window] + (address & CHR_WINDOW_OFFSET_MASK)] = value # glossary: low-bits
         end
 
-        # No board built here has an IRQ yet (architecture decision 25 replaces this predicate).
-        def irq? = false
-
         private
 
         # A board without registers ignores writes to $8000-$FFFF.
         def write_register(_address, _value); end
 
-        # Shows the 16 KiB PRG ROM bank `bank` in `window` (FIRST_PRG_WINDOW for $8000-$BFFF, SECOND_PRG_WINDOW for
-        # $C000-$FFFF). A bank past the end of PRG ROM wraps around the bank count: a convention (plan 19, decision 5)
-        # that matches a board whose ROM lacks the upper address lines when the count is a power of two, as on every
-        # licensed board. Called on register writes, off the hot path.
-        def select_prg_bank(window, bank)
-          @prg_window_offsets[window] = (bank % @prg_bank_count) * PRG_WINDOW_SIZE
+        # Shows the PRG ROM bank `bank`, counted in banks of `size` bytes (a whole number of 8 KiB windows), from
+        # `address` on: `select_prg_bank(PRG_UPPER_HALF_START, 3, PRG_HALF_AREA_SIZE)` shows the fourth 16 KiB at
+        # $C000-$FFFF. A bank past the end wraps around PRG ROM (BankWindows). Called on register writes, off the hot
+        # path.
+        def select_prg_bank(address, bank, size)
+          @prg_windows.select(address, bank, size)
         end
 
-        # Shows the 32 KiB PRG ROM bank `bank` across both PRG windows: its halves are the 16 KiB banks
-        # HALVES_PER_WHOLE_BANK × `bank` and the next one.
-        def select_whole_prg_bank(bank)
-          first_half = bank * HALVES_PER_WHOLE_BANK
-          select_prg_bank(FIRST_PRG_WINDOW, first_half)
-          select_prg_bank(SECOND_PRG_WINDOW, first_half + 1)
-        end
+        # The number of the last bank of `size` bytes of PRG ROM.
+        def last_prg_bank(size) = @prg_windows.last_bank(size)
 
-        # The number of the last 16 KiB bank of PRG ROM.
-        def last_prg_bank = @prg_bank_count - 1
-
-        # Shows the 4 KiB CHR bank `bank` in `window` (FIRST_CHR_WINDOW for $0000-$0FFF, SECOND_CHR_WINDOW for
-        # $1000-$1FFF), wrapped around the CHR size as select_prg_bank wraps PRG.
-        def select_chr_bank(window, bank)
-          @chr_window_offsets[window] = (bank % @chr_bank_count) * CHR_WINDOW_SIZE
-        end
-
-        # Shows the 8 KiB CHR bank `bank` across both CHR windows, as select_whole_prg_bank does for PRG.
-        def select_whole_chr_bank(bank)
-          first_half = bank * HALVES_PER_WHOLE_BANK
-          select_chr_bank(FIRST_CHR_WINDOW, first_half)
-          select_chr_bank(SECOND_CHR_WINDOW, first_half + 1)
+        # Shows the CHR bank `bank`, counted in banks of `size` bytes (a whole number of 1 KiB windows), from `address`
+        # on, wrapped around the CHR size as select_prg_bank wraps PRG.
+        def select_chr_bank(address, bank, size)
+          @chr_windows.select(address, bank, size)
         end
 
         # Turns PRG RAM on or off (MMC1's PRG bank bit 4); only for a board built with `prg_ram: true`.
         def enable_prg_ram(enabled)
           @prg_ram_enabled = enabled
+        end
+
+        # The first and the last 16 KiB of PRG ROM, the first 8 KiB of CHR.
+        def show_power_up_banks
+          select_prg_bank(PRG_ROM_START, 0, PRG_HALF_AREA_SIZE)
+          select_prg_bank(PRG_UPPER_HALF_START, last_prg_bank(PRG_HALF_AREA_SIZE), PRG_HALF_AREA_SIZE)
+          select_chr_bank(CHR_START, 0, CHR_AREA_SIZE)
         end
       end
     end

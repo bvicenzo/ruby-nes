@@ -25,7 +25,8 @@ module Cartridges
     prg_rom: Array.new(PRG_ROM_SIZE, NO_OPERATION),
     chr_rom: Array.new(CHR_ROM_SIZE, 0x00),
     mirroring: :horizontal,
-    mapper_number: 0
+    mapper_number: 0,
+    alternative_nametables: false
   )
     header = Ruby::Nes::Cartridge::Header.new(
       prg_rom_size: prg_rom.size,
@@ -33,7 +34,7 @@ module Cartridges
       mirroring:,
       battery: false,
       trainer: false,
-      alternative_nametables: false,
+      alternative_nametables:,
       nes2: false,
       mapper_number:
     )

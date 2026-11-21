@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 # The boards are loaded first: the factory's table below refers to them.
+require_relative 'mappers/bank_windows'
 require_relative 'mappers/base'
 require_relative 'mappers/nrom'
 require_relative 'mappers/uxrom'
@@ -21,8 +22,9 @@ module Ruby
     # - mirroring                   -> the nametable arrangement the board selects, asked on every nametable access:
     #                                  :horizontal, :vertical, :single_screen_lower, :single_screen_upper or
     #                                  :four_screen.
-    # - irq?                        -> whether the board holds the CPU's IRQ line low.
-    # - cpu=                         -> the CPU, the board's clock; only MMC1 reads its cycles (plan 20, decision 1).
+    # - ppu_address(address)        -> the PPU left `address` on its bus (v outside rendering); MMC3 watches A12.
+    # - cpu=, ppu=, register_sync=  -> the CPU (MMC1's clock, MMC3's IRQ line), the PPU (MMC3's A12 clock) and the
+    #                                  Console::PpuRegisterSync that catches the PPU up before a register write.
     #
     # Every board is a Base (mappers/base.rb), which reads PRG ROM and CHR through bank windows; a board with registers
     # only turns their writes into bank selections.

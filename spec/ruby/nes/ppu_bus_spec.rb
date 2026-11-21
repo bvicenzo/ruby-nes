@@ -131,4 +131,16 @@ RSpec.describe Ruby::Nes::PpuBus do
       end
     end
   end
+
+  describe '#place_address' do
+    subject(:bus) { described_class.new(mapper:) }
+
+    let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, ppu_address: nil, mirroring: :horizontal) }
+
+    before { bus.place_address(0x1000) }
+
+    it 'shows the address to the mapper' do
+      expect(mapper).to have_received(:ppu_address).with(0x1000)
+    end
+  end
 end

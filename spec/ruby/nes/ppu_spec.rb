@@ -52,7 +52,7 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the address is $2001' do
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3F00) }
 
         before do
@@ -128,7 +128,7 @@ RSpec.describe Ruby::Nes::Ppu do
           described_class.new(bus:, scroll_registers:, oam:, vertical_blank:, sprite_renderer:, renderer:)
         end
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00, place_address: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
         let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, :nmi_enabled= => nil) }
@@ -232,7 +232,7 @@ RSpec.describe Ruby::Nes::Ppu do
           described_class.new(bus:, scroll_registers:, oam:, frame_timing:, sprite_renderer:, renderer:)
         end
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3F00) }
         let(:sprite_renderer) do
@@ -477,25 +477,50 @@ RSpec.describe Ruby::Nes::Ppu do
         end
       end
 
+      # Outside rendering the PPU's bus shows v after each PPUADDR write: the first leaves v as it was, the second loads
+      # it from t (plan 21, decision 10).
       context 'and the address is $2006' do
-        subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
+        context 'and it is the first write' do
+          subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
-        let(:oam) { Ruby::Nes::Ppu::Oam.new }
-        let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
+          let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
+          let(:oam) { Ruby::Nes::Ppu::Oam.new }
+          let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x1234) }
 
-        before { ppu.cpu_write(0x2006, 0x21) }
+          before { ppu.cpu_write(0x2006, 0x21) }
 
-        it 'writes the address and loads the latch', :aggregate_failures do
-          expect(scroll_registers).to have_attributes(temporary_address: 0x2100, second_write?: true)
-          expect(ppu.cpu_read(0x2000, 0x00)).to eq(0x21)
+          it 'writes the address and loads the latch', :aggregate_failures do
+            expect(scroll_registers).to have_attributes(temporary_address: 0x2100, second_write?: true)
+            expect(ppu.cpu_read(0x2000, 0x00)).to eq(0x21)
+          end
+
+          it 'shows the unchanged v on its bus' do
+            expect(bus).to have_received(:place_address).with(0x1234)
+          end
+        end
+
+        context 'and it is the second write' do
+          subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
+
+          let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
+          let(:oam) { Ruby::Nes::Ppu::Oam.new }
+          let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x1234) }
+
+          before do
+            ppu.cpu_write(0x2006, 0x10)
+            ppu.cpu_write(0x2006, 0x08)
+          end
+
+          it 'shows the new v on its bus' do
+            expect(bus).to have_received(:place_address).with(0x1008)
+          end
         end
       end
 
       context 'and the address is $2007' do
         subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil, place_address: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
 
@@ -651,7 +676,7 @@ RSpec.describe Ruby::Nes::Ppu do
     context 'when the address is $2007' do
       subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
       let(:oam) { Ruby::Nes::Ppu::Oam.new }
 
       context 'and v is below the palette' do
@@ -688,7 +713,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#reset' do
     subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, frame_timing:, vertical_blank:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
     let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3EFE) }
     let(:oam) { Ruby::Nes::Ppu::Oam.new }
     let(:frame_timing) do
@@ -979,6 +1004,23 @@ RSpec.describe Ruby::Nes::Ppu do
       it 'runs the renderer on each dot, where the frame timing stands' do
         expect(renderer).to have_received(:run_dot).with(12, 34).exactly(36).times
       end
+    end
+  end
+
+  describe '#elapsed_dots' do
+    subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
+
+    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 12, dot: 34) }
+    let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
+
+    before do
+      ppu.catch_up(10)
+      ppu.catch_up(12)
+    end
+
+    it 'counts the dots run since the PPU was built' do
+      expect(ppu.elapsed_dots).to eq(36)
     end
   end
 

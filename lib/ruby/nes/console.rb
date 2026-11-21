@@ -10,7 +10,7 @@ module Ruby
     # Building it is the power-up (plan 12, decision 8): the CPU's and the PPU's reset, then the PPU catches up the 7
     # cycles of the reset sequence, so it stands 21 dots into scanline 0, as nestest.log's `PPU:  0, 21` at `CYC:7`.
     #
-    # The board gets the CPU as its clock, as the register sync does (plan 20, decision 1).
+    # The board gets the CPU, the PPU and the register sync (plan 20, decision 1; plan 21, decisions 2 and 6).
     #
     # The two standard controllers answer $4016 and $4017 through Input::ControllerPorts (plan 15); `controllers` hands
     # them to the frontend, which sets the buttons held on each.
@@ -27,7 +27,7 @@ module Ruby
         @cpu_bus = CpuBus.new(mapper:, ppu_registers: register_sync, controller_ports:)
         @cpu = Cpu.new(bus: @cpu_bus)
         register_sync.cpu = @cpu
-        mapper.cpu = @cpu
+        wire_board(mapper, register_sync)
         @ppu.nmi_input = @cpu
         reset
       end
@@ -51,6 +51,16 @@ module Ruby
         @cpu.reset
         @ppu.reset
         @ppu.catch_up(@cpu.cycles)
+      end
+
+      private
+
+      # The board gets the CPU as its clock and IRQ line, the PPU as A12's clock, and the register sync that catches the
+      # PPU up before a register write (plan 20, decision 1; plan 21, decisions 2 and 6).
+      def wire_board(mapper, register_sync)
+        mapper.cpu = @cpu
+        mapper.ppu = @ppu
+        mapper.register_sync = register_sync
       end
     end
   end
