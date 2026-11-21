@@ -36,9 +36,10 @@ Out: triangle, noise, DMC, mixer (plan 23); audio output (plan 24).
 - Tick granularity: per CPU cycle (simple, many calls) vs catch-up on register access and at frame end (faster,
   more complex). Recommendation: per cycle now; plan 25 decides if catch-up pays off.
 
-- IRQ line: plan 12 (decision 3) chose a wired-OR push: each IRQ source (frame counter here, DMC in plan 23, mappers)
-  asserts and releases its own bit on a shared line, replacing the mappers' `irq?` predicate; implement it here if
-  plan 21 did not. Its level should reach the CPU's polling point the way plan 12's NMI edge does (decision 2).
+- IRQ line: plan 21 (decision 5) implemented the wired-OR push of plan 12 (decision 3): each source asserts and
+  releases its own bit with `Cpu#assert_irq(source)` / `Cpu#release_irq(source)` (`Cpu::InterruptLines`, the mapper's
+  bit first); the frame counter here and the DMC in plan 23 add theirs. Its level should reach the CPU's polling point
+  the way plan 12's NMI edge does (decision 2); it is still polled before each instruction without a cycle.
 - CPU interrupt gaps that become testable with the frame IRQ (`docs/architecture.md`, Known gaps): the `CLI`/`SEI`/`PLP`
   delay, interrupt hijacking and the branch polling quirk, checked by `cpu_interrupts_v2` 1, 3, 4 and 5 (plan 12
   recorded their failures). Model each or record why it stays a gap.
