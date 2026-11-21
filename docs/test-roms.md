@@ -16,11 +16,15 @@ The community test ROMs the suite runs, fetched by `bundle exec rake test_roms:f
   their source keeps the result at `$F8` (1 passed, otherwise the failing test's number) and ends in `exit: jmp exit`.
   `Blargg::LegacyReport` reads it once the CPU sits on that loop (plan 14); `rake blargg:run` picks it for those
   suites.
+- **blargg's older shell** (`cpu_dummy_reads`) writes nothing at `$6000`: its text console draws on nametable 0 with
+  ASCII tiles and ends with a line `Passed`, `Failed` or `Error <code>`. `Blargg::ScreenReport` reads that line through
+  the console's PPU bus (plan 19); `rake blargg:run` picks it for that ROM.
 - The ROMs that must pass are examples of `spec/blargg/runner_spec.rb`, tagged `slow: true`: they run with `SLOW=1`
   and always in CI's `test-roms` job, under YJIT (plan 12, decision 6). The others are recorded here.
 
-Only the NROM single-test builds run here. The multi-test builds (`all_instrs.nes`, `official_only.nes`,
-`ppu_vbl_nmi.nes`, `cpu_interrupts.nes`) are MMC1 boards (plan 20), and `cpu_dummy_reads.nes` is CNROM (plan 19).
+The single-test builds run here are NROM boards, and `cpu_dummy_reads.nes` a CNROM one (plan 19). The multi-test
+builds (`all_instrs.nes`, `official_only.nes`, `ppu_vbl_nmi.nes`, `cpu_interrupts.nes`) are MMC1 boards (plan 20). The
+collection has no multi-mapper ROM such as Holy Mapperel at the pinned commit (plan 19, decision 9).
 
 ## Results
 
@@ -87,3 +91,9 @@ time, on the machine of [benchmarks](benchmarks.md) (about 1.5 s each).
 | `sprite_overflow_tests/3.Timing.nes` | Failed (5) | 116 | "Set too late for first scanline": the evaluation runs whole at dot 257 (Known gaps: sprite overflow timing). |
 | `sprite_overflow_tests/4.Obscure.nes` | Passed | 36 | Needs the diagonal scan of the overflow search. |
 | `sprite_overflow_tests/5.Emulator.nes` | Passed | 27 | |
+
+Plan 19, 2026-11-20, the first ROM on a board other than NROM.
+
+| ROM | Result | Frames | Notes |
+|---|---|---|---|
+| `cpu_dummy_reads/cpu_dummy_reads.nes` | Passed | 45 | CNROM (mapper 3), read through `Blargg::ScreenReport`. Checks the dummy reads of `LDA`/`STA` absolute,X and (indirect),Y through `$2002` and `$2004`, and their absence in (indirect,X) (architecture decision 26). |

@@ -72,6 +72,10 @@ before the hot-path exception is narrowed.
 YJIT in the variants session, where it ran last and furthest from its baseline, but the three rounds above gave
 between −1% and +3%: the method call per step costs little.
 
+**Board window table (architecture decision 46): kept.** Plan 19 reads PRG ROM through `Mappers::Base`'s window
+offsets instead of NROM's single mask. Alternating runs in one session put its cost at about 3% under YJIT and the
+interpreter and under 1% under ZJIT, below the 6% the base commit itself moved between rounds (2026-11-20 section).
+
 **JIT statistics** of the core as plan 10 leaves it, 2 million cycles in one run
 (`ruby --yjit --yjit-stats bench/cpu.rb --cycles 2000000 --warm-up-runs 0 --runs 1`, and the same with `--zjit`):
 
@@ -252,3 +256,33 @@ The change column compares each row with the base commit under the same configur
 The polling point and the earlier charge of the base cycles cost nothing measurable; the dummy reads cost about 2%
 under YJIT (15.22 → 14.90) and nothing measurable under the interpreter or ZJIT. The base commit's ZJIT run has a 7%
 spread, so its +12% is noise rather than a gain. The whole machine ran about 9% slower than on 2026-11-18.
+
+### 2026-11-20 — Plan 19: the board's window table (nestest, 10 M cycles, 2 warm-up and 5 measured runs)
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+Four `rake bench:cpu` runs in one session, merged by hand, alternating the base commit of plan 19 (361443a, NROM's
+single mask `@prg_rom[address & @prg_rom_mirror_mask]`) and plan 19 (`Mappers::Base`'s window table,
+`@prg_rom[@prg_window_offsets[window] + (address & PRG_WINDOW_OFFSET_MASK)]`, architecture decision 46). The change
+column compares each plan 19 row with the base commit run just before it, under the same configuration.
+
+| Configuration | Variant | Emulated MHz | % of real time | Spread | Change from baseline |
+|---|---|---|---|---|---|
+| interpreter | base commit, round 1 | 2.89 | 162% | 8.0% | — |
+| yjit | base commit, round 1 | 14.23 | 795% | 3.3% | — |
+| zjit | base commit, round 1 | 7.99 | 447% | 2.1% | — |
+| interpreter | window table, round 1 | 2.91 | 162% | 1.1% | +0.7% |
+| yjit | window table, round 1 | 14.47 | 808% | 0.9% | +1.7% |
+| zjit | window table, round 1 | 8.12 | 454% | 0.3% | +1.6% |
+| interpreter | base commit, round 2 | 3.20 | 179% | 0.5% | — |
+| yjit | base commit, round 2 | 15.09 | 843% | 0.7% | — |
+| zjit | base commit, round 2 | 8.36 | 467% | 0.9% | — |
+| interpreter | window table, round 2 | 2.95 | 165% | 2.5% | -7.8% |
+| yjit | window table, round 2 | 13.95 | 779% | 0.2% | -7.6% |
+| zjit | window table, round 2 | 8.11 | 453% | 0.2% | -3.0% |
+
+The two rounds disagree in sign: the base commit alone moved 6% between them (YJIT 14.23 → 15.09), as much as the
+effect measured. Averaged, the window table costs about 3% under YJIT (14.66 → 14.21) and the interpreter (3.05 →
+2.93) and under 1% under ZJIT (8.18 → 8.12); two earlier runs of the same day, before and after the change, read 14.07
+and 13.12 under YJIT. The cost stays under the machine's run-to-run variation; plan 25 measures whole frames, where
+the PPU dominates.
