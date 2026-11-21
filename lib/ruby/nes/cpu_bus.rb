@@ -9,7 +9,8 @@ module Ruby
     #
     # Open bus (https://www.nesdev.org/wiki/Open_bus_behavior): "reading open bus repeats the last value that was read
     # from the bus before this read". Every read stores its result as the data bus value, and a device that does not
-    # drive the bus returns that value untouched. Writes do not change it: the page documents reads only.
+    # drive the bus returns that value untouched. Writes do not change it: the page documents reads only. The APU slot
+    # is the exception: its registers are internal to the 2A03, so what it returns is not stored (plan 22, decision 2).
     #
     # The bus owns the OAM DMA unit (plan 11, decision 2): a write to OAMDMA ($4014) starts it instead of reaching the
     # APU slot, and the stall it costs the CPU comes back through #take_stall_cycles, which Cpu#step adds.
@@ -47,21 +48,22 @@ module Ruby
         @oam_dma = OamDma.new(bus: self, ppu_registers:)
       end
 
+      # The APU slot's answer is not stored: $4015 "is internal to the CPU and so the external CPU data bus is
+      # disconnected when reading it", and the rest of the slot drives nothing (plan 22, decision 2).
       def read(address)
-        @data_bus =
-          if address < PPU_REGISTERS_START
-            @ram[address & RAM_MIRROR_MASK] # glossary: mirror-down
-          elsif address < APU_REGISTERS_START
-            @ppu_registers.cpu_read(address & PPU_REGISTER_MIRROR_MASK, @data_bus) # glossary: mirror-down
-          elsif address < CONTROLLER_PORTS_START
-            @apu_registers.cpu_read(address, @data_bus)
-          elsif address < TEST_MODE_START
-            @controller_ports.cpu_read(address, @data_bus)
-          elsif address < CARTRIDGE_START
-            @data_bus
-          else
-            @mapper.cpu_read(address, @data_bus)
-          end
+        if address < PPU_REGISTERS_START
+          @data_bus = @ram[address & RAM_MIRROR_MASK] # glossary: mirror-down
+        elsif address < APU_REGISTERS_START
+          @data_bus = @ppu_registers.cpu_read(address & PPU_REGISTER_MIRROR_MASK, @data_bus) # glossary: mirror-down
+        elsif address < CONTROLLER_PORTS_START
+          @apu_registers.cpu_read(address, @data_bus)
+        elsif address < TEST_MODE_START
+          @data_bus = @controller_ports.cpu_read(address, @data_bus)
+        elsif address < CARTRIDGE_START
+          @data_bus
+        else
+          @data_bus = @mapper.cpu_read(address, @data_bus)
+        end
       end
 
       # A read by the OAM DMA unit. The 2A03 decodes its registers from "bits 4-0 from the 2A03 address bus and bits 15-5

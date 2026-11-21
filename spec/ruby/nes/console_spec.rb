@@ -57,14 +57,18 @@ RSpec.describe Ruby::Nes::Console do
 
     context 'when the board is an MMC3 and the program enables its scanline IRQ with rendering on' do
       # The board takes the CPU as its IRQ line and the PPU as A12's clock, and catches the PPU up before a register
-      # write (plan 21). LDA #5 / STA $C000 / STA $C001 / STA $E001 / CLI, then LDA #$08 / STA $2000 (sprites at
-      # $1000) / LDA #$18 / STA $2001 (background and sprites on) / JMP $800C forever, as the PPU ignores both until its
-      # first VBlank ends. The IRQ handler counts in $10 and acknowledges: INC $10 / STA $E000 / STA $E001 / RTI.
+      # write (plan 21). LDA #$40 / STA $4017 (the APU's frame IRQ inhibited, plan 22), LDA #5 / STA $C000 / STA $C001 /
+      # STA $E001 / CLI, then LDA #$08 / STA $2000 (sprites at $1000) / LDA #$18 / STA $2001 (background and sprites on)
+      # / JMP $8011 forever, as the PPU ignores both until its first VBlank ends. The IRQ handler counts in $10 and
+      # acknowledges: INC $10 / STA $E000 / STA $E001 / RTI.
       let(:cartridge) do
-        Cartridges.with_program([*enable_irq, *render_forever], interrupt_handler: count_irq, mapper_number: 4)
+        Cartridges.with_program(
+          [*inhibit_frame_irq, *enable_irq, *render_forever], interrupt_handler: count_irq, mapper_number: 4
+        )
       end
+      let(:inhibit_frame_irq) { [0xA9, 0x40, 0x8D, 0x17, 0x40] }
       let(:enable_irq) { [0xA9, 0x05, 0x8D, 0x00, 0xC0, 0x8D, 0x01, 0xC0, 0x8D, 0x01, 0xE0, 0x58] }
-      let(:render_forever) { [0xA9, 0x08, 0x8D, 0x00, 0x20, 0xA9, 0x18, 0x8D, 0x01, 0x20, 0x4C, 0x0C, 0x80] }
+      let(:render_forever) { [0xA9, 0x08, 0x8D, 0x00, 0x20, 0xA9, 0x18, 0x8D, 0x01, 0x20, 0x4C, 0x11, 0x80] }
       let(:count_irq) { [0xE6, 0x10, 0x8D, 0x00, 0xE0, 0x8D, 0x01, 0xE0, 0x40] }
 
       # Rendering starts with the second frame: two rendered frames clock the counter 241 times each (mmc3_test_2's
@@ -74,6 +78,24 @@ RSpec.describe Ruby::Nes::Console do
         console = described_class.new(cartridge)
         3.times { console.run_frame }
         expect(console.cpu_bus.read(0x0010)).to eq(80)
+      end
+    end
+
+    context 'when the program enables interrupts and leaves the APU frame counter as it powers up' do
+      # The APU sits in CpuBus's `apu_registers:` slot, is caught up after every step and asserts the frame IRQ on the
+      # CPU (plan 22). At power the frame counter runs mode 0 with interrupts allowed ($4017 = $00,
+      # https://www.nesdev.org/wiki/CPU_power_up_state), setting the flag every 29830 CPU cycles
+      # (https://www.nesdev.org/wiki/APU_Frame_Counter), first 29828 cycles in. CLI, then JMP $8001 forever; the IRQ
+      # handler counts in $10 and acknowledges by reading $4015: INC $10 / LDA $4015 / RTI.
+      let(:cartridge) do
+        Cartridges.with_program([0x58, 0x4C, 0x01, 0x80], interrupt_handler: [0xE6, 0x10, 0xAD, 0x15, 0x40, 0x40])
+      end
+
+      # Three frames are about 89 350 CPU cycles: the flag comes at 29828 and 59658, not yet at 89488.
+      it 'takes one IRQ per frame counter sequence' do
+        console = described_class.new(cartridge)
+        3.times { console.run_frame }
+        expect(console.cpu_bus.read(0x0010)).to eq(2)
       end
     end
 
@@ -307,6 +329,26 @@ RSpec.describe Ruby::Nes::Console do
 
       it 'puts the PPU 21 dots into scanline 0 of the same frame', :aggregate_failures do
         expect(console.ppu).to have_attributes(scanline: 0, dot: 21, frame_number: 1)
+      end
+    end
+
+    # "Power-up and reset have the effect of writing $00" to $4015 (https://www.nesdev.org/wiki/APU), which forces the
+    # length counters to 0 (https://www.nesdev.org/wiki/APU_Length_Counter).
+    context 'when the program enables pulse 1 and loads its length counter' do
+      subject(:console) { described_class.new(cartridge) }
+
+      # LDA #$01 / STA $4015 / LDA #$F8 / STA $4003 (entry 31, 30 half frames), then JMP $800A forever.
+      let(:cartridge) do
+        Cartridges.with_program([0xA9, 0x01, 0x8D, 0x15, 0x40, 0xA9, 0xF8, 0x8D, 0x03, 0x40, 0x4C, 0x0A, 0x80])
+      end
+
+      before do
+        5.times { console.step }
+        console.reset
+      end
+
+      it 'silences pulse 1' do
+        expect(console.cpu_bus.read(0x4015)).to eq(0x00)
       end
     end
 

@@ -30,6 +30,7 @@ require_relative 'support/nestest'
 require_relative 'support/oam_contents'
 require_relative 'support/scripted_play'
 require_relative 'support/test_roms'
+require_relative 'support/waveforms'
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure

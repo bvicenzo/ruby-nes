@@ -134,6 +134,23 @@ RSpec.describe Ruby::Nes::CpuBus do
           expect(bus.read(0x4015)).to eq(0x41)
         end
       end
+
+      # $4015 "is internal to the CPU and so the external CPU data bus is disconnected when reading it", so the read
+      # "does not affect open bus" (https://www.nesdev.org/wiki/APU); the rest of the slot is open bus already (plan 22,
+      # decision 2).
+      context 'and the APU registers answered a read' do
+        before do
+          allow(apu_registers).to receive(:cpu_read).with(0x4015, 0x42).and_return(0x41)
+          bus.write(0x0000, 0x42)
+          bus.read(0x0000)
+          bus.read(0x4015)
+        end
+
+        # $4018, which no device answers, reads the data bus back.
+        it 'leaves the data bus as it was' do
+          expect(bus.read(0x4018)).to eq(0x42)
+        end
+      end
     end
 
     # "$4016 reads only from controller port 1, and $4017 reads only from controller port 2"
