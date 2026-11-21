@@ -118,6 +118,17 @@ RSpec.describe Ruby::Nes::Console do
     end
   end
 
+  # Tooling reads the nametables and pattern tables through it, as it reads the CPU's memory through #cpu_bus.
+  describe '#ppu_bus' do
+    subject(:console) { described_class.new(cartridge) }
+
+    let(:cartridge) { Cartridges.build(chr_rom: [0x33, *Array.new(8_191, 0x00)]) }
+
+    it "reaches the cartridge's pattern tables" do
+      expect(console.ppu_bus.read(0x0000)).to eq(0x33)
+    end
+  end
+
   describe '#step' do
     subject(:console) { described_class.new(cartridge) }
 

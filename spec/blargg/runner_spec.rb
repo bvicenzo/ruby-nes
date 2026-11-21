@@ -5,10 +5,11 @@
 # 1.789773 MHz clock, 16.6 ms (https://www.nesdev.org/wiki/Cycle_reference_chart). The synthetic programs write the
 # signature $DE $B0 $61 at $6001-$6003; RAM is zero at power, so $00 tells a first boot from a run after the reset.
 #
-# The real ROMs below are the ones plans 12 and 14 pass: every instr_test-v5 and instr_misc single plan 12 covers,
-# ppu_vbl_nmi 01-09, sprite_hit_tests_2005.10.05 01-11 and sprite_overflow_tests 1, 2, 4 and 5; every ROM's result,
-# failures included, is in docs/test-roms.md. The 2005 suites report through $F8 (Blargg::LegacyReport), 1 meaning
-# passed (a program that reports that way is also given its report). Each context's cartridge is the ROM its
+# The real ROMs below are the ones plans 12, 14 and 19 pass: every instr_test-v5 and instr_misc single plan 12 covers,
+# ppu_vbl_nmi 01-09, sprite_hit_tests_2005.10.05 01-11, sprite_overflow_tests 1, 2, 4 and 5, and cpu_dummy_reads;
+# every ROM's result, failures included, is in docs/test-roms.md. The 2005 suites report through $F8
+# (Blargg::LegacyReport), 1 meaning passed (a program that reports that way is also given its report);
+# cpu_dummy_reads only on screen (Blargg::ScreenReport). Each context's cartridge is the ROM its
 # `test_rom:` names. They take seconds each, so they are tagged `slow: true` and run only with SLOW=1 (plan 12,
 # decision 6).
 RSpec.describe Blargg::Runner do
@@ -262,6 +263,17 @@ RSpec.describe Blargg::Runner do
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
+      end
+    end
+
+    # A CNROM board (plan 19) built with blargg's older shell: its result is only on screen.
+    context 'when the program is cpu_dummy_reads', :slow, test_rom: 'cpu_dummy_reads/cpu_dummy_reads.nes' do
+      let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('cpu_dummy_reads/cpu_dummy_reads.nes')) }
+      let(:frame_limit) { Blargg::Runner::FRAME_LIMIT }
+
+      it 'passes' do
+        outcome = described_class.new(console, frame_limit:, report: Blargg::ScreenReport.new(console)).run
+        expect(outcome).to have_attributes(state: :finished, code: Blargg::ScreenReport::PASSED)
       end
     end
 

@@ -13,12 +13,13 @@ module Ruby
     # The two standard controllers answer $4016 and $4017 through Input::ControllerPorts (plan 15); `controllers` hands
     # them to the frontend, which sets the buttons held on each.
     class Console
-      attr_reader :cpu, :ppu, :cpu_bus, :controllers
+      attr_reader :cpu, :ppu, :cpu_bus, :ppu_bus, :controllers
 
       def initialize(cartridge, controllers: [Input::Controller.new, Input::Controller.new])
         mapper = Mappers.build(cartridge)
         @controllers = controllers.dup.freeze
-        @ppu = Ppu.new(bus: PpuBus.new(mapper:))
+        @ppu_bus = PpuBus.new(mapper:)
+        @ppu = Ppu.new(bus: @ppu_bus)
         register_sync = PpuRegisterSync.new(ppu: @ppu)
         controller_ports = Input::ControllerPorts.new(first: controllers.first, second: controllers.last)
         @cpu_bus = CpuBus.new(mapper:, ppu_registers: register_sync, controller_ports:)

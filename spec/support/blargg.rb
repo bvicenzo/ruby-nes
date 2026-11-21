@@ -8,5 +8,6 @@ end
 
 require_relative 'blargg/report'
 require_relative 'blargg/legacy_report'
+require_relative 'blargg/screen_report'
 require_relative 'blargg/runner'
 require_relative 'blargg/programs'

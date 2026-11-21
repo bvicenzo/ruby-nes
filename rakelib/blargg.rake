@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 namespace :blargg do
-  # The 2005 suites report through $F8 (Blargg::LegacyReport), the others through $6000 (Blargg::Report).
+  # The 2005 suites report through $F8 (Blargg::LegacyReport), cpu_dummy_reads on screen (Blargg::ScreenReport), the
+  # others through $6000 (Blargg::Report).
   desc 'Run a blargg test ROM of the manifest and print its result: rake blargg:run[<path>,<frame limit>]'
   task :run, [:rom, :frame_limit] do |_task, arguments|
     # Loaded here, not at the top: other rake tasks (build, rubocop) must not depend on the emulator loading.
@@ -18,16 +19,23 @@ namespace :blargg do
     console = Ruby::Nes::Console.new(Ruby::Nes::Cartridge::Loader.from_file(requirement.path_of(rom)))
     frame_limit = Integer(arguments[:frame_limit] || Blargg::Runner::FRAME_LIMIT)
     started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    legacy = Blargg::LegacyReport::SUITES.any? { |suite| rom.start_with?(suite) }
-    report = legacy ? Blargg::LegacyReport.new(console) : Blargg::Report.new(console.cpu_bus)
+    report =
+      if Blargg::LegacyReport::SUITES.any? { |suite| rom.start_with?(suite) }
+        Blargg::LegacyReport.new(console)
+      elsif Blargg::ScreenReport::SUITES.any? { |suite| rom.start_with?(suite) }
+        Blargg::ScreenReport.new(console)
+      else
+        Blargg::Report.new(console.cpu_bus)
+      end
     outcome = Blargg::Runner.new(console, frame_limit:, report:).run
     seconds = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at
 
     summary = format(
-      '%<rom>s: %<state>s, code $%<code>02X, %<frames>d frames in %<seconds>.1f s',
+      '%<rom>s: %<state>s, code %<code>s, %<frames>d frames in %<seconds>.1f s',
       rom:,
       state: outcome.state,
-      code: outcome.code,
+      # ScreenReport has no code until its result is on screen.
+      code: outcome.code ? format('$%02X', outcome.code) : 'none',
       frames: outcome.frames,
       seconds:
     )
