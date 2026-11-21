@@ -13,11 +13,11 @@ RSpec.describe Ruby::Nes::Mappers do
 
     context 'when the cartridge has PRG ROM' do
       context 'but its mapper is not supported' do
-        let(:cartridge) { Cartridges.build(mapper_number: 4) }
+        let(:cartridge) { Cartridges.build(mapper_number: 5) }
 
         it 'raises UnsupportedMapper naming the number' do
           expect { described_class.build(cartridge) }
-            .to raise_error(Ruby::Nes::Mappers::UnsupportedMapper, /mapper 4\b/)
+            .to raise_error(Ruby::Nes::Mappers::UnsupportedMapper, /mapper 5\b/)
         end
       end
 
@@ -53,6 +53,14 @@ RSpec.describe Ruby::Nes::Mappers do
         it 'returns a CNROM board built from the cartridge' do
           expect(described_class.build(cartridge))
             .to be_a(Ruby::Nes::Mappers::Cnrom).and have_attributes(mirroring: :vertical)
+        end
+      end
+
+      context 'and its mapper is 4' do
+        let(:cartridge) { Cartridges.build(prg_rom: Array.new(262_144, 0xEA), mapper_number: 4) }
+
+        it 'returns an MMC3 board built from the cartridge' do
+          expect(described_class.build(cartridge)).to be_a(Ruby::Nes::Mappers::Mmc3)
         end
       end
 

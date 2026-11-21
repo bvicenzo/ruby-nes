@@ -55,6 +55,28 @@ RSpec.describe Ruby::Nes::Console do
       end
     end
 
+    context 'when the board is an MMC3 and the program enables its scanline IRQ with rendering on' do
+      # The board takes the CPU as its IRQ line and the PPU as A12's clock, and catches the PPU up before a register
+      # write (plan 21). LDA #5 / STA $C000 / STA $C001 / STA $E001 / CLI, then LDA #$08 / STA $2000 (sprites at
+      # $1000) / LDA #$18 / STA $2001 (background and sprites on) / JMP $800C forever, as the PPU ignores both until its
+      # first VBlank ends. The IRQ handler counts in $10 and acknowledges: INC $10 / STA $E000 / STA $E001 / RTI.
+      let(:cartridge) do
+        Cartridges.with_program([*enable_irq, *render_forever], interrupt_handler: count_irq, mapper_number: 4)
+      end
+      let(:enable_irq) { [0xA9, 0x05, 0x8D, 0x00, 0xC0, 0x8D, 0x01, 0xC0, 0x8D, 0x01, 0xE0, 0x58] }
+      let(:render_forever) { [0xA9, 0x08, 0x8D, 0x00, 0x20, 0xA9, 0x18, 0x8D, 0x01, 0x20, 0x4C, 0x0C, 0x80] }
+      let(:count_irq) { [0xE6, 0x10, 0x8D, 0x00, 0xE0, 0x8D, 0x01, 0xE0, 0x40] }
+
+      # Rendering starts with the second frame: two rendered frames clock the counter 241 times each (mmc3_test_2's
+      # "Counter should be clocked 241 times in PPU frame"), and latch 5 asserts the IRQ every 6 clocks ("N+1"):
+      # 482 / 6.
+      it 'takes one IRQ every 6 scanline clocks' do
+        console = described_class.new(cartridge)
+        3.times { console.run_frame }
+        expect(console.cpu_bus.read(0x0010)).to eq(80)
+      end
+    end
+
     # The controllers (plan 15): a $4016 write of 1 then 0 latches both, and the first read of $4016 reports A of the
     # first controller in bit 0 (https://www.nesdev.org/wiki/Controller_reading). Bits 7-5 repeat the previous read,
     # "usually 010 from the high byte $40" (https://www.nesdev.org/wiki/Open_bus_behavior): the operand of LDA $4016.
@@ -230,6 +252,7 @@ RSpec.describe Ruby::Nes::Console do
           .to eq('7ec33df3f7ab4bd0ad88bf4d809d2c9a4ad88993b294a12d55b8e569d4f8610e')
       end
     end
+
   end
 
   describe '#reset' do
