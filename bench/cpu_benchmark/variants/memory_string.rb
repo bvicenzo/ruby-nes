@@ -2,7 +2,8 @@
 
 # Variant for decision 2 of docs/architecture.md: memory as a binary String read with `getbyte` and written with
 # `setbyte`, instead of an Array of Integer. Covers what the CPU touches on nestest: the CpuBus's internal RAM and
-# NROM's PRG ROM and PRG RAM. The arrays are converted once, when the console is built.
+# the board's PRG ROM and PRG RAM (Mappers::Base since plan 19). The arrays are converted once, when the console is
+# built.
 module Ruby
   module Nes
     # The RAM becomes a String after the original constructor runs.
@@ -60,13 +61,14 @@ module Ruby
         end
       end
 
-      class Nrom
+      class Base
         prepend StringPrgMemory
 
         def cpu_read(address, data_bus)
           if address >= PRG_ROM_START
-            @prg_rom.getbyte(address & @prg_rom_mirror_mask) # glossary: mirror-down
-          elsif address >= PRG_RAM_START
+            window = (address & PRG_WINDOW_SELECT_MASK) >> PRG_WINDOW_SELECT_SHIFT # glossary: bit-field
+            @prg_rom.getbyte(@prg_window_offsets[window] + (address & PRG_WINDOW_OFFSET_MASK)) # glossary: low-bits
+          elsif address >= PRG_RAM_START && @prg_ram_present
             @prg_ram.getbyte(address & PRG_RAM_MIRROR_MASK) # glossary: mirror-down
           else
             data_bus
@@ -74,9 +76,11 @@ module Ruby
         end
 
         def cpu_write(address, value)
-          return if address < PRG_RAM_START || address >= PRG_ROM_START
-
-          @prg_ram.setbyte(address & PRG_RAM_MIRROR_MASK, value) # glossary: mirror-down
+          if address >= PRG_ROM_START
+            write_register(address, value)
+          elsif address >= PRG_RAM_START && @prg_ram_present
+            @prg_ram.setbyte(address & PRG_RAM_MIRROR_MASK, value) # glossary: mirror-down
+          end
         end
       end
     end

@@ -41,6 +41,20 @@ RSpec.describe Ruby::Nes::Bits do
     end
   end
 
+  describe '.low_bits' do
+    context 'when the value fits in the mask' do
+      it 'returns the value' do
+        expect(described_class.low_bits(0x05, 0x07)).to eq(0x05)
+      end
+    end
+
+    context 'when the value has bits above the mask' do
+      it 'keeps only the bits the mask holds' do
+        expect(described_class.low_bits(0xFD, 0x07)).to eq(0x05)
+      end
+    end
+  end
+
   describe '.high_nibble' do
     context 'when the low half is clear' do
       it 'returns the high half' do

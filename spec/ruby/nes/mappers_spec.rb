@@ -29,6 +29,32 @@ RSpec.describe Ruby::Nes::Mappers do
             .to be_a(Ruby::Nes::Mappers::Nrom).and have_attributes(mirroring: :vertical)
         end
       end
+
+      context 'and its mapper is 2' do
+        let(:cartridge) { Cartridges.build(mirroring: :vertical, mapper_number: 2) }
+
+        it 'returns a UxROM board built from the cartridge' do
+          expect(described_class.build(cartridge))
+            .to be_a(Ruby::Nes::Mappers::Uxrom).and have_attributes(mirroring: :vertical)
+        end
+      end
+
+      context 'and its mapper is 3' do
+        let(:cartridge) { Cartridges.build(mirroring: :vertical, mapper_number: 3) }
+
+        it 'returns a CNROM board built from the cartridge' do
+          expect(described_class.build(cartridge))
+            .to be_a(Ruby::Nes::Mappers::Cnrom).and have_attributes(mirroring: :vertical)
+        end
+      end
+
+      context 'and its mapper is 7' do
+        let(:cartridge) { Cartridges.build(prg_rom: Array.new(32_768, 0xEA), mapper_number: 7) }
+
+        it 'returns an AxROM board built from the cartridge' do
+          expect(described_class.build(cartridge)).to be_a(Ruby::Nes::Mappers::Axrom)
+        end
+      end
     end
   end
 end

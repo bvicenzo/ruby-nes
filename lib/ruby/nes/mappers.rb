@@ -1,7 +1,11 @@
 # frozen_string_literal: true
 
 # The boards are loaded first: the factory's table below refers to them.
+require_relative 'mappers/base'
 require_relative 'mappers/nrom'
+require_relative 'mappers/uxrom'
+require_relative 'mappers/cnrom'
+require_relative 'mappers/axrom'
 
 module Ruby
   module Nes
@@ -17,6 +21,9 @@ module Ruby
     #                                  :horizontal, :vertical, :single_screen_lower, :single_screen_upper or
     #                                  :four_screen.
     # - irq?                        -> whether the board holds the CPU's IRQ line low.
+    #
+    # Every board is a Base (mappers/base.rb), which reads PRG ROM and CHR through bank windows; a board with registers
+    # only turns their writes into bank selections.
     module Mappers
       # Base class of every error raised while building a board for a cartridge.
       class Error < Nes::Error; end
@@ -27,11 +34,11 @@ module Ruby
       # The cartridge's mapper number has no board here yet.
       class UnsupportedMapper < Error; end
 
-      BOARDS = { 0 => Nrom }.freeze
+      BOARDS = { 0 => Nrom, 2 => Uxrom, 3 => Cnrom, 7 => Axrom }.freeze
 
       # The board for the cartridge's mapper number, built with its memories. Raises InvalidCartridge when the
-      # cartridge has no PRG ROM (the iNES page does not define a PRG ROM size of 0), and UnsupportedMapper when its
-      # mapper number is not in BOARDS.
+      # cartridge has no PRG ROM (the iNES page does not define a PRG ROM size of 0) or memories its board does not
+      # take (each board checks its own sizes), and UnsupportedMapper when its mapper number is not in BOARDS.
       def self.build(cartridge)
         raise InvalidCartridge, 'the cartridge has no PRG ROM' if cartridge.prg_rom.empty?
 
