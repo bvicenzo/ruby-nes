@@ -312,3 +312,41 @@ with the machine less loaded, read 20.2 → 19.0 fps (median, YJIT) and 4.2 → 
 `& CHR_WINDOW_SELECT_MASK` (the PPU bus only hands `$0000-$1FFF`) moved YJIT within noise (19.1 → 19.35), so the
 bit-field form stays, alike on the PRG and CHR paths. Plan 21 refines the windows to 1 KiB and plan 25 measures the
 whole frame.
+
+### 2026-11-21 — Plan 21: 8 KiB / 1 KiB windows and MMC3's A12 watch (headless frames)
+
+A script in the session's scratch directory built a console headless, ran 60 warm-up frames, then timed 200 frames,
+best and median of 3 runs per configuration (as plan 20). The windows (architecture decision 52) were measured with
+`sprite_hit_tests_2005.10.05/01.basics.nes` (NROM), the base commit of plan 21 (a53eb27) from a separate worktree
+alternated with plan 21's tree in two rounds; plan 21's tree also carries the register sync before mapper writes and v
+shown on the PPU bus after PPUADDR and PPUDATA, which this ROM's frames barely reach.
+
+| Configuration | Variant | Best fps | Median fps | Change in the median |
+|---|---|---|---|---|
+| yjit | base commit, round 1 | 18.6 | 18.6 | — |
+| yjit | plan 21, round 1 | 18.1 | 18.1 | -2.7% |
+| zjit | base commit, round 1 | 20.5 | 18.8 | — |
+| zjit | plan 21, round 1 | 19.8 | 18.4 | -2.1% |
+| yjit | base commit, round 2 | 19.0 | 19.0 | — |
+| yjit | plan 21, round 2 | 18.3 | 18.3 | -3.7% |
+| zjit | base commit, round 2 | 20.9 | 19.1 | — |
+| zjit | plan 21, round 2 | 19.7 | 18.3 | -4.2% |
+
+The A12 watch (decision 54, `Mmc3#ppu_read` handing every pattern fetch to `Mmc3::A12Watcher`) was measured on Super
+Mario Bros. 3's title screen, plan 21's tree against the same tree with `Mmc3#ppu_read` removed in the benchmark
+process (the base's read, no watch).
+
+| Configuration | Variant | Best fps | Median fps | Change in the median |
+|---|---|---|---|---|
+| yjit | A12 watch, round 1 | 16.6 | 16.5 | -1.2% |
+| yjit | no watch, round 1 | 16.8 | 16.7 | — |
+| zjit | A12 watch, round 1 | 18.4 | 17.4 | -3.3% |
+| zjit | no watch, round 1 | 19.1 | 18.0 | — |
+| yjit | A12 watch, round 2 | 16.4 | 16.3 | +0.6% |
+| yjit | no watch, round 2 | 16.2 | 16.2 | — |
+| zjit | A12 watch, round 2 | 18.1 | 17.0 | -5.0% |
+| zjit | no watch, round 2 | 19.2 | 17.9 | — |
+
+The finer windows cost about 3% under both JITs, within the run-to-run variation plans 19 and 20 saw; the A12 watch is
+within noise under YJIT and costs 3-5% under ZJIT. Neither calls for the dot-260 shortcut; plan 25 measures the whole
+frame.

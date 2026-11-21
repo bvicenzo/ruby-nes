@@ -48,8 +48,9 @@ compiler. The design favours code that is easy to read and easy for a JIT or an 
   1. **Interrupt lines** — NMI from the PPU, IRQ from the APU and mappers. The PPU tells each change of its /NMI
      output with the CPU cycle it happened on, `Cpu#nmi_line_changed(asserted, cycle)`, and the CPU polls it as the
      hardware does, at the end of an instruction's second-to-last cycle (plan 12). The IRQ line is a level set with
-     `Cpu#irq_line=`; its sources will combine as a wired-OR, each asserting and releasing its own bit (plan 12,
-     decision 3; the first IRQ source, plan 21 or 22, implements it).
+     `Cpu#assert_irq(source)` and `Cpu#release_irq(source)`: its sources combine as a wired-OR, each asserting and
+     releasing its own bit (`Cpu::InterruptLines::MAPPER_IRQ` for the cartridge board), and an IRQ is pending while any
+     asserts it (plan 12, decision 3; plan 21, decision 5).
   2. **CPU stall cycles** — OAM DMA (a write to `$4014`, plan 11) and DMC sample fetches (plan 23) halt the CPU for a
      number of cycles. The bus reports the stall and `Cpu#step` adds it to the cycles it returns: after each step,
      `@cycles += bus.take_stall_cycles(@cycles)`, the argument being the CPU cycle the halt falls on.
@@ -103,21 +104,29 @@ device interface above plus:
 | `ppu_read(address)` | the pattern table byte, for `$0000-$1FFF` (the PPU bus never hands anything else) |
 | `ppu_write(address, value)` | kept by CHR RAM, ignored by CHR ROM |
 | `mirroring` | the nametable arrangement the board selects: `:horizontal`, `:vertical`, `:single_screen_lower`, `:single_screen_upper` or `:four_screen` (asked on every nametable access, so a board may change it at any time) |
-| `irq?` | whether the board holds the CPU's IRQ line low |
-| `cpu=` | takes the CPU as the board's clock; only MMC1 reads its `cycles` (plan 20, decision 1). `Console` wires it as it wires `PpuRegisterSync` |
+| `ppu_address(address)` | the PPU left `address` on its bus without reading or writing: v after a PPUADDR write or a PPUDATA access, outside rendering only, a deliberate divergence from the MMC3 page's "regardless of whether PPU is/is not rendering" (plan 21, decisions 1 and 10); only MMC3 watches it |
+| `cpu=` | takes the CPU: MMC1's clock (its `cycles`, plan 20 decision 1) and MMC3's IRQ line (`assert_irq`/`release_irq`) |
+| `ppu=` | takes the PPU: MMC3's A12 filter reads `Ppu#elapsed_dots` (plan 21, decision 2) |
+| `register_sync=` | takes `Console::PpuRegisterSync`, whose `catch_up` brings the PPU to the instruction's access cycle before every register write (plan 21, decision 6) |
 
-Every board is a `Mappers::Base` (plan 19, decision 1). The base reads PRG ROM through two 16 KiB windows
-(`$8000-$BFFF` and `$C000-$FFFF`, picked by address bit 14) and CHR through two 4 KiB windows (`$0000-$0FFF` and
-`$1000-$1FFF`, picked by address bit 12; plan 20, decision 5), each an offset into the cartridge's memory. Out of the
-box they show the first and the last 16 KiB of PRG ROM and the first 8 KiB of CHR: that is NROM as it comes. A board
-with registers overrides the private `write_register(address, value)`, which receives every write to `$8000-$FFFF`,
-and turns it into window offsets through `select_prg_bank(window, bank)` and `select_chr_bank(window, bank)`
-(`FIRST_PRG_WINDOW`, `SECOND_PRG_WINDOW`, `FIRST_CHR_WINDOW`, `SECOND_CHR_WINDOW`), or `select_whole_prg_bank(bank)`
-and `select_whole_chr_bank(bank)` for a 32 KiB PRG or 8 KiB CHR bank filling both windows. Those wrap a bank past the
-end of the memory around the bank count, off the hot path; `last_prg_bank` names the last 16 KiB bank. PRG RAM at
+`Console` wires the last three on every board. The IRQ is not a method of the board any more: a board with one
+asserts and releases it on the CPU (plan 21, decision 5).
+
+Every board is a `Mappers::Base` (plan 19, decision 1). The base reads PRG ROM through four 8 KiB windows (`$8000`,
+`$A000`, `$C000`, `$E000`, picked by address bits 14-13) and CHR through eight 1 KiB windows (picked by address bits
+12-10; plan 21, decision 8), each an offset into the cartridge's memory, kept by a `Mappers::BankWindows` per memory
+(the base reads its preallocated offsets array directly). Out of the box they show the first and the last 16 KiB of PRG
+ROM and the first 8 KiB of CHR: that is NROM as it comes. A board with registers overrides the private
+`write_register(address, value)`, which receives every write to `$8000-$FFFF` once the PPU caught up (see the
+interface above), and turns it into bank selections through `select_prg_bank(address, bank, size)` and
+`select_chr_bank(address, bank, size)`: the bank `bank`, counted in banks of `size` bytes (a whole number of windows:
+`PRG_HALF_AREA_SIZE`, `PRG_AREA_SIZE`, `CHR_HALF_AREA_SIZE`, `CHR_AREA_SIZE` or MMC3's 8, 2 and 1 KiB), from `address`
+on. A bank past the end of the memory wraps around it, one window-sized piece at a time, off the hot path;
+`last_prg_bank(size)` numbers the last bank of a size. PRG RAM at
 `$6000-$7FFF` is 8 KiB when the board says so (`prg_ram: true`), and a board may turn it off at runtime
 (`enable_prg_ram`, MMC1); without it, or off, the range is open bus. Mirroring is the header's until a board changes
-`@mirroring` (AxROM, MMC1).
+`@mirroring` (AxROM, MMC1, MMC3); a header asking for four-screen VRAM (flags 6 bit 3) makes it `:four_screen`, which
+MMC3 keeps and AxROM and MMC1 set over (plan 21, decision 7).
 
 | Board | iNES | Registers (writes to `$8000-$FFFF`) | Bus conflicts | PRG RAM |
 |---|---|---|---|---|
@@ -125,10 +134,11 @@ end of the memory around the bank count, off the hot path; `last_prg_bank` names
 | `Uxrom` | 2 | the whole byte selects the 16 KiB bank at `$8000`; `$C000` stays on the last bank | no | none |
 | `Cnrom` | 3 | the byte, ANDed with the PRG ROM byte at the address, selects the 8 KiB CHR bank | yes | none |
 | `Axrom` | 7 | bits 2-0 select the 32 KiB bank; bit 4 the single screen (0 lower, 1 upper) | no | none |
+| `Mmc3` | 4 | even/odd pairs at `$8000`, `$A000`, `$C000`, `$E000`: bank select and data (R0-R7; 8 KiB PRG banks in two modes, 2 and 1 KiB CHR banks, CHR A12 inversion), mirroring (ignored on four-screen boards), PRG RAM protect (ignored, plan 21 decision 4), IRQ latch, reload, disable and enable of `Mmc3::IrqCounter` (the Sharp MMC3B/C "new" behaviour), which `Mmc3::A12Watcher` clocks on rising edges of PPU A12 low for 3 M2 cycles | no | 8 KiB, always |
 | `Mmc1` | 1 | a serial port (`Mmc1::SerialPort`) loads Control (mirroring, PRG mode, CHR mode), CHR bank 0, CHR bank 1 and PRG bank, five writes each; bit 7 resets; a write on the cycle after another is ignored unless it resets; SUROM's 512 KiB take the outer bank from CHR bank 0 bit 4 | no | 8 KiB, off while PRG bank bit 4 is set |
 
 Every register starts at 0 (plan 19, decision 6), except MMC1's Control, which starts at `$0C` as after a reset (plan
-20, decision 4). MMC3 refines the window granularity (plan 21); a scanline/A12 hook for MMC3 is shaped by plan 21.
+20, decision 4). MMC3's mirroring is the header's until `$A000` is written.
 
 ### Controllers
 
@@ -288,7 +298,9 @@ flag toggles every frame either way.
 **Relation to the [Catch-up](https://www.nesdev.org/wiki/Catch-up) page.** The page's recipe is to find the next
 time one component could affect another (for example the CPU writing to a PPU register), run the least predictable
 component (the CPU) up to that time, then run the others up to it. The PPU registers are such sync points now; the
-APU registers (plan 22) and the mapper registers (plan 21 measures whether the MMC3 IRQ needs it) are not yet.
+mapper registers are too since plan 21 (decision 6): the base asks `PpuRegisterSync#catch_up` before handing a write
+to `$8000-$FFFF` to its board, so a bank switch or an MMC3 IRQ acknowledge lands on its dot. The APU registers (plan 22)
+are not yet.
 
 **Why not instruction-level catch-up any more.** With the PPU synchronised only after each instruction, a CPU write
 reached it early and a read saw stale state; `ppu_vbl_nmi/04-nmi_control` ("Immediate occurence should be after NEXT
@@ -311,8 +323,9 @@ most calls.
 | `lib/ruby/nes/cartridge.rb` | `Ruby::Nes::Cartridge` | the loaded cartridge (header, PRG, CHR) |
 | `lib/ruby/nes/cartridge/` | `Ruby::Nes::Cartridge::Header`, `::Loader`, errors | iNES parsing |
 | `lib/ruby/nes/mappers.rb` | `Ruby::Nes::Mappers` | `Mappers.build` factory |
-| `lib/ruby/nes/mappers/` | `Ruby::Nes::Mappers::Base`, `::Nrom`, `::Uxrom`, `::Cnrom`, `::Axrom`, `::Mmc1`… | the board base with its PRG and CHR windows, then one file per mapper |
+| `lib/ruby/nes/mappers/` | `Ruby::Nes::Mappers::BankWindows`, `::Base`, `::Nrom`, `::Uxrom`, `::Cnrom`, `::Axrom`, `::Mmc1`, `::Mmc3` | the windows a board shows a memory through, the board base, then one file per mapper |
 | `lib/ruby/nes/mappers/mmc1/` | `Ruby::Nes::Mappers::Mmc1::SerialPort` | MMC1's serial load port |
+| `lib/ruby/nes/mappers/mmc3/` | `Ruby::Nes::Mappers::Mmc3::IrqCounter`, `::A12Watcher` | MMC3's scanline counter and the A12 filter that clocks it |
 | `lib/ruby/nes/cpu_bus.rb` | `Ruby::Nes::CpuBus` | CPU address decoding, RAM, open bus |
 | `lib/ruby/nes/cpu_bus/` | `Ruby::Nes::CpuBus::Disconnected`, `::OamDma` | the device in an empty slot; the OAM DMA unit the bus owns |
 | `lib/ruby/nes/cpu.rb` | `Ruby::Nes::Cpu` | registers, operand fetch, `step`, interrupts |
@@ -433,9 +446,9 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | Sprite overflow timing | The flag is set on the dot the evaluation finds the ninth sprite (2 dots per OAM read from dot 65, [PPU sprite evaluation](https://www.nesdev.org/wiki/PPU_sprite_evaluation)). The evaluation runs whole at dot 257 (plan 14, decision 2), so the flag shows up to ~190 dots late: `sprite_overflow_tests/3.Timing` fails #5, "Set too late for first scanline". | A later PPU pass (no plan yet) |
 | OAMADDR at the start of evaluation | "The value of OAMADDR at this tick determines the starting address for sprite evaluation for this scanline, which can cause the sprite at OAMADDR to be treated as it was sprite 0"; on the 2C02 a non-zero OAMADDR when rendering starts copies "the eight bytes starting at OAMADDR & 0xF8" over the first eight, and OAMADDR writes "corrupt OAM" ([PPU registers](https://www.nesdev.org/wiki/PPU_registers)). The evaluation always starts at sprite 0 and OAM is never corrupted (plan 14, decision 5). | A later PPU pass (no plan yet) |
 | Sprite 0 hit dot | "Sprite 0 hit acts as if the image starts at cycle 2" ([PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)); the flag is set on the dot the pixel is composed, x + 1, one dot earlier (plan 14, decision 9). `sprite_hit_tests_2005.10.05` 09-11 pass with it. | — |
-| Background fetches with no visible effect | The nametable fetches of dots 257-320 and the two of 337-340 ("only used by MMC5", [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)) are not made (plan 13, decision 6); a mapper that counts PPU reads would miss them. The sprite pattern fetches of 257-320 are made on their dots since plan 14 (decision 3); an empty slot's dummy fetch takes its row from Y `$FF`, where the hardware's first empty slot keeps sprite 63's Y. | Plan 21 (MMC3), MMC5 if ever |
+| Background fetches with no visible effect | The nametable fetches of dots 257-320 and the two of 337-340 ("only used by MMC5", [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)) are not made (plan 13, decision 6); a mapper that counts PPU reads would miss them. MMC3 does not need them: nametable addresses have A12 low, and the lows they would put between sprite fetches are shorter than its filter (plan 21, decision 9). The sprite pattern fetches of 257-320 are made on their dots since plan 14 (decision 3); an empty slot's dummy fetch takes its row from Y `$FF`, where the hardware's first empty slot keeps sprite 63's Y. | MMC5, if ever |
 | Byte under a palette read | A PPUDATA read of the palette fills the buffer from "a normal read from PPU memory at the specified address, "underneath" the palette data" ("usually mirrored nametables"). The emulator reads the nametable byte `$1000` below (the `$2F00-$2FFF` mirror), an inference from "$3000-3EFF is usually a mirror of" `$2000-$2EFF`. | When a board maps `$3000-$3FFF` differently |
-| Mapper register timing | A write to `$8000-$FFFF` reaches the board on the cycle it happens, and a bank or screen change then affects the next pattern or nametable fetch. The PPU is not caught up before mapper writes as it is before `$2000-$3FFF` (Clock model), so the dots that ran before the write within the instruction, up to its last cycle, are drawn after it with the new CNROM CHR bank or AxROM screen: a mid-frame split lands a few dots early. | Plan 21 (MMC3 IRQ, which measures whether mapper writes need the sync), plan 25 |
+| MMC3 IRQ timing | The counter is clocked on the dot a pattern fetch with A12 high happens (261 for the first sprite fetch, where NESdev says "PPU cycle 260"), M2 edges are counted as elapsed dots divided by 3 without their phase, and the IRQ is polled before each instruction without a cycle (the Interrupt polling point gap). `mmc3_test_2/4-scanline_timing` fails #2, "Scanline 0 IRQ should occur later when $2000=$08"; SMB3's status bar is still. | Plan 22 (IRQ polling point) |
 | OAM DMA from a read-modify-write | A read-modify-write instruction on `$4014` writes it twice (decision 48), so the emulator starts OAM DMA twice: two copies of 256 bytes, the second from the modified page, and one stall. NESdev's [DMA](https://www.nesdev.org/wiki/DMA) page does not describe a second `$4014` write during a transfer; the OAM left is the modified page's, as the last copy. | A later DMA pass (no plan yet; plan 23 shares the DMA unit) |
 
 ## Frame buffer contract
@@ -486,9 +499,9 @@ presentation, in a frontend).
 | 20 | 2026-11-18 | OAM DMA is `CpuBus::OamDma`, owned by `CpuBus`, which routes `$4014` writes to it; the stall comes back through `CpuBus#take_stall_cycles(halt_cycle)`, added by `Cpu#step` after every step; even CPU cycles are get cycles | The DMA's collaborators are the bus's own (CPU reads, `$2004` writes), so no circular wiring, and the `apu_registers:` and `controller_ports:` slots (decision 35) stay for the APU and the controllers; DMC DMA (plan 23) reports through the same channel. The query per step measured about −8% under YJIT on nestest | Plan 23; plan 25 (a push model) |
 | 21 | 2026-11-18 | The PPU's I/O latch is modelled without decay; `Ppu#cpu_read` ignores the CPU data bus | Write-only registers and PPUSTATUS's bits 4-0 answer it; decay needs time (Known gaps). Plan 12 kept it without decay (decision 9) | A later PPU pass |
 | 22 | 2026-11-18 | `PpuBus::Nametables` asks the mapper's `mirroring` on every access and maps it through a constant table; 4 KiB of VRAM support four-screen | MMC1, MMC3 and AxROM change the mirroring at runtime; four-screen costs one table row | Plan 25 (measure the lookup) |
-| 23 | 2026-11-19 | Clock model: register-access catch-up. `Cpu#step` charges the base cycles before running the instruction; `Console::PpuRegisterSync` catches the PPU up to `cycles - 1` before every `$2000-$3FFF` access, and `Console#step` to `cycles` after the step | `ppu_vbl_nmi/04-nmi_control` cannot pass with instruction-level catch-up; one call per register access and one per step | Plan 21 (mapper registers, MMC3 IRQ), plan 22 (APU registers), plan 25 |
+| 23 | 2026-11-19 | Clock model: register-access catch-up. `Cpu#step` charges the base cycles before running the instruction; `Console::PpuRegisterSync` catches the PPU up to `cycles - 1` before every `$2000-$3FFF` access, and `Console#step` to `cycles` after the step | `ppu_vbl_nmi/04-nmi_control` cannot pass with instruction-level catch-up; one call per register access and one per step | Mapper registers synchronised since plan 21 (decision 53); plan 22 (APU registers), plan 25 |
 | 24 | 2026-11-19 | The NMI edge carries the first CPU cycle whose φ2 sample sees it (`Cpu#nmi_line_changed(asserted, cycle)`, the PPU stamping `(dot + 1) / 3`); a release within that same cycle cancels it; `InterruptLines#acknowledge(cycle)` takes it only when it came before the previous instruction's last cycle | The edge detector "polls the status of the NMI line during φ2 of each CPU cycle", and "the status of the interrupt lines at the end of the second-to-last cycle" is what the poll sees. The φ2 point is calibrated with `ppu_vbl_nmi` 05-08, which pass only with it (not with the change counted on its own dot's cycle, nor two dots ahead) | — |
-| 25 | 2026-11-19 | IRQ sources combine as a wired-OR push: each asserts and releases its own bit on a shared line, replacing the mappers' `irq?` | The hardware's open-collector line; no query per instruction (a similar per-step query cost about 8% under YJIT) | Plans 21/22 implement it with the first IRQ source |
+| 25 | 2026-11-19 | IRQ sources combine as a wired-OR push: each asserts and releases its own bit on a shared line, replacing the mappers' `irq?` | The hardware's open-collector line; no query per instruction (a similar per-step query cost about 8% under YJIT) | Implemented by decision 51 (plan 21) |
 | 26 | 2026-11-19 | The indexed addressing modes make their dummy read (`_for_read` resolvers on a page cross, the plain ones always) | `instr_misc/03-dummy_reads` checks them through `$2002`'s side effect; about 2% under YJIT on nestest ([benchmarks](benchmarks.md)) | Plan 25 |
 | 27 | 2026-11-19 | Power-up is `Console.new`: the CPU's and the PPU's reset, then the PPU catches up the reset's 7 cycles; `Ppu.new` accepts writes at once, `Ppu#reset` opens the window of ignored writes until VBlank ends | nestest.log's `PPU:  0, 21` at `CYC:7`; specs of single PPU registers stay simple | — |
 | 28 | 2026-11-19 | Test ROM runs are examples tagged `slow: true`, run only with `SLOW=1`; CI runs them in a job of its own under YJIT on every push and pull request, and `implement-plan` phase 5 runs `SLOW=1 bundle exec rake` for CPU, PPU, console and mapper plans | Each ROM runs seconds of emulated time; the default suite stays fast | — |
@@ -509,8 +522,14 @@ presentation, in a frontend).
 | 43 | 2026-11-20 | The command line enables the JIT at runtime (`--jit=none\|yjit\|zjit`, YJIT by default); a JIT that cannot be honoured (missing, another already running, `none` with one running) is an error | Ruby 4.0.9 enables YJIT and ZJIT at runtime without a flag but runs one at a time and turns none off; the run never silently differs from what was asked (plan 18, decisions 1 and 8) | Plan 25 |
 | 44 | 2026-11-20 | Opposite directions held on the keyboard cancel each other in the window (`Frontends::OppositeDirections`) | NESdev documents no behaviour to emulate; the simplest stateless rule (plan 18, decision 3) | — |
 | 45 | 2026-11-20 | Keys come from `~/.config/ruby-nes/config.yml` (`keys:` section, actions to raylib key names, defaults for the rest, one action per key); a key the file gives to an action is taken from the default of any other, and actions left without a key are named at start; window options are command-line flags | The parser needs no gem (key codes injected); a key bound twice would silently lose one action in `Frontends::Keyboard`'s map; moving one action must not force rebinding another (plan 18, decision 7) | — |
-| 46 | 2026-11-20 | Every board is a `Mappers::Base`: PRG ROM through two 16 KiB windows, CHR through one 8 KiB window, a board turning register writes into window offsets, banks wrapped by the memory size when the register is written | One read path for every board, the shape MMC1 uses as is and MMC3 refines, as Mesen2's `BaseMapper`; measured against NROM's single mask with `rake bench:cpu` (plan 19, decision 1; [benchmarks](benchmarks.md)) | Plans 21 (8 KiB / 1 KiB windows) and 25 |
+| 46 | 2026-11-20 | Every board is a `Mappers::Base`: PRG ROM through two 16 KiB windows, CHR through one 8 KiB window, a board turning register writes into window offsets, banks wrapped by the memory size when the register is written | One read path for every board, the shape MMC1 uses as is and MMC3 refines, as Mesen2's `BaseMapper`; measured against NROM's single mask with `rake bench:cpu` (plan 19, decision 1; [benchmarks](benchmarks.md)) | Refined by decision 52 (plan 21); plan 25 |
 | 47 | 2026-11-20 | Bus conflicts are emulated on CNROM only; NES 2.0 submappers are not read | The NESdev pages for iNES 1.0: "Emulator implementations of iNES mapper 2 [...] without bus conflicts", AxROM's submapper 0 "emulators shouldn't", CNROM's only exceptions are mapper hacks (plan 19, decision 2) | When the header reads NES 2.0 submappers |
 | 48 | 2026-11-20 | Read-modify-write instructions on memory write the original byte, then the modified one (`Cpu#write_modified`), the official six and the unofficial combos alike; every device sees both writes | "first [write] the original value back to memory" (Instruction reference), "write unmodified data, then modified" (6502_cpu.txt); the MMC1 serial port reacts to both writes, PPUDATA advances its address twice, OAMDMA starts twice (Known gaps). Replaces plan 06, decision 5 (plan 20, decision 3) | — |
-| 49 | 2026-11-20 | Boards get the CPU as their clock (`cpu=`, wired by `Console`); MMC1 ignores a serial port write less than 2 cycles after the previous write unless it is a reset | No device interface changes; both writes of a read-modify-write see the same `Cpu#cycles`, since a step charges its cycles first, and a per-access model would make them 1 apart: under 2 either way, as Mesen2's `MMC1.h` (plan 20, decisions 1 and 2) | Plan 21 (MMC3 timing) |
+| 49 | 2026-11-20 | Boards get the CPU as their clock (`cpu=`, wired by `Console`); MMC1 ignores a serial port write less than 2 cycles after the previous write unless it is a reset | No device interface changes; both writes of a read-modify-write see the same `Cpu#cycles`, since a step charges its cycles first, and a per-access model would make them 1 apart: under 2 either way, as Mesen2's `MMC1.h` (plan 20, decisions 1 and 2) | — (MMC3 takes the CPU as its IRQ line, decision 51) |
 | 50 | 2026-11-20 | The base shows CHR through two 4 KiB windows instead of one 8 KiB window | MMC1's 4 KiB CHR mode; frames of a rendering ROM ran about 5% slower under YJIT, nothing measurable without a JIT ([benchmarks](benchmarks.md); plan 20, decision 5) | Plans 21 (1 KiB windows) and 25 |
+| 51 | 2026-11-21 | IRQ sources combine as a wired-OR: `Cpu#assert_irq(source)` / `Cpu#release_irq(source)`, one bit per source in `Cpu::InterruptLines` (`MAPPER_IRQ` first); the boards' `irq?` goes away | Implements decision 25 with its first source, MMC3; plans 22 and 23 add the APU's bits (plan 21, decision 5) | Plan 22 (polling point) |
+| 52 | 2026-11-21 | The base shows PRG through four 8 KiB windows and CHR through eight 1 KiB windows, kept by `Mappers::BankWindows`; a board selects a bank of any whole number of windows by address and size | MMC3's granularity, every other board's banks a whole number of windows; headless frames of an NROM ROM about 3% slower under YJIT and ZJIT, within the run-to-run variation ([benchmarks](benchmarks.md); plan 21, decision 8) | Plan 25 |
+| 53 | 2026-11-21 | The base catches the PPU up (`PpuRegisterSync#catch_up`, `cpu.cycles - 1`) before every write to `$8000-$FFFF` | Mid-frame bank switches and MMC3 IRQ acknowledges land on their dot; only on the write path, which is rare (plan 21, decision 6) | — |
+| 54 | 2026-11-21 | MMC3's counter is clocked from A12 as seen in every address that reaches the board: pattern fetches, PPUDATA accesses and v left on the bus by PPUADDR writes and PPUDATA increments outside rendering (`ppu_address`); the filter counts M2 cycles as `Ppu#elapsed_dots / 3` (the board gets the PPU through `ppu=`) | "no matter what caused it", and mmc3_test_2 clocks through `$2006` and `$2007`; during rendering v's bit 12 is fine Y and the board sees every fetch, so v is not shown then, against the page's "regardless of whether PPU is/is not rendering" (plan 21, decision 10). The watch costs within noise under YJIT and 3-5% under ZJIT on SMB3 frames ([benchmarks](benchmarks.md); plan 21, decisions 1 and 2) | Plan 25 (the dot-260 shortcut is the fallback) |
+| 55 | 2026-11-21 | MMC3 follows the Sharp MMC3B/C "new" IRQ behaviour (an IRQ on every clock while the latch is 0), ignores `$A001` and keeps 8 KiB of PRG RAM always enabled | Mapper 4 submapper 0; 5-MMC3 passes, 6-MMC3_alt (the old behaviour) fails as expected; "Many emulators choose not to implement them [...] to avoid an incompatibility with the MMC6" (plan 21, decisions 3 and 4) | NES 2.0 submappers |
+| 56 | 2026-11-21 | A header asking for four-screen VRAM makes the base's mirroring `:four_screen`; MMC3 keeps it, boards that control their mirroring (AxROM, MMC1) set theirs over it | iNES flags 6 bit 3 is board-independent; MMC3's `$A000` "has no effect" then; no four-screen AxROM or MMC1 board is known (plan 21, decision 7) | — |

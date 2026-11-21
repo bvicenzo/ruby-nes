@@ -22,8 +22,9 @@ The community test ROMs the suite runs, fetched by `bundle exec rake test_roms:f
 - The ROMs that must pass are examples of `spec/blargg/runner_spec.rb`, tagged `slow: true`: they run with `SLOW=1`
   and always in CI's `test-roms` job, under YJIT (plan 12, decision 6). The others are recorded here.
 
-The single-test builds run here are NROM boards, `cpu_dummy_reads.nes` a CNROM one (plan 19) and the multi-test builds
-(`all_instrs.nes`, `official_only.nes`, `ppu_vbl_nmi.nes`, `cpu_interrupts.nes`) MMC1 ones (plan 20). The collection
+The single-test builds run here are NROM boards, `cpu_dummy_reads.nes` a CNROM one (plan 19), the multi-test builds
+(`all_instrs.nes`, `official_only.nes`, `ppu_vbl_nmi.nes`, `cpu_interrupts.nes`) MMC1 ones (plan 20) and
+`mmc3_test_2`'s singles MMC3 ones (plan 21). The collection
 has no multi-mapper ROM such as Holy Mapperel at the pinned commit (plan 19, decision 9). Two more MMC1 ROMs are in the
 collection and not run: `MMC1_A12/mmc1_a12.nes` is interactive (it reads the joypad and reports nothing automatically)
 and `instr_timing` times instructions with the APU (plan 22).
@@ -108,3 +109,20 @@ Plan 20, 2026-11-20, the multi-test builds on MMC1 (mapper 1). Times are under `
 | `instr_test-v5/official_only.nes` | Passed | 1872 | All 16 tests; 239 s without a JIT. |
 | `ppu_vbl_nmi/ppu_vbl_nmi.nes` | Failed (3) | 1545 | Tests 1-9 pass; test 10, "Clock is skipped too late, relative to enabling BG", as its single build (Known gaps: rendering toggle delay). |
 | `cpu_interrupts_v2/cpu_interrupts.nes` | Failed (3) | 26 | Test 1, "APU should generate IRQ when $4017 = $00", as its single build (plan 22). Its 80 KiB of PRG ROM is not a power of two: MMC1's mode 3 fixes the file's last bank (bank 4) at `$C000`, where bank 15 would wrap to bank 0 (plan 20, decision 9). |
+
+Plan 21, 2026-11-21, `mmc3_test_2`'s singles on MMC3 (mapper 4). They clock the IRQ counter by writing `$2006` (and,
+in `3-A12_clocking`, by a PPUDATA access taking v from `$0FFF` to `$1000`); `2-details` test 8 counts the clocks of a
+rendered frame. Frames and times under `rake blargg:run` without a JIT.
+
+| ROM | Result | Frames | Notes |
+|---|---|---|---|
+| `mmc3_test_2/rom_singles/1-clocking.nes` | Passed | 27 | |
+| `mmc3_test_2/rom_singles/2-details.nes` | Passed | 29 | Including "Counter should be clocked 241 times in PPU frame". |
+| `mmc3_test_2/rom_singles/3-A12_clocking.nes` | Passed | 27 | A12 rises through PPUADDR writes and PPUDATA reads and writes. |
+| `mmc3_test_2/rom_singles/4-scanline_timing.nes` | Failed (2) | 60 | "Scanline 0 IRQ should occur later when $2000=$08": the IRQ comes early (Known gaps: MMC3 IRQ timing, the IRQ polling point; plan 22). |
+| `mmc3_test_2/rom_singles/5-MMC3.nes` | Passed | 26 | The Sharp MMC3B/C "new" behaviour the board follows (plan 21, decision 3). |
+| `mmc3_test_2/rom_singles/6-MMC3_alt.nes` | Failed (2) | 31 | "IRQ shouldn't be set when reloading to 0 due to counter naturally reaching 0 previously": the old behaviour (MMC3A, NEC), expected to fail. |
+
+Super Mario Bros. 3 (the user's dump, `roms/smb3.nes`, never committed) reaches the title screen, its menu, the world
+map and world 1-1 headless; a slow `local_rom:` example of `Console#run_frame` plays into 1-1 with a scripted input and
+checks that the status bar stays still (pixel for pixel, the timer's ones digit aside) through 100 frames of scrolling.
