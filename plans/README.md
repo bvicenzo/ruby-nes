@@ -50,7 +50,7 @@ Conventions (see also `CLAUDE.md`):
 | 19 | [Simple mappers: UxROM, CNROM, AxROM](19-simple-mappers-uxrom-cnrom-axrom.md) | 04 | done |
 | 20 | [Mapper MMC1](20-mapper-mmc1.md) | 19 | done |
 | 21 | [Mapper MMC3 and Super Mario Bros. 3](21-mapper-mmc3-smb3.md) | 14, 18, 20 | done |
-| 22 | [APU: pulse channels and frame counter](22-apu-pulse-frame-counter.md) | 12 | todo |
+| 22 | [APU: pulse channels and frame counter](22-apu-pulse-frame-counter.md) | 12 | done |
 | 23 | [APU: triangle, noise, DMC and mixer](23-apu-triangle-noise-dmc-mixer.md) | 22 | todo |
 | 24 | [Audio output and synchronisation](24-audio-output-sync.md) | 18, 23 | todo |
 | 25 | [Performance pass](25-performance-pass.md) | 21, 24 | todo |

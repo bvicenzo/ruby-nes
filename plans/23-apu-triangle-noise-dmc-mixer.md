@@ -28,6 +28,22 @@ after the write), which `Cpu#step` adds after each instruction; OAM DMA (`CpuBus
 get cycles being the even CPU cycles counted from `Cpu.new` (a convention, plan 11 decision 3). The DMC reports through
 the same channel; the DMA page's interaction of DMC and OAM DMA is decided here.
 
+From plan 22: the APU is caught up like the PPU (`Apu#catch_up(cpu_cycle)` after each step and to `cycles - 1` before
+each register access, decision 3), with GET cycles on even CPU cycles (decision 5); the new channels join that loop.
+The DMC IRQ is another wired-OR source asserted and released with its cycle, `Cpu#assert_irq(source, cycle)` and
+`#release_irq(source, cycle)` (decision 6). `$4015` already reads `IF-D NT21` with bit 5 from open bus and leaves the
+bus untouched (decision 2), with the triangle's and noise's length counters in bits 2 and 3: `Apu::Triangle` and
+`Apu::Noise` exist with their length counters only (decision 8), and this plan completes them. The DMC fills bits 7
+and 4, and the write's DMC bit and DMC IRQ clear come here. A DMA stall reported through `take_stall_cycles` already
+keeps the CPU from polling during it (decision 9), so the DMC's stalls get that for free.
+
+Left to this plan by plan 22's review: `Apu#cpu_write` decodes the channels with a growing `if`/`elsif` chain; with the
+DMC at `$4010-$4013`, a preallocated array of the four channels indexed by address bits 3-2 is cheaper and flatter.
+`Cpu::IrqLine` keeps only the latest assert and release cycles, so a poll that looks back past a DMA stall misses an
+assertion released and asserted again within that stall; DMC stalls make that reachable, so decide whether to keep a
+history. `apu_reset/works_immediately` (in the manifest since plan 22) fails "At power, writes should work immediately"
+until the DMC and the triangle's linear counter exist.
+
 ## Open decisions
 
 - DMC stall precision: fixed 4 cycles (simple) vs the documented 1–4 depending on the CPU cycle being read/write.
@@ -43,6 +59,7 @@ the same channel; the DMA page's interaction of DMC and OAM DMA is decided here.
 ## Acceptance criteria
 
 - [ ] `apu_test` `7-dmc_basics` and `8-dmc_rates` pass.
+- [ ] `apu_reset/works_immediately` passes, or its failure is recorded with the reason.
 - [ ] Mixer output for silent channels is exactly 0 and the maxima match the formulas within float tolerance.
 - [ ] 100% branch coverage on APU code; rubocop clean.
 

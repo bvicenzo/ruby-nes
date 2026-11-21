@@ -55,6 +55,12 @@ swaps two buffers once per frame; the frontends' RGB conversion (`Frontends::Pal
 costs about 2.8 ms per frame. `Frontends::Headless` with an `InputScript` is the scripted runner `bench/frame.rb`
 can drive.
 
+From plan 22: the APU is caught up one CPU cycle per loop iteration (`Apu#catch_up`, decision 3) after every step and
+before every APU register access, the frame counter every cycle and the pulse timers every other one; the IRQ line and
+the NMI edge carry cycle stamps, and taken branches and `CLI`/`SEI`/`PLP` tell the interrupt lines about their poll.
+Candidates: advancing the frame counter straight to its next step instead of cycle by cycle, and measuring the
+per-instruction cost of the poll bookkeeping.
+
 ## Open decisions
 
 - Which accuracy shortcuts are acceptable (e.g. scanline-based fast path, APU catch-up)? Each one is proposed with its
