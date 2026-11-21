@@ -27,11 +27,19 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::Shifts do
       before do
         bus.write(0x0200, 0x81)
         cpu.status.restore(0x01)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'writes $02 at the address' do
         cpu.shift_left_memory(0x0200)
         expect(bus.read(0x0200)).to eq(0x02)
+      end
+
+      it 'writes the original byte, $81, back, then $02', :aggregate_failures do
+        cpu.shift_left_memory(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x81).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x02).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
   end
@@ -58,11 +66,19 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::Shifts do
       before do
         bus.write(0x0200, 0x81)
         cpu.status.restore(0x01)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'writes $40 at the address' do
         cpu.shift_right_memory(0x0200)
         expect(bus.read(0x0200)).to eq(0x40)
+      end
+
+      it 'writes the original byte, $81, back, then $40', :aggregate_failures do
+        cpu.shift_right_memory(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x81).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x40).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
   end
@@ -89,11 +105,19 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::Shifts do
       before do
         bus.write(0x0200, 0x81)
         cpu.status.restore(0x01)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'writes $03 at the address' do
         cpu.rotate_left_memory(0x0200)
         expect(bus.read(0x0200)).to eq(0x03)
+      end
+
+      it 'writes the original byte, $81, back, then $03', :aggregate_failures do
+        cpu.rotate_left_memory(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x81).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x03).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
   end
@@ -120,11 +144,19 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::Shifts do
       before do
         bus.write(0x0200, 0x81)
         cpu.status.restore(0x01)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'writes $C0 at the address' do
         cpu.rotate_right_memory(0x0200)
         expect(bus.read(0x0200)).to eq(0xC0)
+      end
+
+      it 'writes the original byte, $81, back, then $C0', :aggregate_failures do
+        cpu.rotate_right_memory(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x81).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0xC0).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
   end

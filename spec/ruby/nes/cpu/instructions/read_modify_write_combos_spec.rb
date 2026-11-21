@@ -15,7 +15,10 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
     context 'when the byte is $81 and the accumulator $10' do
       let(:accumulator) { 0x10 }
 
-      before { bus.write(0x0200, 0x81) }
+      before do
+        bus.write(0x0200, 0x81)
+        allow(bus).to receive(:write).and_call_original
+      end
 
       it 'writes the shifted byte, $02, back' do
         cpu.shift_left_then_or(0x0200)
@@ -30,6 +33,13 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
       it 'sets carry from bit 7' do
         cpu.shift_left_then_or(0x0200)
         expect(cpu.status).to be_carry
+      end
+
+      it 'writes the original byte, $81, back, then $02', :aggregate_failures do
+        cpu.shift_left_then_or(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x81).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x02).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
 
@@ -82,6 +92,7 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
       before do
         bus.write(0x0200, 0x81)
         cpu.status.restore(0x01)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'writes the rotated byte, $03, back' do
@@ -97,6 +108,13 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
       it 'sets carry from bit 7' do
         cpu.rotate_left_then_and(0x0200)
         expect(cpu.status).to be_carry
+      end
+
+      it 'writes the original byte, $81, back, then $03', :aggregate_failures do
+        cpu.rotate_left_then_and(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x81).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x03).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
 
@@ -135,7 +153,10 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
     context 'when the byte is $03 and the accumulator $10' do
       let(:accumulator) { 0x10 }
 
-      before { bus.write(0x0200, 0x03) }
+      before do
+        bus.write(0x0200, 0x03)
+        allow(bus).to receive(:write).and_call_original
+      end
 
       it 'writes the shifted byte, $01, back' do
         cpu.shift_right_then_exclusive_or(0x0200)
@@ -150,6 +171,13 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
       it 'sets carry from bit 0' do
         cpu.shift_right_then_exclusive_or(0x0200)
         expect(cpu.status).to be_carry
+      end
+
+      it 'writes the original byte, $03, back, then $01', :aggregate_failures do
+        cpu.shift_right_then_exclusive_or(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x03).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x01).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
 
@@ -189,7 +217,10 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
     context 'when the byte is $03, carry is clear and the accumulator is $10' do
       let(:accumulator) { 0x10 }
 
-      before { bus.write(0x0200, 0x03) }
+      before do
+        bus.write(0x0200, 0x03)
+        allow(bus).to receive(:write).and_call_original
+      end
 
       it 'writes the rotated byte, $01, back' do
         cpu.rotate_right_then_add(0x0200)
@@ -204,6 +235,13 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
       it 'clears carry, overflow, zero and negative' do
         cpu.rotate_right_then_add(0x0200)
         expect(cpu.status.byte_pushed_by_interrupt).to eq(0x20)
+      end
+
+      it 'writes the original byte, $03, back, then $01', :aggregate_failures do
+        cpu.rotate_right_then_add(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x03).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x01).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
 
@@ -261,6 +299,7 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
       before do
         bus.write(0x0200, 0x11)
         cpu.status.restore(0x82)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'writes the decremented byte, $10, back' do
@@ -278,6 +317,13 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
         expect(cpu.status).to be_carry
         expect(cpu.status).not_to be_zero
         expect(cpu.status).not_to be_negative
+      end
+
+      it 'writes the original byte, $11, back, then $10', :aggregate_failures do
+        cpu.decrement_then_compare(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x11).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x10).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
 
@@ -325,6 +371,7 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
       before do
         bus.write(0x0200, 0x0F)
         cpu.status.restore(0x01)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'writes the incremented byte, $10, back' do
@@ -336,6 +383,13 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::ReadModifyWriteCombos do
         cpu.increment_then_subtract(0x0200)
         expect(cpu.accumulator).to eq(0x10)
         expect(cpu.status).to be_carry
+      end
+
+      it 'writes the original byte, $0F, back, then $10', :aggregate_failures do
+        cpu.increment_then_subtract(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x0F).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x10).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
 

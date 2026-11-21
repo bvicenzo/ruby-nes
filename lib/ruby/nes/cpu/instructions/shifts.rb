@@ -6,7 +6,7 @@ module Ruby
       module Instructions
         # ASL, LSR, ROL and ROR (https://www.nesdev.org/wiki/Instruction_reference), included in Cpu. The Shifter
         # computes the byte and the flags; these methods only take the byte from, and put it back into, the accumulator
-        # or memory. The read-modify-write double write is not modelled (plan 06, decision 5).
+        # or memory, where the original byte is written back before the result (Cpu#write_modified).
         module Shifts
           # ASL A
           def shift_left_accumulator
@@ -15,7 +15,8 @@ module Ruby
 
           # ASL with a memory operand
           def shift_left_memory(address)
-            @bus.write(address, @shifter.shift_left(@bus.read(address)))
+            original = @bus.read(address)
+            write_modified(address, original, @shifter.shift_left(original))
           end
 
           # LSR A
@@ -25,7 +26,8 @@ module Ruby
 
           # LSR with a memory operand
           def shift_right_memory(address)
-            @bus.write(address, @shifter.shift_right(@bus.read(address)))
+            original = @bus.read(address)
+            write_modified(address, original, @shifter.shift_right(original))
           end
 
           # ROL A
@@ -35,7 +37,8 @@ module Ruby
 
           # ROL with a memory operand
           def rotate_left_memory(address)
-            @bus.write(address, @shifter.rotate_left(@bus.read(address)))
+            original = @bus.read(address)
+            write_modified(address, original, @shifter.rotate_left(original))
           end
 
           # ROR A
@@ -45,7 +48,8 @@ module Ruby
 
           # ROR with a memory operand
           def rotate_right_memory(address)
-            @bus.write(address, @shifter.rotate_right(@bus.read(address)))
+            original = @bus.read(address)
+            write_modified(address, original, @shifter.rotate_right(original))
           end
         end
       end

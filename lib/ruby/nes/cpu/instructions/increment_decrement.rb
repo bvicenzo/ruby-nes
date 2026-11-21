@@ -5,20 +5,20 @@ module Ruby
     class Cpu
       module Instructions
         # Increments and decrements (https://www.nesdev.org/wiki/Instruction_reference), included in Cpu. One up or
-        # down, wrapping within a byte; Z and N from the result, C and V untouched. The read-modify-write double write
-        # of INC and DEC is not modelled (plan 06, decision 5).
+        # down, wrapping within a byte; Z and N from the result, C and V untouched. INC and DEC write the original byte
+        # back before the result (Cpu#write_modified).
         module IncrementDecrement
           # INC
           def increment_memory(address)
-            result = (@bus.read(address) + 1) & Bits::BYTE_MASK # glossary: wrap-to-byte
-            @bus.write(address, result)
+            original = @bus.read(address)
+            result = write_modified(address, original, (original + 1) & Bits::BYTE_MASK) # glossary: wrap-to-byte
             @status.update_zero_and_negative(result)
           end
 
           # DEC
           def decrement_memory(address)
-            result = (@bus.read(address) - 1) & Bits::BYTE_MASK # glossary: wrap-to-byte
-            @bus.write(address, result)
+            original = @bus.read(address)
+            result = write_modified(address, original, (original - 1) & Bits::BYTE_MASK) # glossary: wrap-to-byte
             @status.update_zero_and_negative(result)
           end
 

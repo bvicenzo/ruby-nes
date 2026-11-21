@@ -128,6 +128,16 @@ module Ruby
         JAMMED_STEP_CYCLES
       end
 
+      # The write step of every read-modify-write instruction on memory: it "first [writes] the original value back to
+      # memory" (https://www.nesdev.org/wiki/Instruction_reference), "then modified"
+      # (https://www.nesdev.org/6502_cpu.txt), so a device that reacts to each write, such as the MMC1 serial port,
+      # sees both. Returns the modified byte.
+      def write_modified(address, original, modified)
+        @bus.write(address, original)
+        @bus.write(address, modified)
+        modified
+      end
+
       # The little-endian word at `address`, such as an interrupt vector; the high byte's address wraps past $FFFF.
       def read_word(address)
         low = @bus.read(address)

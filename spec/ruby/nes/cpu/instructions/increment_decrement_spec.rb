@@ -13,6 +13,7 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::IncrementDecrement do
       before do
         bus.write(0x0200, 0x01)
         cpu.status.restore(0x82)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'changes it to $02' do
@@ -24,6 +25,13 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::IncrementDecrement do
         cpu.increment_memory(0x0200)
         expect(cpu.status).not_to be_zero
         expect(cpu.status).not_to be_negative
+      end
+
+      it 'writes the original byte, $01, back, then $02', :aggregate_failures do
+        cpu.increment_memory(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x01).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x02).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
 
@@ -217,6 +225,7 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::IncrementDecrement do
       before do
         bus.write(0x0200, 0x02)
         cpu.status.restore(0x82)
+        allow(bus).to receive(:write).and_call_original
       end
 
       it 'changes it to $01' do
@@ -228,6 +237,13 @@ RSpec.describe Ruby::Nes::Cpu::Instructions::IncrementDecrement do
         cpu.decrement_memory(0x0200)
         expect(cpu.status).not_to be_zero
         expect(cpu.status).not_to be_negative
+      end
+
+      it 'writes the original byte, $02, back, then $01', :aggregate_failures do
+        cpu.decrement_memory(0x0200)
+        expect(bus).to have_received(:write).with(0x0200, 0x02).ordered
+        expect(bus).to have_received(:write).with(0x0200, 0x01).ordered
+        expect(bus).to have_received(:write).twice
       end
     end
 
