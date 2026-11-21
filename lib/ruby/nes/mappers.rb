@@ -6,6 +6,7 @@ require_relative 'mappers/nrom'
 require_relative 'mappers/uxrom'
 require_relative 'mappers/cnrom'
 require_relative 'mappers/axrom'
+require_relative 'mappers/mmc1'
 
 module Ruby
   module Nes
@@ -21,6 +22,7 @@ module Ruby
     #                                  :horizontal, :vertical, :single_screen_lower, :single_screen_upper or
     #                                  :four_screen.
     # - irq?                        -> whether the board holds the CPU's IRQ line low.
+    # - cpu=                         -> the CPU, the board's clock; only MMC1 reads its cycles (plan 20, decision 1).
     #
     # Every board is a Base (mappers/base.rb), which reads PRG ROM and CHR through bank windows; a board with registers
     # only turns their writes into bank selections.
@@ -34,7 +36,7 @@ module Ruby
       # The cartridge's mapper number has no board here yet.
       class UnsupportedMapper < Error; end
 
-      BOARDS = { 0 => Nrom, 2 => Uxrom, 3 => Cnrom, 7 => Axrom }.freeze
+      BOARDS = { 0 => Nrom, 1 => Mmc1, 2 => Uxrom, 3 => Cnrom, 7 => Axrom }.freeze
 
       # The board for the cartridge's mapper number, built with its memories. Raises InvalidCartridge when the
       # cartridge has no PRG ROM (the iNES page does not define a PRG ROM size of 0) or memories its board does not

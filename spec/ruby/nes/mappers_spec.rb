@@ -30,6 +30,14 @@ RSpec.describe Ruby::Nes::Mappers do
         end
       end
 
+      context 'and its mapper is 1' do
+        let(:cartridge) { Cartridges.build(mapper_number: 1) }
+
+        it 'returns an MMC1 board built from the cartridge' do
+          expect(described_class.build(cartridge)).to be_a(Ruby::Nes::Mappers::Mmc1)
+        end
+      end
+
       context 'and its mapper is 2' do
         let(:cartridge) { Cartridges.build(mirroring: :vertical, mapper_number: 2) }
 

@@ -40,6 +40,21 @@ RSpec.describe Ruby::Nes::Console do
       end
     end
 
+    context 'when the board is an MMC1 and the program loads vertical mirroring into Control' do
+      # The board times its serial port writes with the CPU's cycles (plan 20, decision 1). LDA #$0E, then five times
+      # STA $8000 / LSR A, loading Control with %01110 low bit first, then JMP $8016 forever.
+      let(:cartridge) do
+        Cartridges.with_program([0xA9, 0x0E, *([0x8D, 0x00, 0x80, 0x4A] * 5), 0x4C, 0x16, 0x80], mapper_number: 1)
+      end
+
+      it 'switches the nametables to vertical mirroring' do
+        console = described_class.new(cartridge)
+        11.times { console.step }
+        console.ppu_bus.write(0x2000, 0x77)
+        expect(console.ppu_bus.read(0x2400)).to eq(0x00)
+      end
+    end
+
     # The controllers (plan 15): a $4016 write of 1 then 0 latches both, and the first read of $4016 reports A of the
     # first controller in bit 0 (https://www.nesdev.org/wiki/Controller_reading). Bits 7-5 repeat the previous read,
     # "usually 010 from the high byte $40" (https://www.nesdev.org/wiki/Open_bus_behavior): the operand of LDA $4016.

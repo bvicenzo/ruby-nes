@@ -24,6 +24,7 @@ require_relative 'support/hex_dump'
 # After hex_dump: the blargg programs are written as hex dumps.
 require_relative 'support/blargg'
 require_relative 'support/local_roms'
+require_relative 'support/mmc1_programmer'
 require_relative 'support/nestest'
 require_relative 'support/oam_contents'
 require_relative 'support/test_roms'

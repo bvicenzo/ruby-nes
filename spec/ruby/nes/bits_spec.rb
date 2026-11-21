@@ -55,6 +55,35 @@ RSpec.describe Ruby::Nes::Bits do
     end
   end
 
+  describe '.bit_field' do
+    # Address bits 14-13 ($6000, shift 13) are 1 at $A000.
+    context 'when the bits around the field are clear' do
+      it 'returns the field as a number' do
+        expect(described_class.bit_field(0x2000, mask: 0x6000, shift: 13)).to eq(1)
+      end
+    end
+
+    context 'when the bits around the field are set' do
+      it 'returns the field alone' do
+        expect(described_class.bit_field(0xBFFF, mask: 0x6000, shift: 13)).to eq(1)
+      end
+    end
+  end
+
+  describe '.bit_at' do
+    context 'when the bit is set' do
+      it 'returns 1' do
+        expect(described_class.bit_at(0b0100, 2)).to eq(1)
+      end
+    end
+
+    context 'when the bit is clear' do
+      it 'returns 0, whatever the other bits' do
+        expect(described_class.bit_at(0b1011, 2)).to eq(0)
+      end
+    end
+  end
+
   describe '.high_nibble' do
     context 'when the low half is clear' do
       it 'returns the high half' do

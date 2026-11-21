@@ -30,6 +30,13 @@ module Ruby
       # $07 -> $05).
       def self.low_bits(value, mask) = value & mask
 
+      # glossary: bit-field — a group of adjacent bits read as a number of its own (address bits 14-13 of $BFFF, mask
+      # $6000 and shift 13, -> 1).
+      def self.bit_field(value, mask:, shift:) = (value & mask) >> shift
+
+      # glossary: bit-at — the bit at position `index` (0 the lowest) as 0 or 1 (%0100 at 2 -> 1).
+      def self.bit_at(value, index) = (value >> index) & 1
+
       # glossary: high-nibble — the upper 4 bits of a byte, as 0-15 ($4A -> $4).
       def self.high_nibble(byte) = (byte >> NIBBLE_WIDTH) & NIBBLE_MASK
 
