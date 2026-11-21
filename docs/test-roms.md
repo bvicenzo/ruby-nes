@@ -22,9 +22,11 @@ The community test ROMs the suite runs, fetched by `bundle exec rake test_roms:f
 - The ROMs that must pass are examples of `spec/blargg/runner_spec.rb`, tagged `slow: true`: they run with `SLOW=1`
   and always in CI's `test-roms` job, under YJIT (plan 12, decision 6). The others are recorded here.
 
-The single-test builds run here are NROM boards, and `cpu_dummy_reads.nes` a CNROM one (plan 19). The multi-test
-builds (`all_instrs.nes`, `official_only.nes`, `ppu_vbl_nmi.nes`, `cpu_interrupts.nes`) are MMC1 boards (plan 20). The
-collection has no multi-mapper ROM such as Holy Mapperel at the pinned commit (plan 19, decision 9).
+The single-test builds run here are NROM boards, `cpu_dummy_reads.nes` a CNROM one (plan 19) and the multi-test builds
+(`all_instrs.nes`, `official_only.nes`, `ppu_vbl_nmi.nes`, `cpu_interrupts.nes`) MMC1 ones (plan 20). The collection
+has no multi-mapper ROM such as Holy Mapperel at the pinned commit (plan 19, decision 9). Two more MMC1 ROMs are in the
+collection and not run: `MMC1_A12/mmc1_a12.nes` is interactive (it reads the joypad and reports nothing automatically)
+and `instr_timing` times instructions with the APU (plan 22).
 
 ## Results
 
@@ -97,3 +99,12 @@ Plan 19, 2026-11-20, the first ROM on a board other than NROM.
 | ROM | Result | Frames | Notes |
 |---|---|---|---|
 | `cpu_dummy_reads/cpu_dummy_reads.nes` | Passed | 45 | CNROM (mapper 3), read through `Blargg::ScreenReport`. Checks the dummy reads of `LDA`/`STA` absolute,X and (indirect),Y through `$2002` and `$2004`, and their absence in (indirect,X) (architecture decision 26). |
+
+Plan 20, 2026-11-20, the multi-test builds on MMC1 (mapper 1). Times are under `rake blargg:run` without a JIT.
+
+| ROM | Result | Frames | Notes |
+|---|---|---|---|
+| `instr_test-v5/all_instrs.nes` | Passed | 2397 | All 16 tests; 313 s without a JIT. |
+| `instr_test-v5/official_only.nes` | Passed | 1872 | All 16 tests; 239 s without a JIT. |
+| `ppu_vbl_nmi/ppu_vbl_nmi.nes` | Failed (3) | 1545 | Tests 1-9 pass; test 10, "Clock is skipped too late, relative to enabling BG", as its single build (Known gaps: rendering toggle delay). |
+| `cpu_interrupts_v2/cpu_interrupts.nes` | Failed (3) | 26 | Test 1, "APU should generate IRQ when $4017 = $00", as its single build (plan 22). Its 80 KiB of PRG ROM is not a power of two: MMC1's mode 3 fixes the file's last bank (bank 4) at `$C000`, where bank 15 would wrap to bank 0 (plan 20, decision 9). |

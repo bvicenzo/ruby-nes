@@ -104,16 +104,20 @@ device interface above plus:
 | `ppu_write(address, value)` | kept by CHR RAM, ignored by CHR ROM |
 | `mirroring` | the nametable arrangement the board selects: `:horizontal`, `:vertical`, `:single_screen_lower`, `:single_screen_upper` or `:four_screen` (asked on every nametable access, so a board may change it at any time) |
 | `irq?` | whether the board holds the CPU's IRQ line low |
+| `cpu=` | takes the CPU as the board's clock; only MMC1 reads its `cycles` (plan 20, decision 1). `Console` wires it as it wires `PpuRegisterSync` |
 
 Every board is a `Mappers::Base` (plan 19, decision 1). The base reads PRG ROM through two 16 KiB windows
-(`$8000-$BFFF` and `$C000-$FFFF`, picked by address bit 14) and CHR through one 8 KiB window, each an offset into the
-cartridge's memory. Out of the box they show the first and the last 16 KiB of PRG ROM and the first 8 KiB of CHR:
-that is NROM as it comes. A board with registers overrides the private `write_register(address, value)`, which
-receives every write to `$8000-$FFFF`, and turns it into window offsets through `select_prg_bank(window, bank)` and
-`select_chr_bank(bank)` (`FIRST_PRG_WINDOW`, `SECOND_PRG_WINDOW`). Those wrap a bank past the end of the memory
-around the bank count, off the hot path. PRG RAM at `$6000-$7FFF` is 8 KiB when the board says so (`prg_ram: true`);
-without it the range is open bus. Mirroring is the
-header's until a board changes `@mirroring` (AxROM).
+(`$8000-$BFFF` and `$C000-$FFFF`, picked by address bit 14) and CHR through two 4 KiB windows (`$0000-$0FFF` and
+`$1000-$1FFF`, picked by address bit 12; plan 20, decision 5), each an offset into the cartridge's memory. Out of the
+box they show the first and the last 16 KiB of PRG ROM and the first 8 KiB of CHR: that is NROM as it comes. A board
+with registers overrides the private `write_register(address, value)`, which receives every write to `$8000-$FFFF`,
+and turns it into window offsets through `select_prg_bank(window, bank)` and `select_chr_bank(window, bank)`
+(`FIRST_PRG_WINDOW`, `SECOND_PRG_WINDOW`, `FIRST_CHR_WINDOW`, `SECOND_CHR_WINDOW`), or `select_whole_prg_bank(bank)`
+and `select_whole_chr_bank(bank)` for a 32 KiB PRG or 8 KiB CHR bank filling both windows. Those wrap a bank past the
+end of the memory around the bank count, off the hot path; `last_prg_bank` names the last 16 KiB bank. PRG RAM at
+`$6000-$7FFF` is 8 KiB when the board says so (`prg_ram: true`), and a board may turn it off at runtime
+(`enable_prg_ram`, MMC1); without it, or off, the range is open bus. Mirroring is the header's until a board changes
+`@mirroring` (AxROM, MMC1).
 
 | Board | iNES | Registers (writes to `$8000-$FFFF`) | Bus conflicts | PRG RAM |
 |---|---|---|---|---|
@@ -121,9 +125,10 @@ header's until a board changes `@mirroring` (AxROM).
 | `Uxrom` | 2 | the whole byte selects the 16 KiB bank at `$8000`; `$C000` stays on the last bank | no | none |
 | `Cnrom` | 3 | the byte, ANDed with the PRG ROM byte at the address, selects the 8 KiB CHR bank | yes | none |
 | `Axrom` | 7 | bits 2-0 select the 32 KiB bank; bit 4 the single screen (0 lower, 1 upper) | no | none |
+| `Mmc1` | 1 | a serial port (`Mmc1::SerialPort`) loads Control (mirroring, PRG mode, CHR mode), CHR bank 0, CHR bank 1 and PRG bank, five writes each; bit 7 resets; a write on the cycle after another is ignored unless it resets; SUROM's 512 KiB take the outer bank from CHR bank 0 bit 4 | no | 8 KiB, off while PRG bank bit 4 is set |
 
-Every register starts at 0 (plan 19, decision 6). MMC1 and MMC3 refine the window granularity (plans 20 and 21); a
-scanline/A12 hook for MMC3 is shaped by plan 21.
+Every register starts at 0 (plan 19, decision 6), except MMC1's Control, which starts at `$0C` as after a reset (plan
+20, decision 4). MMC3 refines the window granularity (plan 21); a scanline/A12 hook for MMC3 is shaped by plan 21.
 
 ### Controllers
 
@@ -306,7 +311,8 @@ most calls.
 | `lib/ruby/nes/cartridge.rb` | `Ruby::Nes::Cartridge` | the loaded cartridge (header, PRG, CHR) |
 | `lib/ruby/nes/cartridge/` | `Ruby::Nes::Cartridge::Header`, `::Loader`, errors | iNES parsing |
 | `lib/ruby/nes/mappers.rb` | `Ruby::Nes::Mappers` | `Mappers.build` factory |
-| `lib/ruby/nes/mappers/` | `Ruby::Nes::Mappers::Base`, `::Nrom`, `::Uxrom`, `::Cnrom`, `::Axrom`… | the board base with its PRG and CHR windows, then one file per mapper |
+| `lib/ruby/nes/mappers/` | `Ruby::Nes::Mappers::Base`, `::Nrom`, `::Uxrom`, `::Cnrom`, `::Axrom`, `::Mmc1`… | the board base with its PRG and CHR windows, then one file per mapper |
+| `lib/ruby/nes/mappers/mmc1/` | `Ruby::Nes::Mappers::Mmc1::SerialPort` | MMC1's serial load port |
 | `lib/ruby/nes/cpu_bus.rb` | `Ruby::Nes::CpuBus` | CPU address decoding, RAM, open bus |
 | `lib/ruby/nes/cpu_bus/` | `Ruby::Nes::CpuBus::Disconnected`, `::OamDma` | the device in an empty slot; the OAM DMA unit the bus owns |
 | `lib/ruby/nes/cpu.rb` | `Ruby::Nes::Cpu` | registers, operand fetch, `step`, interrupts |
@@ -412,7 +418,6 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | Gap | Hardware | Revisit in |
 |---|---|---|
 | Dummy reads | The 6502 reads and throws away bytes in several addressing modes ([6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)). Since plan 12 the indexed modes (absolute,X, absolute,Y, (indirect),Y) make theirs, at the address whose high byte is not fixed yet, on a page cross for reads and always for writes and read-modify-write instructions (`instr_misc/03-dummy_reads` passes, and `cpu_dummy_reads` since plan 19). A read's dummy read reaches the PPU on its own cycle; a write's, and every access of a read-modify-write instruction, reach it on the instruction's last cycle, an approximation of the register sync. The other dummy reads (zero page indexed, implied, the stack) only reach RAM or ROM and are not made, so their open bus effect is missing. | Plan 22 (`instr_misc/04-dummy_reads_apu`) |
-| Read-modify-write double write | `ASL`, `LSR`, `ROL`, `ROR`, `INC` and `DEC` on memory "first [write] the original value back to memory" before the modified one ([Instruction reference](https://www.nesdev.org/wiki/Instruction_reference)); so do the unofficial combos (`SLO`, `RLA`, `SRE`, `RRA`, `DCP`, `ISB`): "Read-Modify-Write instructions write unmodified data, then modified" ([6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)). The emulator writes only the result, so a device that reacts to every write misses the first one: the MMC1 serial port "ignores every write after the first" on consecutive cycles, which "only happens when the CPU executes read-modify-write instructions" ([MMC1](https://www.nesdev.org/wiki/MMC1)). | Plan 20 (MMC1) |
 | Interrupt polling point | Interrupts are polled "during the final cycle of the instruction", and what matters is the line status "at the end of the second-to-last cycle"; branches poll before their operand fetch and "not before the third CPU cycle on a taken branch" ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Branch_instructions_and_interrupts)). Since plan 12 the NMI edge carries its cycle and is polled at that point. The IRQ line is still polled before each instruction without a cycle, and taken branches get no special case (`cpu_interrupts_v2/5-branch_delays_irq` needs the APU's frame IRQ). | Plan 22, with `cpu_interrupts_v2` |
 | IRQ delay after `CLI`, `SEI`, `PLP` | These "change the I flag after polling for interrupts", so "executing CLI will execute the next instruction before the CPU invokes the IRQ handler", and an IRQ pending when `SEI` runs is still taken once ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Delayed_IRQ_response_after_CLI,_SEI,_and_PLP)). The emulator polls with the new I, so the IRQ comes one instruction early after `CLI`/`PLP` and is lost after `SEI`. `RTI` acts immediately, as modelled. `cpu_interrupts_v2/1-cli_latency` needs the APU's frame IRQ. | Plan 22, with `cpu_interrupts_v2` |
 | Interrupt hijacking | An NMI asserted during the first four ticks of `BRK` sends it through the NMI vector (with B still set in the pushed flags), and "an NMI can hijack an IRQ" ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts#Interrupt_hijacking)). The emulator finishes `BRK` or the IRQ through `$FFFE` and takes the NMI on the next step; the PPU does not advance inside the sequence. `cpu_interrupts_v2/2-nmi_and_brk` fails. | Plan 22, with `cpu_interrupts_v2` |
@@ -431,6 +436,7 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | Background fetches with no visible effect | The nametable fetches of dots 257-320 and the two of 337-340 ("only used by MMC5", [PPU rendering](https://www.nesdev.org/wiki/PPU_rendering)) are not made (plan 13, decision 6); a mapper that counts PPU reads would miss them. The sprite pattern fetches of 257-320 are made on their dots since plan 14 (decision 3); an empty slot's dummy fetch takes its row from Y `$FF`, where the hardware's first empty slot keeps sprite 63's Y. | Plan 21 (MMC3), MMC5 if ever |
 | Byte under a palette read | A PPUDATA read of the palette fills the buffer from "a normal read from PPU memory at the specified address, "underneath" the palette data" ("usually mirrored nametables"). The emulator reads the nametable byte `$1000` below (the `$2F00-$2FFF` mirror), an inference from "$3000-3EFF is usually a mirror of" `$2000-$2EFF`. | When a board maps `$3000-$3FFF` differently |
 | Mapper register timing | A write to `$8000-$FFFF` reaches the board on the cycle it happens, and a bank or screen change then affects the next pattern or nametable fetch. The PPU is not caught up before mapper writes as it is before `$2000-$3FFF` (Clock model), so the dots that ran before the write within the instruction, up to its last cycle, are drawn after it with the new CNROM CHR bank or AxROM screen: a mid-frame split lands a few dots early. | Plan 21 (MMC3 IRQ, which measures whether mapper writes need the sync), plan 25 |
+| OAM DMA from a read-modify-write | A read-modify-write instruction on `$4014` writes it twice (decision 48), so the emulator starts OAM DMA twice: two copies of 256 bytes, the second from the modified page, and one stall. NESdev's [DMA](https://www.nesdev.org/wiki/DMA) page does not describe a second `$4014` write during a transfer; the OAM left is the modified page's, as the last copy. | A later DMA pass (no plan yet; plan 23 shares the DMA unit) |
 
 ## Frame buffer contract
 
@@ -505,3 +511,6 @@ presentation, in a frontend).
 | 45 | 2026-11-20 | Keys come from `~/.config/ruby-nes/config.yml` (`keys:` section, actions to raylib key names, defaults for the rest, one action per key); a key the file gives to an action is taken from the default of any other, and actions left without a key are named at start; window options are command-line flags | The parser needs no gem (key codes injected); a key bound twice would silently lose one action in `Frontends::Keyboard`'s map; moving one action must not force rebinding another (plan 18, decision 7) | — |
 | 46 | 2026-11-20 | Every board is a `Mappers::Base`: PRG ROM through two 16 KiB windows, CHR through one 8 KiB window, a board turning register writes into window offsets, banks wrapped by the memory size when the register is written | One read path for every board, the shape MMC1 uses as is and MMC3 refines, as Mesen2's `BaseMapper`; measured against NROM's single mask with `rake bench:cpu` (plan 19, decision 1; [benchmarks](benchmarks.md)) | Plans 21 (8 KiB / 1 KiB windows) and 25 |
 | 47 | 2026-11-20 | Bus conflicts are emulated on CNROM only; NES 2.0 submappers are not read | The NESdev pages for iNES 1.0: "Emulator implementations of iNES mapper 2 [...] without bus conflicts", AxROM's submapper 0 "emulators shouldn't", CNROM's only exceptions are mapper hacks (plan 19, decision 2) | When the header reads NES 2.0 submappers |
+| 48 | 2026-11-20 | Read-modify-write instructions on memory write the original byte, then the modified one (`Cpu#write_modified`), the official six and the unofficial combos alike; every device sees both writes | "first [write] the original value back to memory" (Instruction reference), "write unmodified data, then modified" (6502_cpu.txt); the MMC1 serial port reacts to both writes, PPUDATA advances its address twice, OAMDMA starts twice (Known gaps). Replaces plan 06, decision 5 (plan 20, decision 3) | — |
+| 49 | 2026-11-20 | Boards get the CPU as their clock (`cpu=`, wired by `Console`); MMC1 ignores a serial port write less than 2 cycles after the previous write unless it is a reset | No device interface changes; both writes of a read-modify-write see the same `Cpu#cycles`, since a step charges its cycles first, and a per-access model would make them 1 apart: under 2 either way, as Mesen2's `MMC1.h` (plan 20, decisions 1 and 2) | Plan 21 (MMC3 timing) |
+| 50 | 2026-11-20 | The base shows CHR through two 4 KiB windows instead of one 8 KiB window | MMC1's 4 KiB CHR mode; frames of a rendering ROM ran about 5% slower under YJIT, nothing measurable without a JIT ([benchmarks](benchmarks.md); plan 20, decision 5) | Plans 21 (1 KiB windows) and 25 |

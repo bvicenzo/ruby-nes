@@ -286,3 +286,29 @@ effect measured. Averaged, the window table costs about 3% under YJIT (14.66 →
 2.93) and under 1% under ZJIT (8.18 → 8.12); two earlier runs of the same day, before and after the change, read 14.07
 and 13.12 under YJIT. The cost stays under the machine's run-to-run variation; plan 25 measures whole frames, where
 the PPU dominates.
+
+### 2026-11-20 — Plan 20: two 4 KiB CHR windows (headless frames, `sprite_hit_tests_2005.10.05/01.basics.nes`)
+
+`rake bench:cpu` runs nestest on the CPU alone and never reads CHR, so the cost of the CHR window table (architecture
+decision 50, `@chr[@chr_window_offsets[window] + (address & CHR_WINDOW_OFFSET_MASK)]` instead of
+`@chr[@chr_bank_offset + address]`) was measured on whole frames: a script in the session's scratch directory built a
+console headless, ran 60 warm-up frames, then timed 200 frames, best and median of 3 runs per configuration. The base
+commit of plan 20 (d5266f2) ran from a separate worktree, alternated with plan 20's tree in two rounds. Plan 20's tree
+also carries the read-modify-write double write (decision 48), which this ROM's frames barely execute.
+
+| Configuration | Variant | Best fps | Median fps | Change in the median |
+|---|---|---|---|---|
+| yjit | base commit, round 1 | 14.0 | 13.7 | — |
+| yjit | plan 20, round 1 | 13.5 | 13.0 | -5.1% |
+| zjit | base commit, round 1 | 14.5 | 13.9 | — |
+| zjit | plan 20, round 1 | 14.5 | 13.8 | -0.7% |
+| yjit | base commit, round 2 | 13.7 | 13.6 | — |
+| yjit | plan 20, round 2 | 13.1 | 12.7 | -6.6% |
+| zjit | base commit, round 2 | 14.2 | 13.4 | — |
+| zjit | plan 20, round 2 | 14.7 | 13.7 | +2.2% |
+
+Both rounds agree: about 5% under YJIT, nothing measurable under ZJIT. An earlier pair of runs in the same session,
+with the machine less loaded, read 20.2 → 19.0 fps (median, YJIT) and 4.2 → 4.4 fps without a JIT. Dropping the
+`& CHR_WINDOW_SELECT_MASK` (the PPU bus only hands `$0000-$1FFF`) moved YJIT within noise (19.1 → 19.35), so the
+bit-field form stays, alike on the PRG and CHR paths. Plan 21 refines the windows to 1 KiB and plan 25 measures the
+whole frame.
