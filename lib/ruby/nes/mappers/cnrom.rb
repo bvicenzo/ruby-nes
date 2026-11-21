@@ -27,7 +27,7 @@ module Ruby
         # The PRG ROM drives the byte at `address` while the CPU writes `value`; the board latches what both agree on.
         def write_register(address, value)
           rom_byte = cpu_read(address, value)
-          select_chr_bank(value & rom_byte) # glossary: bitwise-and
+          select_whole_chr_bank(value & rom_byte) # glossary: bitwise-and
         end
       end
     end

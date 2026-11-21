@@ -33,12 +33,13 @@ RSpec.describe Ruby::Nes::Mappers::Cnrom do
   describe '#ppu_read' do
     subject(:cnrom) { described_class.new(cartridge) }
 
-    # 32 KiB of CHR ROM, four 8 KiB banks; the first byte of each holds its number.
-    let(:cartridge) { Cartridges.build(chr_rom: Array.new(4) { |bank| [bank, *Array.new(8_191, 0x00)] }.flatten) }
+    # 32 KiB of CHR ROM in numbered 4 KiB halves: the 8 KiB bank n shows half 2n at $0000 and 2n + 1 at $1000.
+    let(:cartridge) { Cartridges.build(chr_rom: Cartridges.numbered_banks(count: 8, size: 4_096)) }
 
     context 'when no bank was selected yet' do
-      it 'returns the first CHR bank' do
+      it 'returns the first CHR bank', :aggregate_failures do
         expect(cnrom.ppu_read(0x0000)).to eq(0)
+        expect(cnrom.ppu_read(0x1000)).to eq(1)
       end
     end
   end
@@ -46,11 +47,12 @@ RSpec.describe Ruby::Nes::Mappers::Cnrom do
   describe '#cpu_write' do
     subject(:cnrom) { described_class.new(cartridge) }
 
-    # 32 KiB of PRG ROM, all $FF but $01 at $9000; 32 KiB of CHR ROM whose four banks start with their number.
+    # 32 KiB of PRG ROM, all $FF but $01 at $9000; 32 KiB of CHR ROM in numbered 4 KiB halves: the 8 KiB bank n shows
+    # half 2n at $0000 and 2n + 1 at $1000.
     let(:cartridge) do
       Cartridges.build(
         prg_rom: [*Array.new(4_096, 0xFF), 0x01, *Array.new(28_671, 0xFF)],
-        chr_rom: Array.new(4) { |bank| [bank, *Array.new(8_191, 0x00)] }.flatten
+        chr_rom: Cartridges.numbered_banks(count: 8, size: 4_096)
       )
     end
 
@@ -60,7 +62,7 @@ RSpec.describe Ruby::Nes::Mappers::Cnrom do
         before { cnrom.cpu_write(0x9000, 0x03) }
 
         it 'selects the bank the two have in common' do
-          expect(cnrom.ppu_read(0x0000)).to eq(1)
+          expect(cnrom.ppu_read(0x0000)).to eq(2)
         end
       end
 
@@ -70,7 +72,7 @@ RSpec.describe Ruby::Nes::Mappers::Cnrom do
           before { cnrom.cpu_write(0x8000, 0x13) }
 
           it 'selects the bank wrapped by the CHR ROM size' do
-            expect(cnrom.ppu_read(0x0000)).to eq(3)
+            expect(cnrom.ppu_read(0x0000)).to eq(6)
           end
         end
 
@@ -78,8 +80,9 @@ RSpec.describe Ruby::Nes::Mappers::Cnrom do
           context 'and the address is $8000' do
             before { cnrom.cpu_write(0x8000, 2) }
 
-            it 'shows that bank in the pattern tables' do
-              expect(cnrom.ppu_read(0x0000)).to eq(2)
+            it 'shows that bank in both pattern tables', :aggregate_failures do
+              expect(cnrom.ppu_read(0x0000)).to eq(4)
+              expect(cnrom.ppu_read(0x1000)).to eq(5)
             end
           end
 
@@ -87,7 +90,7 @@ RSpec.describe Ruby::Nes::Mappers::Cnrom do
             before { cnrom.cpu_write(0xFFFF, 2) }
 
             it 'shows that bank in the pattern tables' do
-              expect(cnrom.ppu_read(0x0000)).to eq(2)
+              expect(cnrom.ppu_read(0x0000)).to eq(4)
             end
           end
         end

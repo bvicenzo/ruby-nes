@@ -41,13 +41,18 @@ module Cartridges
     Ruby::Nes::Cartridge.new(header:, prg_rom: prg_rom.dup.freeze, chr_rom: chr_rom.dup.freeze, trainer: [].freeze)
   end
 
+  # A memory of `count` banks of `size` bytes in which every byte holds its bank's number, so whatever a window shows
+  # reads as the number of the bank behind it: `numbered_banks(count: 16, size: 16_384)` is 256 KiB of PRG ROM.
+  def self.numbered_banks(count:, size:) = Array.new(count) { |bank| Array.new(size, bank) }.flatten
+
   # An NROM cartridge whose program starts at $8000, the reset vector, and whose NMI and IRQ vectors point at the
-  # interrupt handler at $9000 (RTI unless given). The rest of PRG ROM is NOP.
-  def self.with_program(program, interrupt_handler: RETURN_FROM_INTERRUPT)
+  # interrupt handler at $9000 (RTI unless given). The rest of PRG ROM is NOP. Another `mapper_number` puts the same
+  # 16 KiB on that board, where it fits (MMC1 shows it at both $8000 and $C000 at power-up).
+  def self.with_program(program, interrupt_handler: RETURN_FROM_INTERRUPT, mapper_number: 0)
     prg_rom = Array.new(PRG_ROM_SIZE, NO_OPERATION)
     prg_rom[0, program.size] = program
     prg_rom[INTERRUPT_HANDLER_START - PROGRAM_START, interrupt_handler.size] = interrupt_handler
     prg_rom[VECTORS_OFFSET, VECTORS.size] = VECTORS
-    build(prg_rom:)
+    build(prg_rom:, mapper_number:)
   end
 end

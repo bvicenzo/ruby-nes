@@ -228,11 +228,26 @@ RSpec.describe Ruby::Nes::Mappers::Base do
     subject(:board) { described_class.new(cartridge) }
 
     context 'when the board has CHR ROM' do
-      let(:cartridge) { Cartridges.build(chr_rom: [0x33, *Array.new(8_190, 0xEA), 0x44]) }
+      # Two 4 KiB halves; each starts with $33 or $55 and ends with $44 or $66.
+      let(:cartridge) do
+        Cartridges.build(chr_rom: [0x33, *Array.new(4_094, 0xEA), 0x66, 0x55, *Array.new(4_094, 0xEA), 0x44])
+      end
 
       context 'and the address is $0000' do
         it 'returns the first CHR ROM byte' do
           expect(board.ppu_read(0x0000)).to eq(0x33)
+        end
+      end
+
+      context 'and the address is $0FFF' do
+        it 'returns the last byte of the first 4 KiB' do
+          expect(board.ppu_read(0x0FFF)).to eq(0x66)
+        end
+      end
+
+      context 'and the address is $1000' do
+        it 'returns the first byte of the second 4 KiB' do
+          expect(board.ppu_read(0x1000)).to eq(0x55)
         end
       end
 

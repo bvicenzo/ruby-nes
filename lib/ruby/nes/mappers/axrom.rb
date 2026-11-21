@@ -16,8 +16,6 @@ module Ruby
         BANK_MASK = 0x07
         # Bit 4: the nametable page.
         SCREEN_FLAG = 0x10
-        # A 32 KiB bank fills both 16 KiB windows of the base.
-        WINDOWS_PER_BANK = 2
 
         def initialize(cartridge)
           prg_rom_size = cartridge.prg_rom.size
@@ -32,11 +30,9 @@ module Ruby
 
         private
 
-        # select_prg_bank wraps a bank past the PRG ROM; whole 32 KiB banks keep the two halves of one bank together.
+        # The base wraps a bank past the PRG ROM; whole 32 KiB banks keep the two halves of one bank together.
         def write_register(_address, value)
-          first_half = Bits.low_bits(value, BANK_MASK) * WINDOWS_PER_BANK
-          select_prg_bank(FIRST_PRG_WINDOW, first_half)
-          select_prg_bank(SECOND_PRG_WINDOW, first_half + 1)
+          select_whole_prg_bank(Bits.low_bits(value, BANK_MASK))
           @mirroring = value.anybits?(SCREEN_FLAG) ? :single_screen_upper : :single_screen_lower
         end
       end
