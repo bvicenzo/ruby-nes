@@ -24,6 +24,10 @@ ROMs.
   (`SLO`, `RLA`, `SRE`, `RRA`, `DCP`, `ISB`); their bodies repeat the official ones' modify step, so a shared
   "modify memory, return the new byte" step (one place for the double write) is worth extracting then.
 - Board variants (SNROM, SOROM, SUROM, SXROM) reuse CHR bank bits for PRG-RAM banking or 512 KiB PRG.
+- Plan 19 built every board on `Mappers::Base` (plan 19, decision 1): PRG ROM through two 16 KiB windows, CHR through
+  one 8 KiB window, a board turning register writes into window offsets, banks masked at write time. MMC1's 16/32 KiB
+  PRG modes fit the two windows as they are; its two 4 KiB CHR banks need the CHR window split in two (extend the base
+  then). PRG RAM is a size given to the base.
 
 ## Scope
 
