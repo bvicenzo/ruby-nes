@@ -70,6 +70,12 @@ output cannot change (a halted triangle, a silent DMC with an empty buffer). Lef
 keeps the cycle `tick_timer` was given in an instance variable so the generic `Timer` → `step` call can pass it to the
 output unit; revisit it if the timer interface changes.
 
+From plan 24: with audio on, `Apu#catch_up` mixes the five channels every CPU cycle for the box resampler
+(`@resampler&.add(output)`); measured before plan 24 at about −9% on SMB3 under YJIT (16.1 → 14.7 fps). Candidates:
+remixing only when a channel's output changes, or averaging per APU cycle (an accuracy shortcut for the user to
+decide). The window paces by audio (`Frontends::AudioPacing`); below full speed the music has gaps of silence (plan 24,
+decision 2), so the crackle-free check is this plan's (plan 24, decision 3).
+
 ## Open decisions
 
 - Which accuracy shortcuts are acceptable (e.g. scanline-based fast path, APU catch-up)? Each one is proposed with its
@@ -88,6 +94,8 @@ output unit; revisit it if the timer interface changes.
 - [ ] Every kept optimisation has its measured gain recorded; every reverted one has the reason.
 - [ ] Full test suite and test ROM results unchanged (or improved).
 - [ ] Either SMB3 runs at 60 fps under at least one configuration, or the remaining gap is quantified per component.
+- [ ] When SMB3 runs at full speed, the window plays its music and effects without crackles (moved from plan 24,
+      decision 3).
 
 ## References
 
