@@ -2,10 +2,9 @@
 
 # The sprite work of a dot (plan 14): RenderSchedule's sprite steps, each told to the part that owns it; the slot of a
 # fetch is the dot's 8-dot group from 257 (https://www.nesdev.org/wiki/PPU_rendering, "8 sprites total, 8 cycles per
-# sprite"). "OAMADDR is set to 0 during each of ticks 257–320" (https://www.nesdev.org/wiki/PPU_registers). A pixel is
-# the line's entry at the column as the sprite layer's visibility lets it through. The Ppu tells it the PPUCTRL and
-# PPUMASK settings: bit 5 "Sprite size (0: 8x8 pixels; 1: 8x16 pixels)", bit 3 the 8×8 pattern table, PPUMASK bits 4
-# and 2; it passes each to its part.
+# sprite"). "OAMADDR is set to 0 during each of ticks 257–320" (https://www.nesdev.org/wiki/PPU_registers). The
+# renderer reads the line's entries to compose each pixel (plan 25, decision 7). The Ppu tells it the PPUCTRL settings:
+# bit 5 "Sprite size (0: 8x8 pixels; 1: 8x16 pixels)", bit 3 the 8×8 pattern table; it passes each to its part.
 RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
   describe '.build' do
     let(:bus) { Ruby::Nes::PpuBus.new(mapper: Ruby::Nes::Mappers.build(cartridge)) }
@@ -16,8 +15,6 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
     it 'assembles parts that share the 8×8 address: a sprite fetched from the table PPUCTRL selects shows at its X' do
       sprite_renderer = described_class.build(bus:, oam:, status:)
       sprite_renderer.pattern_table = 0x1000
-      sprite_renderer.enabled = true
-      sprite_renderer.left_columns_shown = true
       sprite_renderer.run_steps(Ruby::Nes::Ppu::RenderSchedule::EVALUATE_SPRITES, 100, 257)
       sprite_renderer.run_steps(Ruby::Nes::Ppu::RenderSchedule::FETCH_SPRITE_LOW, 100, 261)
       sprite_renderer.run_steps(
@@ -25,7 +22,7 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
         100,
         263
       )
-      expect(sprite_renderer.pixel(0x40)).to eq(0x51)
+      expect(sprite_renderer.line_entries[0x40]).to eq(0x51)
     end
   end
 
@@ -105,22 +102,17 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
     end
   end
 
-  describe '#pixel' do
-    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:, visibility:) }
+  describe '#line_entries' do
+    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:) }
 
     let(:oam) { Ruby::Nes::Ppu::Oam.new }
     let(:evaluation) { instance_double(Ruby::Nes::Ppu::SpriteEvaluation) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::SpriteFetcher) }
-    let(:line) { instance_double(Ruby::Nes::Ppu::SpriteLine) }
-    let(:visibility) { instance_double(Ruby::Nes::Ppu::LayerVisibility) }
+    let(:line) { instance_double(Ruby::Nes::Ppu::SpriteLine, entries: line_entries) }
+    let(:line_entries) { Array.new(256, 0) }
 
-    before do
-      allow(line).to receive(:entry).with(100).and_return(0x51)
-      allow(visibility).to receive(:palette_entry).with(100, 0x51).and_return(0x51)
-    end
-
-    it "is the visible entry of the line's pixel at the column" do
-      expect(sprite_renderer.pixel(100)).to eq(0x51)
+    it "is its line's entries" do
+      expect(sprite_renderer.line_entries).to be(line_entries)
     end
   end
 
@@ -167,36 +159,6 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
     it 'tells the 8×8 address' do
       sprite_renderer.pattern_table = 0x1000
       expect(eight_by_eight).to have_received(:pattern_table=).with(0x1000)
-    end
-  end
-
-  describe '#enabled=' do
-    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:, visibility:) }
-
-    let(:oam) { Ruby::Nes::Ppu::Oam.new }
-    let(:evaluation) { instance_double(Ruby::Nes::Ppu::SpriteEvaluation) }
-    let(:fetcher) { instance_double(Ruby::Nes::Ppu::SpriteFetcher) }
-    let(:line) { instance_double(Ruby::Nes::Ppu::SpriteLine) }
-    let(:visibility) { instance_double(Ruby::Nes::Ppu::LayerVisibility, :enabled= => nil) }
-
-    it 'tells the visibility' do
-      sprite_renderer.enabled = true
-      expect(visibility).to have_received(:enabled=).with(true)
-    end
-  end
-
-  describe '#left_columns_shown=' do
-    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:, visibility:) }
-
-    let(:oam) { Ruby::Nes::Ppu::Oam.new }
-    let(:evaluation) { instance_double(Ruby::Nes::Ppu::SpriteEvaluation) }
-    let(:fetcher) { instance_double(Ruby::Nes::Ppu::SpriteFetcher) }
-    let(:line) { instance_double(Ruby::Nes::Ppu::SpriteLine) }
-    let(:visibility) { instance_double(Ruby::Nes::Ppu::LayerVisibility, :left_columns_shown= => nil) }
-
-    it 'tells the visibility' do
-      sprite_renderer.left_columns_shown = true
-      expect(visibility).to have_received(:left_columns_shown=).with(true)
     end
   end
 end

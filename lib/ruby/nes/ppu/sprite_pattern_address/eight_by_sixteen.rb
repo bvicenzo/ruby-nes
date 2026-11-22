@@ -22,8 +22,9 @@ module Ruby
 
           def address(tile, row, attributes)
             sprite_row = row & LAST_ROW # glossary: low-bits
-            sprite_row = LAST_ROW - sprite_row if attributes.anybits?(FLIP_VERTICAL_FLAG)
-            pattern_table = tile.anybits?(PATTERN_TABLE_FLAG) ? SECOND_PATTERN_TABLE : FIRST_PATTERN_TABLE
+            sprite_row = LAST_ROW - sprite_row if (attributes & FLIP_VERTICAL_FLAG) != 0 # glossary: flag-set
+            second_table = (tile & PATTERN_TABLE_FLAG) != 0 # glossary: flag-set
+            pattern_table = second_table ? SECOND_PATTERN_TABLE : FIRST_PATTERN_TABLE
             top_tile = tile & ~PATTERN_TABLE_FLAG # glossary: clear-flag
             tile_number = top_tile | (sprite_row >> HALF_SHIFT) # glossary: bit-field, bitwise-or
             fine_y = sprite_row & FINE_Y_MASK # glossary: low-bits

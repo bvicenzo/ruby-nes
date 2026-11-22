@@ -143,4 +143,17 @@ RSpec.describe Ruby::Nes::PpuBus do
       expect(mapper).to have_received(:ppu_address).with(0x1000)
     end
   end
+
+  # The renderer's picture reads the colours straight from palette RAM, without the bus (plan 25, decision 7).
+  describe '#palette_ram' do
+    subject(:bus) { described_class.new(mapper:) }
+
+    let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal) }
+
+    before { bus.write(0x3F0D, 0x2C) }
+
+    it 'is the palette RAM the bus reads and writes at $3F00-$3FFF' do
+      expect(bus.palette_ram.read(0x3F0D)).to eq(0x2C)
+    end
+  end
 end

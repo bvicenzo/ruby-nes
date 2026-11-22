@@ -41,7 +41,7 @@ module Ruby
         # what a fall of S latches.
         def strobe(value)
           @shift_register = @buttons if @strobe
-          @strobe = value.anybits?(STROBE_BIT)
+          @strobe = (value & STROBE_BIT) != 0 # glossary: flag-set
         end
 
         # The bit the controller drives on D0 for this read, 0 or 1.

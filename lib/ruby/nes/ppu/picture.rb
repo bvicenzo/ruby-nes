@@ -17,7 +17,7 @@ module Ruby
       # Double buffering (plan 16, decision 1): the pixels go to a buffer of their own; `complete_frame`, told when the
       # PPU enters the post-render scanline, swaps it with `frame_buffer`, so a frontend always gets one whole frame.
       # Every visible pixel is drawn every frame, so the next frame overwrites the whole swapped-out buffer. Hot path:
-      # one draw per visible dot.
+      # one draw per visible dot, reading palette RAM directly rather than through the PPU bus (plan 25, decision 7).
       class Picture
         WIDTH = 256
         HEIGHT = 240
@@ -29,8 +29,8 @@ module Ruby
         # The last complete frame.
         attr_reader :frame_buffer
 
-        def initialize(bus:, greyscale: false, emphasis: 0)
-          @bus = bus
+        def initialize(palette_ram:, greyscale: false, emphasis: 0)
+          @palette_ram = palette_ram
           @frame_buffer = Array.new(WIDTH * HEIGHT, 0)
           @drawn_frame = Array.new(WIDTH * HEIGHT, 0)
           self.greyscale = greyscale
@@ -48,7 +48,7 @@ module Ruby
 
         # Stores the colour of a palette entry (0-31) at column x of row y.
         def draw(x_position, y_position, palette_entry)
-          colour = @bus.read(PALETTE_START | palette_entry) # glossary: bitwise-or
+          colour = @palette_ram.read(palette_entry)
           pixel = (colour & @colour_mask) | @emphasis # glossary: bitwise-and, bitwise-or
           @drawn_frame[(y_position * WIDTH) + x_position] = pixel
         end

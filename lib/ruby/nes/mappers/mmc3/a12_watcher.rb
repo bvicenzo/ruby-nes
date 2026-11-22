@@ -27,7 +27,7 @@ module Ruby
           end
 
           def watch(address)
-            if address.anybits?(A12_FLAG)
+            if (address & A12_FLAG) != 0 # glossary: flag-set
               rise unless @high
             elsif @high
               @high = false

@@ -26,7 +26,7 @@ module Ruby
             result = sum & Bits::BYTE_MASK # glossary: wrap-to-byte
             @status.carry = sum > Bits::BYTE_MASK
             sign_flips = (result ^ @accumulator) & (result ^ operand) # glossary: signed-overflow
-            @status.overflow = sign_flips.anybits?(Bits::SIGN_BIT)
+            @status.overflow = (sign_flips & Bits::SIGN_BIT) != 0 # glossary: flag-set
             @accumulator = result
             @status.update_zero_and_negative(result)
           end

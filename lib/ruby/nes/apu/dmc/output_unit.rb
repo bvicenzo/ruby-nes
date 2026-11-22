@@ -53,7 +53,7 @@ module Ruby
           private
 
           def change_level
-            if @shift_register.anybits?(LOWEST_BIT)
+            if (@shift_register & LOWEST_BIT) != 0 # glossary: flag-set
               @level += LEVEL_STEP if @level <= HIGHEST_RAISABLE_LEVEL
             elsif @level >= LOWEST_LOWERABLE_LEVEL
               @level -= LEVEL_STEP

@@ -23,7 +23,7 @@ module Ruby
 
           def address(tile, row, attributes)
             fine_y = row & LAST_ROW # glossary: low-bits
-            fine_y = LAST_ROW - fine_y if attributes.anybits?(FLIP_VERTICAL_FLAG)
+            fine_y = LAST_ROW - fine_y if (attributes & FLIP_VERTICAL_FLAG) != 0 # glossary: flag-set
             @pattern_table | (tile << TILE_SHIFT) | fine_y # glossary: place-bit-field, bitwise-or
           end
         end

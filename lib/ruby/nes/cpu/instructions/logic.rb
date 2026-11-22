@@ -29,9 +29,9 @@ module Ruby
           # overflow flags", which sit at the same positions in P. A is not changed.
           def test_bits(address)
             operand = @bus.read(address)
-            @status.zero = @accumulator.nobits?(operand)
-            @status.negative = operand.anybits?(Status::NEGATIVE_FLAG)
-            @status.overflow = operand.anybits?(Status::OVERFLOW_FLAG)
+            @status.zero = (@accumulator & operand) == 0 # glossary: flag-clear
+            @status.negative = (operand & Status::NEGATIVE_FLAG) != 0 # glossary: flag-set
+            @status.overflow = (operand & Status::OVERFLOW_FLAG) != 0 # glossary: flag-set
           end
         end
       end

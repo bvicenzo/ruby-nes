@@ -1,66 +1,63 @@
 # frozen_string_literal: true
 
-# Which pixels of a layer show (https://www.nesdev.org/wiki/PPU_registers, PPUMASK): bit 3 "Enable background rendering"
-# and bit 4 "Enable sprite rendering", "If one component is enabled and the other is not, the disabled component is
-# simply treated as transparent"; bits 1 and 2 "Show background/sprites in leftmost 8 pixels of screen, 0: Hide",
-# hiding them "making them transparent and thus drawing the backdrop color there". A pixel value of 0 is transparent,
-# palette entry 0 (https://www.nesdev.org/wiki/PPU_palettes). A pixel is its palette entry: pattern value in bits 1-0.
+# Which columns of a layer show (https://www.nesdev.org/wiki/PPU_registers, PPUMASK): bit 3 "Enable background
+# rendering" and bit 4 "Enable sprite rendering", "If one component is enabled and the other is not, the disabled
+# component is simply treated as transparent"; bits 1 and 2 "Show background/sprites in leftmost 8 pixels of screen, 0:
+# Hide", hiding them "making them transparent and thus drawing the backdrop color there". The renderer shows a layer's
+# pixel from the first visible column on (plan 25, decision 7); 256 is past the last column, so a disabled layer shows
+# none.
 RSpec.describe Ruby::Nes::Ppu::LayerVisibility do
-  describe '#palette_entry' do
+  describe '#first_visible_column' do
     context 'when the layer is disabled' do
-      subject(:visibility) { described_class.new(enabled: false, left_columns_shown: true) }
+      context 'and the leftmost 8 columns are shown' do
+        subject(:visibility) { described_class.new(enabled: false, left_columns_shown: true) }
 
-      it 'is the backdrop entry' do
-        expect(visibility.palette_entry(100, 0b10_11)).to eq(0)
+        it 'is 256, no column' do
+          expect(visibility.first_visible_column).to eq(256)
+        end
+      end
+
+      context 'and the leftmost 8 columns are hidden' do
+        subject(:visibility) { described_class.new(enabled: false, left_columns_shown: false) }
+
+        it 'is 256, no column' do
+          expect(visibility.first_visible_column).to eq(256)
+        end
       end
     end
 
     context 'when the layer is enabled' do
-      context 'but the pixel is transparent' do
+      context 'and the leftmost 8 columns are hidden' do
+        subject(:visibility) { described_class.new(enabled: true, left_columns_shown: false) }
+
+        it 'is 8' do
+          expect(visibility.first_visible_column).to eq(8)
+        end
+      end
+
+      context 'and the leftmost 8 columns are shown' do
         subject(:visibility) { described_class.new(enabled: true, left_columns_shown: true) }
 
-        it 'is the backdrop entry' do
-          expect(visibility.palette_entry(100, 0b10_00)).to eq(0)
+        it 'is 0' do
+          expect(visibility.first_visible_column).to eq(0)
         end
       end
+    end
+  end
 
-      context 'and the pixel is opaque' do
-        context 'and it is in the leftmost 8 columns' do
-          context 'but they are hidden' do
-            subject(:visibility) { described_class.new(enabled: true, left_columns_shown: false) }
+  describe '#enabled=' do
+    subject(:visibility) { described_class.new(enabled: false, left_columns_shown: true) }
 
-            it 'is the backdrop entry' do
-              expect(visibility.palette_entry(7, 0b10_01)).to eq(0)
-            end
-          end
+    it 'moves the first visible column' do
+      expect { visibility.enabled = true }.to change(visibility, :first_visible_column).from(256).to(0)
+    end
+  end
 
-          context 'and they are shown' do
-            subject(:visibility) { described_class.new(enabled: true, left_columns_shown: true) }
+  describe '#left_columns_shown=' do
+    subject(:visibility) { described_class.new(enabled: true, left_columns_shown: false) }
 
-            it "is the pixel's entry" do
-              expect(visibility.palette_entry(7, 0b10_01)).to eq(0b10_01)
-            end
-          end
-        end
-
-        context 'and it is right of the leftmost 8 columns' do
-          context 'and they are hidden' do
-            subject(:visibility) { described_class.new(enabled: true, left_columns_shown: false) }
-
-            it "is the pixel's entry" do
-              expect(visibility.palette_entry(8, 0b10_01)).to eq(0b10_01)
-            end
-          end
-
-          context 'and they are shown' do
-            subject(:visibility) { described_class.new(enabled: true, left_columns_shown: true) }
-
-            it "is the pixel's entry" do
-              expect(visibility.palette_entry(8, 0b10_01)).to eq(0b10_01)
-            end
-          end
-        end
-      end
+    it 'moves the first visible column' do
+      expect { visibility.left_columns_shown = true }.to change(visibility, :first_visible_column).from(8).to(0)
     end
   end
 end

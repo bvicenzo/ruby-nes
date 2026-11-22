@@ -29,7 +29,7 @@ module Ruby
 
         # The source lets go of the line on `cycle`; the line stays asserted while another source asserts it.
         def release(source, cycle)
-          return if @sources.nobits?(source)
+          return if (@sources & source) == 0 # glossary: flag-clear
 
           @sources &= ~source # glossary: clear-flag
           @released_cycle = cycle if @sources.zero?

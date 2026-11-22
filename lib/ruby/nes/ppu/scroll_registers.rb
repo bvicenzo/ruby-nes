@@ -108,7 +108,7 @@ module Ruby
         # Rendering, every 8 dots: "if coarse X == 31", coarse X = 0 and "switch horizontal nametable", else coarse X +
         # 1.
         def increment_coarse_x
-          if @vram_address.allbits?(COARSE_X_MASK)
+          if (@vram_address & COARSE_X_MASK) == COARSE_X_MASK # glossary: all-flags-set
             @vram_address &= ~COARSE_X_MASK # glossary: clear-flag
             @vram_address ^= HORIZONTAL_NAMETABLE_FLAG # glossary: toggle-flag
           else
@@ -118,7 +118,7 @@ module Ruby
 
         # Rendering, dot 256: "if fine Y < 7", fine Y + 1; else fine Y = 0 and coarse Y moves to the next row.
         def increment_y
-          if @vram_address.allbits?(FINE_Y_MASK)
+          if (@vram_address & FINE_Y_MASK) == FINE_Y_MASK # glossary: all-flags-set
             @vram_address &= ~FINE_Y_MASK # glossary: clear-flag
             increment_coarse_y
           else

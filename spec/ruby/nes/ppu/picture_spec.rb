@@ -11,13 +11,13 @@
 # (plan 16, decision 1).
 RSpec.describe Ruby::Nes::Ppu::Picture do
   describe '#draw' do
-    let(:bus) { Ruby::Nes::PpuBus.new(mapper: instance_double(Ruby::Nes::Mappers::Nrom)) }
+    let(:palette_ram) { Ruby::Nes::PpuBus::PaletteRam.new }
 
-    before { bus.write(0x3F0D, 0x2C) }
+    before { palette_ram.write(0x3F0D, 0x2C) }
 
     context 'when greyscale is off' do
       context 'and no colour is emphasized' do
-        subject(:picture) { described_class.new(bus:) }
+        subject(:picture) { described_class.new(palette_ram:) }
 
         before do
           picture.draw(17, 3, 0x0D)
@@ -30,7 +30,7 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
       end
 
       context 'and red and blue are emphasized' do
-        subject(:picture) { described_class.new(bus:, emphasis: 0xA0) }
+        subject(:picture) { described_class.new(palette_ram:, emphasis: 0xA0) }
 
         before do
           picture.draw(17, 3, 0x0D)
@@ -45,7 +45,7 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
 
     context 'when greyscale is on' do
       context 'and no colour is emphasized' do
-        subject(:picture) { described_class.new(bus:, greyscale: true) }
+        subject(:picture) { described_class.new(palette_ram:, greyscale: true) }
 
         before do
           picture.draw(17, 3, 0x0D)
@@ -58,7 +58,7 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
       end
 
       context 'and green is emphasized' do
-        subject(:picture) { described_class.new(bus:, greyscale: true, emphasis: 0x40) }
+        subject(:picture) { described_class.new(palette_ram:, greyscale: true, emphasis: 0x40) }
 
         before do
           picture.draw(17, 3, 0x0D)
@@ -73,16 +73,16 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
   end
 
   describe '#draw_forced_blank' do
-    let(:bus) { Ruby::Nes::PpuBus.new(mapper: instance_double(Ruby::Nes::Mappers::Nrom)) }
+    let(:palette_ram) { Ruby::Nes::PpuBus::PaletteRam.new }
 
     before do
-      bus.write(0x3F00, 0x0F)
-      bus.write(0x3F05, 0x2C)
+      palette_ram.write(0x3F00, 0x0F)
+      palette_ram.write(0x3F05, 0x2C)
     end
 
     context 'when v points below the palette' do
       context 'and no colour is emphasized' do
-        subject(:picture) { described_class.new(bus:) }
+        subject(:picture) { described_class.new(palette_ram:) }
 
         before do
           picture.draw_forced_blank(17, 3, 0x3EFF)
@@ -95,7 +95,7 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
       end
 
       context 'and blue is emphasized' do
-        subject(:picture) { described_class.new(bus:, emphasis: 0x80) }
+        subject(:picture) { described_class.new(palette_ram:, emphasis: 0x80) }
 
         before do
           picture.draw_forced_blank(17, 3, 0x3EFF)
@@ -110,7 +110,7 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
 
     context 'when v points into the palette' do
       context 'and its fifteenth bit is clear' do
-        subject(:picture) { described_class.new(bus:) }
+        subject(:picture) { described_class.new(palette_ram:) }
 
         before do
           picture.draw_forced_blank(17, 3, 0x3F05)
@@ -123,7 +123,7 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
       end
 
       context 'and its fifteenth bit is set' do
-        subject(:picture) { described_class.new(bus:) }
+        subject(:picture) { described_class.new(palette_ram:) }
 
         before do
           picture.draw_forced_blank(17, 3, 0x7F05)
@@ -136,7 +136,7 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
       end
 
       context 'and greyscale is on' do
-        subject(:picture) { described_class.new(bus:, greyscale: true) }
+        subject(:picture) { described_class.new(palette_ram:, greyscale: true) }
 
         before do
           picture.draw_forced_blank(17, 3, 0x3F05)
@@ -151,12 +151,12 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
   end
 
   describe '#emphasis=' do
-    subject(:picture) { described_class.new(bus:, emphasis: 0xE0) }
+    subject(:picture) { described_class.new(palette_ram:, emphasis: 0xE0) }
 
-    let(:bus) { Ruby::Nes::PpuBus.new(mapper: instance_double(Ruby::Nes::Mappers::Nrom)) }
+    let(:palette_ram) { Ruby::Nes::PpuBus::PaletteRam.new }
 
     before do
-      bus.write(0x3F0D, 0x2C)
+      palette_ram.write(0x3F0D, 0x2C)
       picture.draw(16, 3, 0x0D)
     end
 
@@ -170,13 +170,13 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
   end
 
   describe '#complete_frame' do
-    subject(:picture) { described_class.new(bus:) }
+    subject(:picture) { described_class.new(palette_ram:) }
 
-    let(:bus) { Ruby::Nes::PpuBus.new(mapper: instance_double(Ruby::Nes::Mappers::Nrom)) }
+    let(:palette_ram) { Ruby::Nes::PpuBus::PaletteRam.new }
 
     before do
-      bus.write(0x3F0D, 0x2C)
-      bus.write(0x3F0E, 0x16)
+      palette_ram.write(0x3F0D, 0x2C)
+      palette_ram.write(0x3F0E, 0x16)
     end
 
     context 'when pixels were drawn since the last completion' do

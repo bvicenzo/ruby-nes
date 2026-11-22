@@ -18,7 +18,7 @@ module Ruby
 
         # A sprite pixel at column x overlaps an opaque background pixel.
         def check(x_position, sprite_entry)
-          return unless sprite_entry.anybits?(SpriteLine::SPRITE_ZERO_FLAG)
+          return if (sprite_entry & SpriteLine::SPRITE_ZERO_FLAG) == 0 # glossary: flag-clear
 
           @status.sprite_zero_hit unless x_position == LAST_COLUMN
         end

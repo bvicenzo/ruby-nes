@@ -16,20 +16,20 @@ module Ruby
 
         # ASL: a 0 enters bit 0.
         def shift_left(value)
-          @status.carry = value.anybits?(Bits::SIGN_BIT)
+          @status.carry = (value & Bits::SIGN_BIT) != 0 # glossary: flag-set
           with_zero_and_negative((value << 1) & Bits::BYTE_MASK) # glossary: shift-left, wrap-to-byte
         end
 
         # LSR: a 0 enters bit 7, so N is always cleared.
         def shift_right(value)
-          @status.carry = value.anybits?(LOWEST_BIT)
+          @status.carry = (value & LOWEST_BIT) != 0 # glossary: flag-set
           with_zero_and_negative(value >> 1) # glossary: shift-right
         end
 
         # ROL: the old C enters bit 0.
         def rotate_left(value)
           carry_in = @status.carry? ? LOWEST_BIT : 0
-          @status.carry = value.anybits?(Bits::SIGN_BIT)
+          @status.carry = (value & Bits::SIGN_BIT) != 0 # glossary: flag-set
           shifted = (value << 1) & Bits::BYTE_MASK # glossary: shift-left, wrap-to-byte
           with_zero_and_negative(shifted | carry_in) # glossary: bitwise-or
         end
@@ -37,7 +37,7 @@ module Ruby
         # ROR: the old C enters bit 7.
         def rotate_right(value)
           carry_in = @status.carry? ? Bits::SIGN_BIT : 0
-          @status.carry = value.anybits?(LOWEST_BIT)
+          @status.carry = (value & LOWEST_BIT) != 0 # glossary: flag-set
           with_zero_and_negative((value >> 1) | carry_in) # glossary: shift-right, bitwise-or
         end
 

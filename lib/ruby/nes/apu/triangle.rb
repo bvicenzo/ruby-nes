@@ -71,7 +71,7 @@ module Ruby
 
         def write_control(value)
           @linear_counter.write(value)
-          @length_counter.halted = value.anybits?(CONTROL_FLAG)
+          @length_counter.halted = (value & CONTROL_FLAG) != 0 # glossary: flag-set
         end
 
         def write_length_and_timer_high(value)

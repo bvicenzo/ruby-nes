@@ -70,7 +70,7 @@ module Ruby
 
         def write_control(value)
           @sequencer.duty = (value & DUTY_MASK) >> DUTY_SHIFT # glossary: bit-field
-          @length_counter.halted = value.anybits?(LENGTH_COUNTER_HALT_FLAG)
+          @length_counter.halted = (value & LENGTH_COUNTER_HALT_FLAG) != 0 # glossary: flag-set
           @envelope.write(value)
         end
 

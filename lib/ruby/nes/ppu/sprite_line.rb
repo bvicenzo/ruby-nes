@@ -13,7 +13,7 @@ module Ruby
       # pattern value, "Palette (4 to 7)" being attribute bits 1-0 (https://www.nesdev.org/wiki/PPU_OAM,
       # https://www.nesdev.org/wiki/PPU_palettes), plus BEHIND_BACKGROUND_FLAG from attribute bit 5 and
       # SPRITE_ZERO_FLAG; 0 is a column no sprite covers. Columns past 255 are "past the right edge of the screen, thus
-      # invisible". Hot path: filled at the sprite fetches, read once per pixel.
+      # invisible". Hot path: filled at the sprite fetches, read by the renderer once per pixel.
       class SpriteLine
         WIDTH = Picture::WIDTH
         SPRITE_WIDTH = 8
@@ -34,12 +34,13 @@ module Ruby
         # Each byte with its bits in the opposite order, built once at load time.
         MIRRORED_BYTES = Array.new(Bits::BYTE_MASK + 1) { |byte| format('%08b', byte).reverse.to_i(2) }.freeze
 
+        # The 256 entries, 0 where no opaque sprite pixel covers the column: one array for the life of the line, which
+        # `clear` empties in place, so the renderer keeps a reference to it (plan 25, decision 7).
+        attr_reader :entries
+
         def initialize
           @entries = Array.new(WIDTH, EMPTY)
         end
-
-        # The entry at column x: 0 when no opaque sprite pixel covers it.
-        def entry(x_position) = @entries[x_position]
 
         def clear
           @entries.fill(EMPTY)
@@ -48,7 +49,7 @@ module Ruby
         # Puts a sprite's row from column x, keeping the pixels of the sprites placed before it.
         def place(x_position, pattern_low, pattern_high, attributes, sprite_zero)
           flags = pixel_flags(attributes, sprite_zero)
-          if attributes.anybits?(FLIP_HORIZONTAL_FLAG)
+          if (attributes & FLIP_HORIZONTAL_FLAG) != 0 # glossary: flag-set
             pattern_low = MIRRORED_BYTES[pattern_low]
             pattern_high = MIRRORED_BYTES[pattern_high]
           end

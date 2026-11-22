@@ -150,11 +150,11 @@ module Ruby
 
       # A $4015 write on `cycle`.
       def write_status(value, cycle)
-        @first_pulse.enabled = value.anybits?(FIRST_PULSE_FLAG)
-        @second_pulse.enabled = value.anybits?(SECOND_PULSE_FLAG)
-        @triangle.enabled = value.anybits?(TRIANGLE_FLAG)
-        @noise.enabled = value.anybits?(NOISE_FLAG)
-        @dmc.write_status(value.anybits?(DMC_FLAG), cycle)
+        @first_pulse.enabled = (value & FIRST_PULSE_FLAG) != 0 # glossary: flag-set
+        @second_pulse.enabled = (value & SECOND_PULSE_FLAG) != 0 # glossary: flag-set
+        @triangle.enabled = (value & TRIANGLE_FLAG) != 0 # glossary: flag-set
+        @noise.enabled = (value & NOISE_FLAG) != 0 # glossary: flag-set
+        @dmc.write_status((value & DMC_FLAG) != 0, cycle) # glossary: flag-set
       end
 
       def read_status(data_bus)

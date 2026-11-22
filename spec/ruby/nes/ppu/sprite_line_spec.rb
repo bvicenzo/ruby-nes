@@ -17,14 +17,14 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
       before { line.place(100, 0b1010_0000, 0b0110_0000, 0x02, false) }
 
       it "puts each opaque pixel of the row at its column with the sprite's palette entry", :aggregate_failures do
-        expect(line.entry(100)).to eq(0x19)
-        expect(line.entry(101)).to eq(0x1A)
-        expect(line.entry(102)).to eq(0x1B)
+        expect(line.entries[100]).to eq(0x19)
+        expect(line.entries[101]).to eq(0x1A)
+        expect(line.entries[102]).to eq(0x1B)
       end
 
       it 'leaves the columns of transparent pixels empty', :aggregate_failures do
-        expect(line.entry(103)).to eq(0x00)
-        expect(line.entry(107)).to eq(0x00)
+        expect(line.entries[103]).to eq(0x00)
+        expect(line.entries[107]).to eq(0x00)
       end
     end
 
@@ -35,7 +35,7 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
       end
 
       it 'keeps the earlier pixel' do
-        expect(line.entry(100)).to eq(0x11)
+        expect(line.entries[100]).to eq(0x11)
       end
     end
 
@@ -46,7 +46,7 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
       end
 
       it 'puts the pixel' do
-        expect(line.entry(100)).to eq(0x15)
+        expect(line.entries[100]).to eq(0x15)
       end
     end
 
@@ -54,9 +54,9 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
       before { line.place(252, 0b1111_1111, 0b0000_0000, 0x00, false) }
 
       it 'puts only the columns up to 255', :aggregate_failures do
-        expect(line.entry(252)).to eq(0x11)
-        expect(line.entry(255)).to eq(0x11)
-        expect(line.entry(256)).to be_nil
+        expect(line.entries[252]).to eq(0x11)
+        expect(line.entries[255]).to eq(0x11)
+        expect(line.entries[256]).to be_nil
       end
     end
 
@@ -64,10 +64,10 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
       before { line.place(100, 0b1010_0000, 0b0110_0000, 0x42, false) }
 
       it 'puts the row mirrored', :aggregate_failures do
-        expect(line.entry(107)).to eq(0x19)
-        expect(line.entry(106)).to eq(0x1A)
-        expect(line.entry(105)).to eq(0x1B)
-        expect(line.entry(100)).to eq(0x00)
+        expect(line.entries[107]).to eq(0x19)
+        expect(line.entries[106]).to eq(0x1A)
+        expect(line.entries[105]).to eq(0x1B)
+        expect(line.entries[100]).to eq(0x00)
       end
     end
 
@@ -75,7 +75,7 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
       before { line.place(100, 0b1000_0000, 0b0000_0000, 0x20, false) }
 
       it 'marks its pixels behind the background' do
-        expect(line.entry(100)).to eq(0x31)
+        expect(line.entries[100]).to eq(0x31)
       end
     end
 
@@ -83,7 +83,7 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
       before { line.place(100, 0b1000_0000, 0b0000_0000, 0x00, true) }
 
       it 'marks its pixels as sprite 0' do
-        expect(line.entry(100)).to eq(0x51)
+        expect(line.entries[100]).to eq(0x51)
       end
     end
   end
@@ -94,7 +94,40 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
     before { line.place(100, 0b1000_0000, 0b0000_0000, 0x00, true) }
 
     it 'empties every column' do
-      expect { line.clear }.to change { line.entry(100) }.from(0x51).to(0x00)
+      expect { line.clear }.to change { line.entries[100] }.from(0x51).to(0x00)
+    end
+  end
+
+  # The renderer keeps a reference to the entries across scanlines (plan 25, decision 7).
+  describe '#entries' do
+    context 'when nothing was placed' do
+      subject(:line) { described_class.new }
+
+      it 'is 256 empty entries' do
+        expect(line.entries).to eq(Array.new(256, 0))
+      end
+    end
+
+    context 'when a sprite was placed' do
+      subject(:line) { described_class.new }
+
+      before { line.place(100, 0b1000_0001, 0b0000_0000, 0x00, false) }
+
+      it "holds its pixels' entries at their columns", :aggregate_failures do
+        expect(line.entries[100]).to eq(0x11)
+        expect(line.entries[107]).to eq(0x11)
+        expect(line.entries.count(&:positive?)).to eq(2)
+      end
+    end
+
+    context 'when the line is cleared' do
+      subject(:line) { described_class.new }
+
+      before { line.place(100, 0b1000_0000, 0b0000_0000, 0x00, false) }
+
+      it 'stays the same array' do
+        expect { line.clear }.not_to(change { line.entries.object_id })
+      end
     end
   end
 end

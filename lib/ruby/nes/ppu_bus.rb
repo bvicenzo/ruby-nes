@@ -12,6 +12,9 @@ module Ruby
       # The bus is 14 bits wide: a 15-bit v loses its top bit.
       ADDRESS_MASK = 0x3FFF
 
+      # The palette RAM at $3F00-$3FFF, which the picture reads without the bus (plan 25, decision 7).
+      attr_reader :palette_ram
+
       def initialize(mapper:)
         @mapper = mapper
         @nametables = Nametables.new(mapper:)

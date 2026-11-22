@@ -133,7 +133,7 @@ module Ruby
 
         def register_number(address)
           pair = Bits.bit_field(address, mask: PAIR_SELECT_MASK, shift: PAIR_SELECT_SHIFT)
-          (pair * REGISTERS_PER_PAIR) + (address.anybits?(ODD_ADDRESS_FLAG) ? 1 : 0)
+          (pair * REGISTERS_PER_PAIR) + ((address & ODD_ADDRESS_FLAG) == 0 ? 0 : 1) # glossary: flag-clear
         end
 
         def select_bank_register(value)
@@ -153,8 +153,8 @@ module Ruby
         end
 
         def select_banks
-          select_prg_banks(PRG_LAYOUTS[@bank_select.anybits?(PRG_MODE_FLAG) ? 1 : 0])
-          select_chr_banks(CHR_LAYOUTS[@bank_select.anybits?(CHR_INVERSION_FLAG) ? 1 : 0])
+          select_prg_banks(PRG_LAYOUTS[(@bank_select & PRG_MODE_FLAG) == 0 ? 0 : 1]) # glossary: flag-clear
+          select_chr_banks(CHR_LAYOUTS[(@bank_select & CHR_INVERSION_FLAG) == 0 ? 0 : 1]) # glossary: flag-clear
         end
 
         def select_prg_banks(layout)

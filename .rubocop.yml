@@ -16,3 +16,17 @@ AllCops:
 # `# glossary: <term>` tag (docs/architecture.md, Readability), so only lines that are entirely a comment are exempt.
 Layout/LineLength:
   AllowedPatterns: ['\A\s*#']
+
+# Flag tests on hot paths are inline, `(value & FLAG) != 0 # glossary: flag-set`: the JITs compile the operator inline
+# and call `anybits?` (docs/architecture.md, decision 72). The cop is off in the directories of per-dot, per-cycle and
+# per-instruction code; load-time code in them (tables, board building) still uses the predicates.
+Style/BitwisePredicate:
+  Exclude:
+    - 'lib/ruby/nes/apu.rb'
+    - 'lib/ruby/nes/apu/**/*'
+    - 'lib/ruby/nes/cpu.rb'
+    - 'lib/ruby/nes/cpu/**/*'
+    - 'lib/ruby/nes/input/**/*'
+    - 'lib/ruby/nes/mappers/**/*'
+    - 'lib/ruby/nes/ppu.rb'
+    - 'lib/ruby/nes/ppu/**/*'

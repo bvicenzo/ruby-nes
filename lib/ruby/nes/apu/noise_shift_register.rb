@@ -35,7 +35,9 @@ module Ruby
           @value = shifted | (feedback << FEEDBACK_BIT) # glossary: shift-left, bitwise-or
         end
 
-        def muting? = @value.anybits?(LOWEST_BIT)
+        def muting?
+          (@value & LOWEST_BIT) != 0 # glossary: flag-set
+        end
       end
     end
   end

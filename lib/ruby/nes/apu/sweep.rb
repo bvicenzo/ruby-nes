@@ -38,9 +38,9 @@ module Ruby
 
         # The channel's second register.
         def write(value)
-          @enabled = value.anybits?(ENABLED_FLAG)
+          @enabled = (value & ENABLED_FLAG) != 0 # glossary: flag-set
           @divider_period = (value & PERIOD_MASK) >> PERIOD_SHIFT # glossary: bit-field
-          @negate = value.anybits?(NEGATE_FLAG)
+          @negate = (value & NEGATE_FLAG) != 0 # glossary: flag-set
           @shift = value & SHIFT_MASK # glossary: low-bits
           @reload = true
         end

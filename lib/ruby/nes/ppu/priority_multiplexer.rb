@@ -3,24 +3,21 @@
 module Ruby
   module Nes
     class Ppu
-      # Chooses the pixel drawn from the background's and the sprites' (https://www.nesdev.org/wiki/PPU_rendering): the
-      # "Priority multiplexer decision table" gives the backdrop, "EXT in ($3F00)", when both are transparent, the opaque
-      # one when only one is, and with both opaque the sprite when its priority is 0 (in front) and the background when
-      # it is 1 (behind). Both entries come through LayerVisibility, so entry 0 is a transparent or hidden pixel; a
-      # sprite entry carries SpriteLine's flags, dropped from the entry drawn. Where both are opaque, sprite 0 hit is
-      # checked, "regardless of sprite priority" (https://www.nesdev.org/wiki/PPU_OAM). Hot path: one call per pixel.
+      # Chooses the pixel drawn where the background's and the sprites' are both opaque
+      # (https://www.nesdev.org/wiki/PPU_rendering): the "Priority multiplexer decision table" gives the sprite when its
+      # priority is 0 (in front) and the background when it is 1 (behind). The renderer draws a lone opaque layer
+      # itself and asks only for these pixels (plan 25, decision 7). A sprite entry carries SpriteLine's flags, dropped
+      # from the entry drawn. Sprite 0 hit is checked on each, "regardless of sprite priority"
+      # (https://www.nesdev.org/wiki/PPU_OAM). Hot path: one call per pixel where the layers overlap.
       class PriorityMultiplexer
         def initialize(sprite_zero_hit:)
           @sprite_zero_hit = sprite_zero_hit
         end
 
-        # The palette entry drawn at column x.
+        # The palette entry drawn at column x, both entries opaque.
         def palette_entry(x_position, background_entry, sprite_entry)
-          return background_entry if sprite_entry.zero?
-          return sprite_entry & SpriteLine::PALETTE_ENTRY_MASK if background_entry.zero? # glossary: low-bits
-
           @sprite_zero_hit.check(x_position, sprite_entry)
-          return background_entry if sprite_entry.anybits?(SpriteLine::BEHIND_BACKGROUND_FLAG)
+          return background_entry if (sprite_entry & SpriteLine::BEHIND_BACKGROUND_FLAG) != 0 # glossary: flag-set
 
           sprite_entry & SpriteLine::PALETTE_ENTRY_MASK # glossary: low-bits
         end

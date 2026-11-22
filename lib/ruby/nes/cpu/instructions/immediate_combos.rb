@@ -16,7 +16,7 @@ module Ruby
           # ANC: "Does AND #i, setting N and Z flags based on the result. Then it copies N (bit 7) to C."
           def and_then_copy_sign_to_carry(address)
             and_with_accumulator(address)
-            @status.carry = @accumulator.anybits?(Bits::SIGN_BIT)
+            @status.carry = (@accumulator & Bits::SIGN_BIT) != 0 # glossary: flag-set
           end
 
           # ALR: "Equivalent to AND #i then LSR A."
@@ -30,8 +30,9 @@ module Ruby
           def and_then_rotate_right(address)
             and_with_accumulator(address)
             rotate_right_accumulator
-            @status.carry = @accumulator.anybits?(CARRY_SOURCE_BIT)
-            @status.overflow = @accumulator.anybits?(CARRY_SOURCE_BIT) != @accumulator.anybits?(OVERFLOW_PARTNER_BIT)
+            @status.carry = (@accumulator & CARRY_SOURCE_BIT) != 0 # glossary: flag-set
+            overflow_partner = (@accumulator & OVERFLOW_PARTNER_BIT) != 0 # glossary: flag-set
+            @status.overflow = @status.carry? != overflow_partner
           end
 
           # AXS: "Sets X to {(A AND X) - #value without borrow}, and updates NZC": C, Z and N as CMP sets them, and "it

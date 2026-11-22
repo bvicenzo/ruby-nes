@@ -23,7 +23,7 @@ module Ruby
 
         # The channel's first register.
         def write(value)
-          @control = value.anybits?(CONTROL_FLAG)
+          @control = (value & CONTROL_FLAG) != 0 # glossary: flag-set
           @reload_value = value & RELOAD_VALUE_MASK # glossary: low-bits
         end
 

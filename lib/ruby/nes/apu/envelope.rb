@@ -29,8 +29,8 @@ module Ruby
 
         # The channel's first register.
         def write(value)
-          @loop = value.anybits?(LOOP_FLAG)
-          @constant_volume = value.anybits?(CONSTANT_VOLUME_FLAG)
+          @loop = (value & LOOP_FLAG) != 0 # glossary: flag-set
+          @constant_volume = (value & CONSTANT_VOLUME_FLAG) != 0 # glossary: flag-set
           @volume_or_period = value & VOLUME_MASK # glossary: low-bits
         end
 

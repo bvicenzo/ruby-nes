@@ -36,7 +36,7 @@ module Ruby
             @previous_write_cycle = cycle
             return if gap < MINIMUM_WRITE_GAP
 
-            @value = Bits.set_flag(@value, VALUE_BITS[@writes]) if value.anybits?(DATA_BIT)
+            @value = Bits.set_flag(@value, VALUE_BITS[@writes]) if (value & DATA_BIT) != 0 # glossary: flag-set
             @writes += 1
             return if @writes < VALUE_BITS.size
 

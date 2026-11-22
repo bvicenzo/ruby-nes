@@ -34,7 +34,7 @@ RSpec.describe Ruby::Nes::Ppu do
       let(:oam) { Ruby::Nes::Ppu::Oam.new }
 
       context 'and the address is $2000' do
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
 
         before do
@@ -52,7 +52,7 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the address is $2001' do
-        let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, place_address: nil) }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3F00) }
 
         before do
@@ -72,7 +72,7 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the address is $2005' do
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
 
         before do
@@ -90,7 +90,7 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the address is $2006' do
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
 
         before do
@@ -108,7 +108,7 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the address is $2003' do
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
 
         before do
@@ -128,7 +128,7 @@ RSpec.describe Ruby::Nes::Ppu do
           described_class.new(bus:, scroll_registers:, oam:, vertical_blank:, sprite_renderer:, renderer:)
         end
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus, read: 0x00, place_address: nil) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, read: 0x00, place_address: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
         let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, :nmi_enabled= => nil) }
@@ -232,12 +232,10 @@ RSpec.describe Ruby::Nes::Ppu do
           described_class.new(bus:, scroll_registers:, oam:, frame_timing:, sprite_renderer:, renderer:)
         end
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, place_address: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3F00) }
-        let(:sprite_renderer) do
-          instance_double(Ruby::Nes::Ppu::SpriteRenderer, :enabled= => nil, :left_columns_shown= => nil)
-        end
+        let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer) }
         let(:frame_timing) do
           instance_double(Ruby::Nes::Ppu::FrameTiming, :rendering_enabled= => nil, rendering_in_progress?: false)
         end
@@ -246,8 +244,10 @@ RSpec.describe Ruby::Nes::Ppu do
             Ruby::Nes::Ppu::Renderer,
             :greyscale= => nil,
             :emphasis= => nil,
-            :left_columns_shown= => nil,
+            :background_left_columns_shown= => nil,
             :background_enabled= => nil,
+            :sprite_left_columns_shown= => nil,
+            :sprites_enabled= => nil,
             :rendering_enabled= => nil
           )
         end
@@ -296,7 +296,7 @@ RSpec.describe Ruby::Nes::Ppu do
           before { ppu.cpu_write(0x2001, 0xFD) }
 
           it 'hides the background in the leftmost 8 columns' do
-            expect(renderer).to have_received(:left_columns_shown=).with(false)
+            expect(renderer).to have_received(:background_left_columns_shown=).with(false)
           end
         end
 
@@ -304,7 +304,7 @@ RSpec.describe Ruby::Nes::Ppu do
           before { ppu.cpu_write(0x2001, 0x02) }
 
           it 'shows the background in the leftmost 8 columns' do
-            expect(renderer).to have_received(:left_columns_shown=).with(true)
+            expect(renderer).to have_received(:background_left_columns_shown=).with(true)
           end
         end
 
@@ -312,7 +312,7 @@ RSpec.describe Ruby::Nes::Ppu do
           before { ppu.cpu_write(0x2001, 0xFB) }
 
           it 'hides the sprites in the leftmost 8 columns' do
-            expect(sprite_renderer).to have_received(:left_columns_shown=).with(false)
+            expect(renderer).to have_received(:sprite_left_columns_shown=).with(false)
           end
         end
 
@@ -320,7 +320,7 @@ RSpec.describe Ruby::Nes::Ppu do
           before { ppu.cpu_write(0x2001, 0x04) }
 
           it 'shows the sprites in the leftmost 8 columns' do
-            expect(sprite_renderer).to have_received(:left_columns_shown=).with(true)
+            expect(renderer).to have_received(:sprite_left_columns_shown=).with(true)
           end
         end
 
@@ -337,7 +337,7 @@ RSpec.describe Ruby::Nes::Ppu do
           end
 
           it 'disables the sprites' do
-            expect(sprite_renderer).to have_received(:enabled=).with(false)
+            expect(renderer).to have_received(:sprites_enabled=).with(false)
           end
         end
 
@@ -354,7 +354,7 @@ RSpec.describe Ruby::Nes::Ppu do
           end
 
           it 'disables the sprites' do
-            expect(sprite_renderer).to have_received(:enabled=).with(false)
+            expect(renderer).to have_received(:sprites_enabled=).with(false)
           end
         end
 
@@ -371,7 +371,7 @@ RSpec.describe Ruby::Nes::Ppu do
           end
 
           it 'enables the sprites' do
-            expect(sprite_renderer).to have_received(:enabled=).with(true)
+            expect(renderer).to have_received(:sprites_enabled=).with(true)
           end
         end
 
@@ -397,7 +397,7 @@ RSpec.describe Ruby::Nes::Ppu do
       context 'and the address is $2002' do
         subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(temporary_address: 0x1234, second_write: true) }
 
@@ -412,7 +412,7 @@ RSpec.describe Ruby::Nes::Ppu do
       context 'and the address is $2003' do
         subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
 
@@ -427,7 +427,7 @@ RSpec.describe Ruby::Nes::Ppu do
       context 'and the address is $2004' do
         subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, frame_timing:) }
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
         let(:oam) { Ruby::Nes::Ppu::Oam.new(address: 0x40) }
 
@@ -465,7 +465,7 @@ RSpec.describe Ruby::Nes::Ppu do
       context 'and the address is $2005' do
         subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
 
@@ -483,7 +483,7 @@ RSpec.describe Ruby::Nes::Ppu do
         context 'and it is the first write' do
           subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-          let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
+          let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, place_address: nil) }
           let(:oam) { Ruby::Nes::Ppu::Oam.new }
           let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x1234) }
 
@@ -502,7 +502,7 @@ RSpec.describe Ruby::Nes::Ppu do
         context 'and it is the second write' do
           subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-          let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
+          let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, place_address: nil) }
           let(:oam) { Ruby::Nes::Ppu::Oam.new }
           let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x1234) }
 
@@ -520,7 +520,7 @@ RSpec.describe Ruby::Nes::Ppu do
       context 'and the address is $2007' do
         subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-        let(:bus) { instance_double(Ruby::Nes::PpuBus, write: nil, place_address: nil) }
+        let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, write: nil, place_address: nil) }
         let(:oam) { Ruby::Nes::Ppu::Oam.new }
         let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x2005) }
 
@@ -538,7 +538,7 @@ RSpec.describe Ruby::Nes::Ppu do
     context 'when the address is a write-only register' do
       subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
       let(:oam) { Ruby::Nes::Ppu::Oam.new }
 
@@ -580,7 +580,7 @@ RSpec.describe Ruby::Nes::Ppu do
         described_class.new(bus:, scroll_registers:, oam:, frame_timing:, vertical_blank:, sprite_status:)
       end
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(second_write: true) }
       let(:oam) { Ruby::Nes::Ppu::Oam.new }
       let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, status_read: nil) }
@@ -658,7 +658,7 @@ RSpec.describe Ruby::Nes::Ppu do
     context 'when the address is $2004' do
       subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
       let(:oam) { Ruby::Nes::Ppu::Oam.new(address: 0x40) }
 
@@ -676,7 +676,7 @@ RSpec.describe Ruby::Nes::Ppu do
     context 'when the address is $2007' do
       subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, place_address: nil) }
       let(:oam) { Ruby::Nes::Ppu::Oam.new }
 
       context 'and v is below the palette' do
@@ -713,7 +713,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#reset' do
     subject(:ppu) { described_class.new(bus:, scroll_registers:, oam:, frame_timing:, vertical_blank:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus, place_address: nil) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, place_address: nil) }
     let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new(vram_address: 0x3EFE) }
     let(:oam) { Ruby::Nes::Ppu::Oam.new }
     let(:frame_timing) do
@@ -771,7 +771,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#vertical_blank_started' do
     subject(:ppu) { described_class.new(bus:, vertical_blank:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
     let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, vertical_blank_started: nil) }
 
     before { ppu.vertical_blank_started }
@@ -784,7 +784,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#picture_completed' do
     subject(:ppu) { described_class.new(bus:, renderer:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
     let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, complete_picture: nil) }
 
     before { ppu.picture_completed }
@@ -798,7 +798,7 @@ RSpec.describe Ruby::Nes::Ppu do
     context 'when the PPU was reset' do
       subject(:ppu) { described_class.new(bus:, scroll_registers:, frame_timing:, vertical_blank:, sprite_status:) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
       let(:scroll_registers) { Ruby::Nes::Ppu::ScrollRegisters.new }
       let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, :rendering_enabled= => nil, reset: nil) }
       let(:vertical_blank) do
@@ -828,7 +828,7 @@ RSpec.describe Ruby::Nes::Ppu do
     context 'when the PPU was not reset' do
       subject(:ppu) { described_class.new(bus:, vertical_blank:, sprite_status:) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
       let(:vertical_blank) { instance_double(Ruby::Nes::Ppu::VerticalBlank, vertical_blank_ended: nil) }
       let(:sprite_status) { instance_double(Ruby::Nes::Ppu::SpriteStatus, clear: nil) }
 
@@ -848,7 +848,7 @@ RSpec.describe Ruby::Nes::Ppu do
     context 'when no NMI input is wired' do
       subject(:ppu) { described_class.new(bus:) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
 
       it 'fails loudly' do
         expect { ppu.nmi_output_changed(true) }.to raise_error(NoMethodError)
@@ -858,7 +858,7 @@ RSpec.describe Ruby::Nes::Ppu do
     context 'when an NMI input is wired' do
       subject(:ppu) { described_class.new(bus:, nmi_input:, frame_timing:, renderer:) }
 
-      let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
       let(:nmi_input) { instance_double(Ruby::Nes::Cpu, nmi_line_changed: nil) }
       let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
 
@@ -965,7 +965,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#catch_up' do
     subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
     let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 12, dot: 34) }
     let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
 
@@ -1010,7 +1010,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#elapsed_dots' do
     subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
     let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 12, dot: 34) }
     let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
 
@@ -1027,7 +1027,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#scanline' do
     subject(:ppu) { described_class.new(bus:, frame_timing:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
     let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 241) }
 
     it "returns the frame timing's scanline" do
@@ -1038,7 +1038,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#dot' do
     subject(:ppu) { described_class.new(bus:, frame_timing:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
     let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, dot: 21) }
 
     it "returns the frame timing's dot" do
@@ -1049,7 +1049,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#frame_number' do
     subject(:ppu) { described_class.new(bus:, frame_timing:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
     let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, frame_number: 7) }
 
     it "returns the frame timing's frame number" do
@@ -1060,7 +1060,7 @@ RSpec.describe Ruby::Nes::Ppu do
   describe '#frame_buffer' do
     subject(:ppu) { described_class.new(bus:, renderer:) }
 
-    let(:bus) { instance_double(Ruby::Nes::PpuBus) }
+    let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
     let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, frame_buffer: [0x0F] * 4) }
 
     it 'is the last frame the renderer completed' do

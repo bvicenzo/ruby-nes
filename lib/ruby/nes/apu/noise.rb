@@ -71,11 +71,11 @@ module Ruby
 
         def write_control(value)
           @envelope.write(value)
-          @length_counter.halted = value.anybits?(LENGTH_COUNTER_HALT_FLAG)
+          @length_counter.halted = (value & LENGTH_COUNTER_HALT_FLAG) != 0 # glossary: flag-set
         end
 
         def write_period(value)
-          @shift_register.periodic = value.anybits?(PERIODIC_FLAG)
+          @shift_register.periodic = (value & PERIODIC_FLAG) != 0 # glossary: flag-set
           @timer.period = TIMER_PERIODS[value & PERIOD_INDEX_MASK] # glossary: low-bits
         end
 

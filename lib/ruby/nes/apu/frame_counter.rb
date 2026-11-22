@@ -70,7 +70,7 @@ module Ruby
 
         # A $4017 write on CPU cycle `cycle`.
         def write(value, cycle)
-          @interrupt.change_inhibit(value.anybits?(INHIBIT_FLAG), cycle)
+          @interrupt.change_inhibit((value & INHIBIT_FLAG) != 0, cycle) # glossary: flag-set
           @written_value = value
           @write_delay = cycle.odd? ? WRITE_DELAY_DURING_APU_CYCLE : WRITE_DELAY_BETWEEN_APU_CYCLES
         end
@@ -97,20 +97,20 @@ module Ruby
         def restart(cycle)
           @step = 0
           @frame_cycle = 0
-          if @written_value.anybits?(FIVE_STEP_FLAG)
+          if (@written_value & FIVE_STEP_FLAG) == 0 # glossary: flag-clear
+            @step_cycles = FOUR_STEP_CYCLES
+            @step_events = FOUR_STEP_EVENTS
+          else
             @step_cycles = FIVE_STEP_CYCLES
             @step_events = FIVE_STEP_EVENTS
             run_step(BOTH_FRAMES, cycle)
-          else
-            @step_cycles = FOUR_STEP_CYCLES
-            @step_events = FOUR_STEP_EVENTS
           end
         end
 
         def run_step(events, cycle)
-          @listener.quarter_frame if events.anybits?(QUARTER_FRAME)
-          @listener.half_frame if events.anybits?(HALF_FRAME)
-          @interrupt.trigger(cycle) if events.anybits?(INTERRUPT)
+          @listener.quarter_frame if (events & QUARTER_FRAME) != 0 # glossary: flag-set
+          @listener.half_frame if (events & HALF_FRAME) != 0 # glossary: flag-set
+          @interrupt.trigger(cycle) if (events & INTERRUPT) != 0 # glossary: flag-set
         end
       end
     end

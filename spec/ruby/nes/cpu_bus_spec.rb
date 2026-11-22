@@ -432,7 +432,7 @@ RSpec.describe Ruby::Nes::CpuBus do
         end
 
         context 'and the PPU answers them with OAMADDR at $F0' do
-          let(:ppu_registers) { Ruby::Nes::Ppu.new(bus: instance_double(Ruby::Nes::PpuBus), oam:) }
+          let(:ppu_registers) { Ruby::Nes::Ppu.new(bus: instance_double(Ruby::Nes::PpuBus, palette_ram: nil), oam:) }
           let(:oam) { Ruby::Nes::Ppu::Oam.new(address: 0xF0) }
 
           before do

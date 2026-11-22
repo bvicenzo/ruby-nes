@@ -54,7 +54,7 @@ module Ruby
         # Zero when the byte is 0, negative when its bit 7 is set; the other flags stay as they are.
         def update_zero_and_negative(value)
           @zero = value.zero?
-          @negative = value.anybits?(NEGATIVE_FLAG)
+          @negative = (value & NEGATIVE_FLAG) != 0 # glossary: flag-set
         end
 
         # The byte PHP and BRK push: B and bit 5 set.
@@ -69,12 +69,12 @@ module Ruby
 
         # PLP and RTI: the six flags take the byte's bits; B and bit 5 are dropped.
         def restore(byte)
-          @carry = byte.anybits?(CARRY_FLAG)
-          @zero = byte.anybits?(ZERO_FLAG)
-          @interrupt_disable = byte.anybits?(INTERRUPT_DISABLE_FLAG)
-          @decimal = byte.anybits?(DECIMAL_FLAG)
-          @overflow = byte.anybits?(OVERFLOW_FLAG)
-          @negative = byte.anybits?(NEGATIVE_FLAG)
+          @carry = (byte & CARRY_FLAG) != 0 # glossary: flag-set
+          @zero = (byte & ZERO_FLAG) != 0 # glossary: flag-set
+          @interrupt_disable = (byte & INTERRUPT_DISABLE_FLAG) != 0 # glossary: flag-set
+          @decimal = (byte & DECIMAL_FLAG) != 0 # glossary: flag-set
+          @overflow = (byte & OVERFLOW_FLAG) != 0 # glossary: flag-set
+          @negative = (byte & NEGATIVE_FLAG) != 0 # glossary: flag-set
         end
 
         private

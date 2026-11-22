@@ -88,7 +88,7 @@ module Ruby
                      renderer: Renderer.new(
                        scroll_registers:,
                        fetcher: BackgroundFetcher.new(bus:, scroll_registers:),
-                       picture: Picture.new(bus:),
+                       picture: Picture.new(palette_ram: bus.palette_ram),
                        sprite_renderer:,
                        multiplexer: PriorityMultiplexer.new(sprite_zero_hit: SpriteZeroHit.new(status: sprite_status))
                      ))
@@ -213,29 +213,30 @@ module Ruby
 
       def write_control(value)
         @scroll_registers.write_control(value)
-        @data_port.increment = value.anybits?(VRAM_INCREMENT_FLAG) ? DOWN_INCREMENT : ACROSS_INCREMENT
-        @vertical_blank.nmi_enabled = value.anybits?(NMI_ENABLE_FLAG)
-        second_table = value.anybits?(BACKGROUND_PATTERN_TABLE_FLAG)
+        going_down = (value & VRAM_INCREMENT_FLAG) != 0 # glossary: flag-set
+        @data_port.increment = going_down ? DOWN_INCREMENT : ACROSS_INCREMENT
+        @vertical_blank.nmi_enabled = (value & NMI_ENABLE_FLAG) != 0 # glossary: flag-set
+        second_table = (value & BACKGROUND_PATTERN_TABLE_FLAG) != 0 # glossary: flag-set
         @renderer.pattern_table = second_table ? SECOND_PATTERN_TABLE : FIRST_PATTERN_TABLE
         write_sprite_control(value)
       end
 
       def write_sprite_control(value)
-        second_table = value.anybits?(SPRITE_PATTERN_TABLE_FLAG)
+        second_table = (value & SPRITE_PATTERN_TABLE_FLAG) != 0 # glossary: flag-set
         @sprite_renderer.pattern_table = second_table ? SECOND_PATTERN_TABLE : FIRST_PATTERN_TABLE
-        @sprite_renderer.tall_sprites = value.anybits?(SPRITE_SIZE_FLAG)
+        @sprite_renderer.tall_sprites = (value & SPRITE_SIZE_FLAG) != 0 # glossary: flag-set
       end
 
       def write_mask(value)
-        greyscale = value.anybits?(GREYSCALE_FLAG)
-        rendering_enabled = value.anybits?(RENDERING_FLAGS)
+        greyscale = (value & GREYSCALE_FLAG) != 0 # glossary: flag-set
+        rendering_enabled = (value & RENDERING_FLAGS) != 0 # glossary: flag-set
         @data_port.greyscale = greyscale
         @renderer.greyscale = greyscale
         @renderer.emphasis = value & EMPHASIS_FLAGS # glossary: bitwise-and
-        @renderer.left_columns_shown = value.anybits?(LEFT_BACKGROUND_FLAG)
-        @renderer.background_enabled = value.anybits?(BACKGROUND_FLAG)
-        @sprite_renderer.left_columns_shown = value.anybits?(LEFT_SPRITES_FLAG)
-        @sprite_renderer.enabled = value.anybits?(SPRITES_FLAG)
+        @renderer.background_left_columns_shown = (value & LEFT_BACKGROUND_FLAG) != 0 # glossary: flag-set
+        @renderer.background_enabled = (value & BACKGROUND_FLAG) != 0 # glossary: flag-set
+        @renderer.sprite_left_columns_shown = (value & LEFT_SPRITES_FLAG) != 0 # glossary: flag-set
+        @renderer.sprites_enabled = (value & SPRITES_FLAG) != 0 # glossary: flag-set
         @frame_timing.rendering_enabled = rendering_enabled
         @renderer.rendering_enabled = rendering_enabled
       end
@@ -255,7 +256,6 @@ require_relative 'ppu/data_port'
 require_relative 'ppu/frame_timing'
 require_relative 'ppu/vertical_blank'
 require_relative 'ppu/background_fetcher'
-require_relative 'ppu/background_shifters'
 require_relative 'ppu/picture'
 require_relative 'ppu/sprite_line'
 require_relative 'ppu/sprite_fetcher'

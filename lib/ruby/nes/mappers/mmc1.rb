@@ -69,14 +69,14 @@ module Ruby
 
         def write_register(address, value)
           cycle = @cpu.cycles
-          if value.anybits?(RESET_FLAG)
-            @serial_port.reset(cycle)
-            @registers[CONTROL] = Bits.set_flag(@registers[CONTROL], CONTROL_RESET_BITS)
-          else
+          if (value & RESET_FLAG) == 0 # glossary: flag-clear
             loaded = @serial_port.shift(value, cycle)
             return unless loaded
 
             @registers[Bits.bit_field(address, mask: REGISTER_SELECT_MASK, shift: REGISTER_SELECT_SHIFT)] = loaded
+          else
+            @serial_port.reset(cycle)
+            @registers[CONTROL] = Bits.set_flag(@registers[CONTROL], CONTROL_RESET_BITS)
           end
           select_banks
         end
@@ -86,8 +86,8 @@ module Ruby
           control = @registers[CONTROL]
           @mirroring = MIRRORINGS[Bits.low_bits(control, ARRANGEMENT_MASK)]
           select_prg_banks(Bits.bit_field(control, mask: PRG_MODE_MASK, shift: PRG_MODE_SHIFT))
-          select_chr_banks(control.anybits?(TWO_CHR_BANKS_FLAG))
-          enable_prg_ram(@registers[PRG_BANK].nobits?(PRG_RAM_OFF_FLAG))
+          select_chr_banks((control & TWO_CHR_BANKS_FLAG) != 0) # glossary: flag-set
+          enable_prg_ram((@registers[PRG_BANK] & PRG_RAM_OFF_FLAG) == 0) # glossary: flag-clear
         end
 
         # Modes 0 and 1 show the 32 KiB bank holding the selected 16 KiB bank, its low bit ignored. Mode 3's fixed bank
@@ -114,7 +114,7 @@ module Ruby
         # The first 16 KiB bank of the 256 KiB the windows see: the second 256 KiB of a SUROM when CHR bank 0 bit 4
         # says so.
         def first_bank_of_outer_bank
-          return 0 unless @outer_bank_wired && @registers[CHR_BANK_0].anybits?(OUTER_BANK_FLAG)
+          return 0 unless @outer_bank_wired && (@registers[CHR_BANK_0] & OUTER_BANK_FLAG) != 0 # glossary: flag-set
 
           BANKS_PER_OUTER_BANK
         end

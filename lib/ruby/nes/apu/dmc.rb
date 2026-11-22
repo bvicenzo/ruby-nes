@@ -100,8 +100,8 @@ module Ruby
         private
 
         def write_control(value)
-          @interrupt.change_inhibit(value.nobits?(INTERRUPT_ENABLE_FLAG), @cpu.access_cycle)
-          @sample.loop = value.anybits?(LOOP_FLAG)
+          @interrupt.change_inhibit((value & INTERRUPT_ENABLE_FLAG) == 0, @cpu.access_cycle) # glossary: flag-clear
+          @sample.loop = (value & LOOP_FLAG) != 0 # glossary: flag-set
           @timer.period = TIMER_PERIODS[value & RATE_INDEX_MASK] # glossary: low-bits
         end
       end
