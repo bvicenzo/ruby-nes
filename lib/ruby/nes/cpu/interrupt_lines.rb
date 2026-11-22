@@ -32,10 +32,11 @@ module Ruby
         POLL_DELAY_CYCLES = 1
         # BRK and the interrupt sequence pick their vector after their fourth tick.
         HIJACK_TICKS = 4
-        # The IRQ sources, one bit each: the cartridge board (MMC3, plan 21) and the APU's frame counter (plan 22). Plan
-        # 23 adds the DMC's.
+        # The IRQ sources, one bit each: the cartridge board (MMC3, plan 21), the APU's frame counter (plan 22) and the
+        # DMC's sample end (plan 23).
         MAPPER_IRQ = 0x01
         FRAME_IRQ = 0x02
+        DMC_IRQ = 0x04
 
         def initialize(status:, nmi_detector: NmiDetector.new, irq_line: IrqLine.new)
           @status = status

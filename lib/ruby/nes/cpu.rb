@@ -132,16 +132,21 @@ module Ruby
         @cycles - cycles_before
       end
 
-      private
-
-      # A DMA the step started halts the CPU for the cycles the bus reports. The CPU polled for interrupts before the
-      # halt and polls nothing during it, so the next poll looks back past the stall (plan 22, decision 9).
-      def add_stall_cycles
-        stall_cycles = @bus.take_stall_cycles(@cycles)
-        return if stall_cycles.zero?
-
+      # A DMA halts the CPU for `stall_cycles` from now: the DMC on the cycle it fetches (plan 23, decision 1), OAM DMA
+      # after the step that wrote $4014. The halted CPU polls nothing, so the next poll looks back past the stall (plan
+      # 22, decision 9). Called during an instruction, the stall counts in the cycles the step returns; called between
+      # steps (the APU's catch-up after one), in the cycles Console#step returns.
+      def halt(stall_cycles)
         @interrupt_lines.poll_before_stall(stall_cycles)
         @cycles += stall_cycles
+      end
+
+      private
+
+      # A DMA the step started halts the CPU for the cycles the bus reports.
+      def add_stall_cycles
+        stall_cycles = @bus.take_stall_cycles(@cycles)
+        halt(stall_cycles) unless stall_cycles.zero?
       end
 
       def stay_jammed

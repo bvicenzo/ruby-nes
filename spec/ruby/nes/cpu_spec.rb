@@ -41,6 +41,75 @@ RSpec.describe Ruby::Nes::Cpu do
     end
   end
 
+  # "DMC DMA halts the CPU, performs a dummy cycle and an optional alignment cycle, and then gets once, taking 3 or 4
+  # cycles" (https://www.nesdev.org/wiki/DMA): the DMC halts the CPU on the cycle it fetches (plan 23, decision 1). The
+  # halted CPU polls nothing, so the next poll looks back past the stall (plan 22, decision 9).
+  describe '#halt' do
+    context 'when the CPU is between steps' do
+      context 'and no interrupt line changes' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, accumulator: 0x42, stack_pointer: 0xFD, cycles: 10)
+        end
+
+        let(:bus) { FlatBus.new }
+
+        before do
+          allow(bus).to receive(:read).and_call_original
+          allow(bus).to receive(:write).and_call_original
+        end
+
+        it 'adds the stall to the cycle count, leaving registers and bus untouched', :aggregate_failures do
+          cpu.halt(4)
+
+          expect(cpu.cycles).to eq(14)
+          expect(cpu).to have_attributes(program_counter: 0x8000, accumulator: 0x42)
+          expect(bus).not_to have_received(:read)
+          expect(bus).not_to have_received(:write)
+        end
+      end
+
+      context 'and the IRQ line falls during the stall' do
+        subject(:cpu) do
+          described_class.new(bus:, program_counter: 0x8000, stack_pointer: 0xFD, cycles: 10).tap do |cpu|
+            cpu.step
+            cpu.halt(4)
+            cpu.assert_irq(Ruby::Nes::Cpu::InterruptLines::MAPPER_IRQ, 14)
+          end
+        end
+
+        let(:bus) { FlatBus.new }
+
+        before do
+          bus.write_bytes(0x8000, [0xEA, 0xE8])
+          bus.write_bytes(0xFFFE, [0x34, 0x12])
+        end
+
+        it 'runs one more instruction before taking the IRQ', :aggregate_failures do
+          expect(cpu.step).to eq(2)
+          expect(cpu.step).to eq(7)
+        end
+      end
+    end
+
+    context 'when a device halts it during an instruction' do
+      subject(:cpu) { described_class.new(bus:, program_counter: 0x8000, cycles: 10) }
+
+      let(:bus) { FlatBus.new }
+
+      before do
+        # STA $4015, whose write the device answers with a 3-cycle halt.
+        bus.write_bytes(0x8000, [0x8D, 0x15, 0x40])
+        allow(bus).to receive(:write).and_call_original
+        allow(bus).to receive(:write).with(0x4015, anything) { cpu.halt(3) }
+      end
+
+      it 'counts the stall in the cycles of the step', :aggregate_failures do
+        expect(cpu.step).to eq(7)
+        expect(cpu.cycles).to eq(17)
+      end
+    end
+  end
+
   describe '#fetch_byte' do
     subject(:cpu) { described_class.new(bus:, program_counter:) }
 
