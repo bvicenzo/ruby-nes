@@ -1,0 +1,17 @@
+# Super Mario Bros. 3 from power-up into world 1-1, frame number to the buttons held from it on
+# (Frontends::InputScript): Start on the title screen (450), Start on its menu (520), Right then Up on the world map
+# (820, 900) to reach panel 1, A to enter it (980), then Right from 1200, with a jump over the first Goomba (1250-1274).
+# Read by the console spec (plan 21) and by the frame benchmark (plan 25, decision 2).
+450: [start]
+456: []
+520: [start]
+526: []
+820: [right]
+826: []
+900: [up]
+906: []
+980: [a]
+986: []
+1200: [right]
+1250: [right, a]
+1275: [right]

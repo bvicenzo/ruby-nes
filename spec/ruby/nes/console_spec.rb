@@ -316,29 +316,13 @@ RSpec.describe Ruby::Nes::Console do
 
     context 'when the cartridge is Super Mario Bros. 3, played into world 1-1', :slow, local_rom: 'smb3.nes' do
       # The game splits the screen with MMC3's scanline IRQ: the playfield scrolls above, the status bar stays still
-      # below; wrong IRQ timing shakes or tears the bar (plan 21). The input, frame by frame: Start on the title screen
-      # (450), Start on its menu (520), Right then Up on the world map (820, 900) to reach panel 1, A to enter it (980),
-      # then Right from 1200, with a jump over the first Goomba (1250-1274). Through frames 1300-1399 the playfield
-      # scrolls. The status bar fills rows 196-239; the only pixels there that change meanwhile are the timer's ones
-      # digit, columns 152-159 of rows 212-217, as the time runs out.
+      # below; wrong IRQ timing shakes or tears the bar (plan 21). The input (spec/fixtures/smb3_world_1_1.yml) reaches
+      # world 1-1 and walks right from frame 1200, so through frames 1300-1399 the playfield scrolls. The status bar
+      # fills rows 196-239; the only pixels there that change meanwhile are the timer's ones digit, columns 152-159 of
+      # rows 212-217, as the time runs out.
       let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(local_rom_path('smb3.nes')) }
-      let(:input_script) do
-        Ruby::Nes::Frontends::InputScript.parse(<<~YAML)
-          450: [start]
-          456: []
-          520: [start]
-          526: []
-          820: [right]
-          826: []
-          900: [up]
-          906: []
-          980: [a]
-          986: []
-          1200: [right]
-          1250: [right, a]
-          1275: [right]
-        YAML
-      end
+      let(:input_script_path) { File.expand_path('../../fixtures/smb3_world_1_1.yml', __dir__) }
+      let(:input_script) { Ruby::Nes::Frontends::InputScript.parse(File.read(input_script_path)) }
       let(:scrolling_frames) { ScriptedPlay.new(console, input_script).frames(1300..1399) }
       let(:status_bar) { FrameRegion.new(rows: 196..239, hole_rows: 212..217, hole_columns: 152..159) }
       let(:playfield) { FrameRegion.new(rows: 0..195) }
