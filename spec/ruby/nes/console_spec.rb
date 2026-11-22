@@ -99,6 +99,27 @@ RSpec.describe Ruby::Nes::Console do
       end
     end
 
+    context 'when the program plays a one-byte DMC sample from the cartridge' do
+      # The DMC reads its sample through the CPU bus (plan 23): "Sample address = $C000 + (A * 64)", "Sample length =
+      # (L * 16) + 1 bytes" (https://www.nesdev.org/wiki/APU_DMC). $4011 = $40 (level 64), $4010 = $0F (rate 54, no IRQ,
+      # no loop), $4012 = $10 ($C400, a NOP, $EA, in the mirrored PRG ROM), $4013 = $00 (1 byte), $4015 = $10, then JMP
+      # to itself. $EA's bits from bit 0 are 0 1 0 1 0 1 1 1: -2 +2 -2 +2 -2 +2 +2 +2, so the level ends at 68. The
+      # triangle, never clocked, holds its first step's 15; the other channels are silent.
+      let(:cartridge) do
+        Cartridges.with_program([*set_level_and_rate, *set_address_and_length, *start_sample, *wait_forever])
+      end
+      let(:set_level_and_rate) { [0xA9, 0x40, 0x8D, 0x11, 0x40, 0xA9, 0x0F, 0x8D, 0x10, 0x40] }
+      let(:set_address_and_length) { [0xA9, 0x10, 0x8D, 0x12, 0x40, 0xA9, 0x00, 0x8D, 0x13, 0x40] }
+      let(:start_sample) { [0xA9, 0x10, 0x8D, 0x15, 0x40] }
+      let(:wait_forever) { [0x4C, 0x19, 0x80] }
+
+      it 'plays the byte read from the cartridge' do
+        console = described_class.new(cartridge)
+        console.run_frame
+        expect(console.apu.output).to eq(Ruby::Nes::Apu::Mixer.mix(0, 0, 15, 0, 68))
+      end
+    end
+
     # The controllers (plan 15): a $4016 write of 1 then 0 latches both, and the first read of $4016 reports A of the
     # first controller in bit 0 (https://www.nesdev.org/wiki/Controller_reading). Bits 7-5 repeat the previous read,
     # "usually 010 from the high byte $40" (https://www.nesdev.org/wiki/Open_bus_behavior): the operand of LDA $4016.
@@ -189,19 +210,37 @@ RSpec.describe Ruby::Nes::Console do
   end
 
   describe '#step' do
-    subject(:console) { described_class.new(cartridge) }
+    context 'when the instruction is a NOP' do
+      subject(:console) { described_class.new(cartridge) }
 
-    # NOP.
-    let(:cartridge) { Cartridges.with_program([0xEA]) }
+      let(:cartridge) { Cartridges.with_program([0xEA]) }
 
-    it 'runs one CPU instruction and returns its cycles', :aggregate_failures do
-      expect(console.step).to eq(2)
-      expect(console.cpu.program_counter).to eq(0x8001)
+      it 'runs one CPU instruction and returns its cycles', :aggregate_failures do
+        expect(console.step).to eq(2)
+        expect(console.cpu.program_counter).to eq(0x8001)
+      end
+
+      it 'catches the PPU up to the CPU' do
+        console.step
+        expect(console.ppu).to have_attributes(scanline: 0, dot: 27)
+      end
     end
 
-    it 'catches the PPU up to the CPU' do
-      console.step
-      expect(console.ppu).to have_attributes(scanline: 0, dot: 27)
+    # The APU catches up after the CPU's step, and a DMC reload on the way halts the CPU 4 cycles (plan 23, decision 2):
+    # the step's cycles count them. $4010 = $0F (rate 54), $4013 = $01 (17 bytes), $4015 = $10, then JMP to itself.
+    context 'when the program plays a DMC sample' do
+      subject(:console) { described_class.new(cartridge) }
+
+      let(:cartridge) { Cartridges.with_program([*set_rate_and_length, *start_sample, *wait_forever]) }
+      let(:set_rate_and_length) { [0xA9, 0x0F, 0x8D, 0x10, 0x40, 0xA9, 0x01, 0x8D, 0x13, 0x40] }
+      let(:start_sample) { [0xA9, 0x10, 0x8D, 0x15, 0x40] }
+      let(:wait_forever) { [0x4C, 0x0F, 0x80] }
+
+      it "returns cycles that add up to the CPU's count, stalls included" do
+        cycles_before = console.cpu.cycles
+        step_cycles = Array.new(3000) { console.step }.sum
+        expect(step_cycles).to eq(console.cpu.cycles - cycles_before)
+      end
     end
   end
 

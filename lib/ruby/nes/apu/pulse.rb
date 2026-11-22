@@ -17,8 +17,6 @@ module Ruby
         DUTY_MASK = 0xC0
         DUTY_SHIFT = 6
         LENGTH_COUNTER_HALT_FLAG = 0x20
-        # `LLLL LTTT`: the length table index (the length counter's) and the timer's high 3 bits.
-        TIMER_HIGH_MASK = 0x07
 
         # One keyword per collaborator, so specs can stand in for each; the sweep adjusts the channel's own timer.
         # rubocop:disable-next Metrics/ParameterLists
@@ -36,7 +34,7 @@ module Ruby
           case register
           when CONTROL_REGISTER then write_control(value)
           when SWEEP_REGISTER then @sweep.write(value)
-          when TIMER_LOW_REGISTER then write_timer_low(value)
+          when TIMER_LOW_REGISTER then @timer.write_period_low(value)
           else write_length_and_timer_high(value)
           end
         end
@@ -76,13 +74,9 @@ module Ruby
           @envelope.write(value)
         end
 
-        def write_timer_low(value)
-          @timer.period = (@timer.period & ~Bits::BYTE_MASK) | value # glossary: place-bit-field
-        end
-
+        # `LLLL LTTT`: the length table index (the length counter's) and the timer's high 3 bits.
         def write_length_and_timer_high(value)
-          high = value & TIMER_HIGH_MASK # glossary: low-bits
-          @timer.period = (high << Bits::BYTE_WIDTH) | (@timer.period & Bits::BYTE_MASK) # glossary: combine-bytes
+          @timer.write_period_high(value)
           @length_counter.load(value)
           @sequencer.restart
           @envelope.restart

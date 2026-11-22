@@ -15,9 +15,10 @@ module Ruby
     # The two standard controllers answer $4016 and $4017 through Input::ControllerPorts (plan 15); `controllers` hands
     # them to the frontend, which sets the buttons held on each.
     #
-    # The APU answers the rest of $4000-$4017 (plan 22): it gets the CPU as its clock and IRQ line, is caught up after
-    # every step like the PPU, and its reset writes $00 to $4015. The CPU gets the register sync as its interrupt sync,
-    # so an NMI edge during BRK or the interrupt sequence is known before the vector is picked (plan 22, decision 1).
+    # The APU answers the rest of $4000-$4017 (plan 22): it gets the CPU as its clock and IRQ line, and the CPU bus for
+    # the DMC's sample reads (plan 23), is caught up after every step like the PPU, and its reset writes $00 to $4015.
+    # The CPU gets the register sync as its interrupt sync, so an NMI edge during BRK or the interrupt sequence is known
+    # before the vector is picked (plan 22, decision 1).
     class Console
       attr_reader :cpu, :ppu, :apu, :cpu_bus, :ppu_bus, :controllers
 
@@ -31,6 +32,7 @@ module Ruby
         @apu = Apu.new
         @cpu_bus = CpuBus.new(mapper:, ppu_registers: register_sync, apu_registers: @apu, controller_ports:)
         @cpu = Cpu.new(bus: @cpu_bus)
+        @apu.memory = @cpu_bus
         wire_clock(register_sync)
         wire_board(mapper, register_sync)
         @ppu.nmi_input = @cpu
@@ -38,12 +40,13 @@ module Ruby
       end
 
       # One CPU step (an instruction, an interrupt sequence or a jammed tick), then the PPU and the APU catch up to its
-      # end. Returns the cycles the step took.
+      # end. Returns the cycles the CPU advanced, a DMC stall from the APU's catch-up included (plan 23).
       def step
-        cycles = @cpu.step
+        cycles_before = @cpu.cycles
+        @cpu.step
         @ppu.catch_up(@cpu.cycles)
         @apu.catch_up(@cpu.cycles)
-        cycles
+        @cpu.cycles - cycles_before
       end
 
       # Steps until the PPU wraps to the next frame (plan 12, decision 7); it stops within the first instruction of it.

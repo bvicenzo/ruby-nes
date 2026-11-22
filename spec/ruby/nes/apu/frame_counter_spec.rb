@@ -18,7 +18,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         subject(:frame_counter) { described_class.new(listener:, interrupt:) }
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
 
         it 'clocks nothing', :aggregate_failures do
           (1..7456).each { |cycle| frame_counter.tick(cycle) }
@@ -34,7 +34,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
 
         it 'clocks a quarter frame', :aggregate_failures do
           frame_counter.tick(7457)
@@ -50,7 +50,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
 
         it 'clocks a quarter and a half frame', :aggregate_failures do
           frame_counter.tick(14_913)
@@ -66,7 +66,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
 
         it 'clocks a quarter frame', :aggregate_failures do
           frame_counter.tick(22_371)
@@ -82,7 +82,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
 
         it 'sets the interrupt flag only', :aggregate_failures do
           frame_counter.tick(29_828)
@@ -97,7 +97,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
 
         it 'clocks a quarter and a half frame and sets the interrupt flag', :aggregate_failures do
           frame_counter.tick(29_829)
@@ -113,7 +113,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
 
         it 'sets the interrupt flag and starts the next sequence', :aggregate_failures do
           frame_counter.tick(29_830)
@@ -136,7 +136,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil, change_inhibit: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil, change_inhibit: nil) }
 
         it 'clocks a quarter frame, after the ones of 7457 and 14913', :aggregate_failures do
           frame_counter.tick(22_375)
@@ -154,7 +154,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil, change_inhibit: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil, change_inhibit: nil) }
 
         it 'clocks nothing and never sets the interrupt flag', :aggregate_failures do
           frame_counter.tick(29_833)
@@ -172,7 +172,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil, change_inhibit: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil, change_inhibit: nil) }
 
         it 'clocks a quarter and a half frame', :aggregate_failures do
           frame_counter.tick(37_285)
@@ -190,7 +190,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         end
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, trigger: nil, change_inhibit: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil, change_inhibit: nil) }
 
         it 'starts the next sequence', :aggregate_failures do
           frame_counter.tick(37_286)
@@ -208,7 +208,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
       subject(:frame_counter) { described_class.new(listener:, interrupt:) }
 
       let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-      let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, change_inhibit: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
 
       it 'tells the interrupt at once' do
         frame_counter.write(0x40, 100)
@@ -220,7 +220,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
       subject(:frame_counter) { described_class.new(listener:, interrupt:) }
 
       let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-      let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, change_inhibit: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
 
       it 'tells the interrupt at once' do
         frame_counter.write(0x00, 100)
@@ -233,7 +233,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         subject(:frame_counter) { described_class.new(listener:, interrupt:) }
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, change_inhibit: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
 
         before do
           frame_counter.write(0x80, 101)
@@ -259,7 +259,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
         subject(:frame_counter) { described_class.new(listener:, interrupt:) }
 
         let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-        let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, change_inhibit: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
 
         before do
           frame_counter.write(0x80, 100)
@@ -281,7 +281,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
       end
 
       let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-      let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, change_inhibit: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
 
       before do
         frame_counter.write(0x00, 5001)
@@ -301,7 +301,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
       end
 
       let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-      let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, change_inhibit: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
 
       before do
         frame_counter.tick(101)
@@ -327,7 +327,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
       end
 
       let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-      let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, change_inhibit: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
 
       before do
         frame_counter.reset(5001)
@@ -347,7 +347,7 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
       end
 
       let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
-      let(:interrupt) { instance_double(Ruby::Nes::Apu::FrameInterrupt, change_inhibit: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
 
       before do
         frame_counter.reset(5001)
