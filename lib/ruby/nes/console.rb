@@ -19,23 +19,27 @@ module Ruby
     # the DMC's sample reads (plan 23), is caught up after every step like the PPU, and its reset writes $00 to $4015.
     # The CPU gets the register sync as its interrupt sync, so an NMI edge during BRK or the interrupt sequence is known
     # before the vector is picked (plan 22, decision 1).
+    #
+    # With a sample rate, the APU hands the mix of every cycle to an Audio::Resampler, through the NES's output filters
+    # (Audio::OutputStage) into an Audio::SampleBuffer that `audio_samples` drains once per frame (plan 24). Without
+    # one, nothing is mixed.
     class Console
       attr_reader :cpu, :ppu, :apu, :cpu_bus, :ppu_bus, :controllers
 
-      def initialize(cartridge, controllers: [Input::Controller.new, Input::Controller.new])
+      def initialize(cartridge, controllers: [Input::Controller.new, Input::Controller.new], audio_sample_rate: nil)
         mapper = Mappers.build(cartridge)
         @controllers = controllers.dup.freeze
         @ppu_bus = PpuBus.new(mapper:)
         @ppu = Ppu.new(bus: @ppu_bus)
         register_sync = PpuRegisterSync.new(ppu: @ppu)
         controller_ports = Input::ControllerPorts.new(first: controllers.first, second: controllers.last)
-        @apu = Apu.new
+        @audio_samples = Audio::SampleBuffer.new
+        @apu = Apu.new(resampler: audio_resampler(audio_sample_rate))
         @cpu_bus = CpuBus.new(mapper:, ppu_registers: register_sync, apu_registers: @apu, controller_ports:)
         @cpu = Cpu.new(bus: @cpu_bus)
         @apu.memory = @cpu_bus
         wire_clock(register_sync)
         wire_board(mapper, register_sync)
-        @ppu.nmi_input = @cpu
         reset
       end
 
@@ -55,6 +59,10 @@ module Ruby
         step while @ppu.frame_number == frame_number
       end
 
+      # The signed 16-bit samples of the frames run since the last call, at the sample rate the console was built with;
+      # none without one.
+      def audio_samples = @audio_samples.drain
+
       # The reset button: the CPU's, the PPU's and the APU's reset, then the PPU and the APU catch up the reset
       # sequence's cycles.
       def reset
@@ -67,12 +75,21 @@ module Ruby
 
       private
 
+      def audio_resampler(sample_rate)
+        return unless sample_rate
+
+        Audio::Resampler
+          .new(output_rate: sample_rate, output: Audio::OutputStage.new(samples: @audio_samples, sample_rate:))
+      end
+
       # The register sync and the APU get the CPU as their clock, built after them; the CPU gets the register sync,
-      # which catches the PPU up before an interrupt sequence picks its vector (plan 22, decision 1).
+      # which catches the PPU up before an interrupt sequence picks its vector (plan 22, decision 1); the PPU tells the
+      # CPU each change of /NMI with its cycle (plan 12, decision 2).
       def wire_clock(register_sync)
         register_sync.cpu = @cpu
         @apu.cpu = @cpu
         @cpu.interrupt_sync = register_sync
+        @ppu.nmi_input = @cpu
       end
 
       # The board gets the CPU as its clock and IRQ line, the PPU as A12's clock, and the register sync that catches the

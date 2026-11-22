@@ -13,7 +13,8 @@ module Ruby
     # Caught up like the PPU (plan 22, decision 3): `catch_up(cpu_cycle)` runs every CPU cycle before `cpu_cycle`, the
     # frame counter and the triangle timer on each, the pulse, noise and DMC timers on the even ones (the GET cycles,
     # decision 5). The console calls it after each step; a register access first catches up through the access cycle,
-    # Cpu#access_cycle, past any DMC stall on the way, the CPU being this unit's clock as it is MMC1's. Reset writes $00
+    # Cpu#access_cycle, past any DMC stall on the way, the CPU being this unit's clock as it is MMC1's. With an audio
+    # resampler attached, each cycle caught up also hands it the mix of the five channels (plan 24). Reset writes $00
     # to $4015 and clears the frame interrupt flag, writes $4017's last value again (apu_reset's readme, plan 22
     # decision 4) and resets the triangle's phase and the DMC's level (https://www.nesdev.org/wiki/CPU_power_up_state).
     # Hot path: integers only, no allocation per cycle.
@@ -38,12 +39,14 @@ module Ruby
       DMC_INTERRUPT_FLAG = 0x80
 
       # One keyword per collaborator, so specs can stand in for each; the frame counter clocks this APU's channels.
+      # `resampler`, an Audio::Resampler, takes the mix of every CPU cycle; without one nothing is mixed (plan 24,
+      # decision 6: the safe navigation skips evaluating `output`).
       # rubocop:disable-next Metrics/ParameterLists
       def initialize(cpu: nil, first_pulse: Pulse.new(negation: Sweep::ONES_COMPLEMENT),
                      second_pulse: Pulse.new(negation: Sweep::TWOS_COMPLEMENT), triangle: Triangle.new,
                      noise: Noise.new, dmc: Dmc.new(cpu:),
                      frame_interrupt: InterruptFlag.new(source: Cpu::InterruptLines::FRAME_IRQ, cpu:),
-                     frame_counter: FrameCounter.new(listener: self, interrupt: frame_interrupt))
+                     frame_counter: FrameCounter.new(listener: self, interrupt: frame_interrupt), resampler: nil)
         @cpu = cpu
         @first_pulse = first_pulse
         @second_pulse = second_pulse
@@ -53,6 +56,7 @@ module Ruby
         @channels = [first_pulse, second_pulse, triangle, noise, dmc].freeze
         @frame_interrupt = frame_interrupt
         @frame_counter = frame_counter
+        @resampler = resampler
         @cycle = 0
       end
 
@@ -98,6 +102,7 @@ module Ruby
             @noise.tick_timer
             @dmc.tick_timer(@cycle)
           end
+          @resampler&.add(output)
           @cycle += 1
         end
       end

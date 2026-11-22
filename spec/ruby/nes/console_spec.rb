@@ -350,6 +350,36 @@ RSpec.describe Ruby::Nes::Console do
     end
   end
 
+  describe '#audio_samples' do
+    let(:cartridge) { Cartridges.with_program([0x4C, 0x00, 0x80]) }
+
+    context 'when the console was built without a sample rate' do
+      subject(:console) { described_class.new(cartridge) }
+
+      it 'returns no samples' do
+        console.run_frame
+
+        expect(console.audio_samples).to eq([])
+      end
+    end
+
+    context 'when the console was built with a sample rate' do
+      subject(:console) { described_class.new(cartridge, audio_sample_rate: 48_000) }
+
+      # 48 000 samples per second at "60.0988 Hz" (https://www.nesdev.org/wiki/Cycle_reference_chart): 798.7 per frame.
+      it 'returns the signed 16-bit samples of the frames run since the last call', :aggregate_failures do
+        frames = Array.new(60) do
+          console.run_frame
+          console.audio_samples
+        end
+        samples = frames.flatten
+
+        expect(samples.size).to be_within(2).of(47_922)
+        expect(samples).to all(be_an(Integer).and(be_between(-32_768, 32_767)))
+      end
+    end
+  end
+
   describe '#reset' do
     context 'when the program only loops' do
       subject(:console) { described_class.new(cartridge) }

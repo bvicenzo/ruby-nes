@@ -372,29 +372,51 @@ RSpec.describe Ruby::Nes::Apu do
 
   describe '#catch_up' do
     context 'when the APU is behind the target cycle' do
-      subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
-
       let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, tick_timer: nil) }
-      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, tick_timer: nil) }
-      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil) }
-      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil) }
-      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil) }
+      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, tick_timer: nil, output: 3) }
+      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, tick_timer: nil, output: 4) }
+      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, output: 5) }
+      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, output: 6) }
+      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, output: 7) }
 
       before { apu.catch_up(5) }
 
-      it 'ticks the frame counter and triangle every cycle, the other timers on even ones', :aggregate_failures do
-        expect(frame_counter).to have_received(:tick).with(0).ordered
-        expect(frame_counter).to have_received(:tick).with(4).ordered
-        expect(frame_counter).to have_received(:tick).exactly(5).times
-        expect(triangle).to have_received(:tick_timer).exactly(5).times
-        expect(first_pulse).to have_received(:tick_timer).exactly(3).times
-        expect(second_pulse).to have_received(:tick_timer).exactly(3).times
-        expect(noise).to have_received(:tick_timer).exactly(3).times
-        expect(dmc).to have_received(:tick_timer).exactly(3).times
-        expect(dmc).to have_received(:tick_timer).with(0)
-        expect(dmc).to have_received(:tick_timer).with(2)
-        expect(dmc).to have_received(:tick_timer).with(4)
+      context 'and no resampler is attached' do
+        subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
+
+        it 'ticks the frame counter and triangle every cycle, the other timers on even ones', :aggregate_failures do
+          expect(frame_counter).to have_received(:tick).with(0).ordered
+          expect(frame_counter).to have_received(:tick).with(4).ordered
+          expect(frame_counter).to have_received(:tick).exactly(5).times
+          expect(triangle).to have_received(:tick_timer).exactly(5).times
+          expect(first_pulse).to have_received(:tick_timer).exactly(3).times
+          expect(second_pulse).to have_received(:tick_timer).exactly(3).times
+          expect(noise).to have_received(:tick_timer).exactly(3).times
+          expect(dmc).to have_received(:tick_timer).exactly(3).times
+          expect(dmc).to have_received(:tick_timer).with(0)
+          expect(dmc).to have_received(:tick_timer).with(2)
+          expect(dmc).to have_received(:tick_timer).with(4)
+        end
+
+        it 'never asks the channels for their output', :aggregate_failures do
+          expect(first_pulse).not_to have_received(:output)
+          expect(second_pulse).not_to have_received(:output)
+          expect(triangle).not_to have_received(:output)
+          expect(noise).not_to have_received(:output)
+          expect(dmc).not_to have_received(:output)
+        end
+      end
+
+      context 'and a resampler is attached' do
+        subject(:apu) do
+          described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, resampler:)
+        end
+
+        let(:resampler) { instance_double(Ruby::Nes::Audio::Resampler, add: nil) }
+
+        it 'adds the mix of the channels for every cycle caught up' do
+          expect(resampler).to have_received(:add).with(Ruby::Nes::Apu::Mixer.mix(3, 4, 5, 6, 7)).exactly(5).times
+        end
       end
     end
 
