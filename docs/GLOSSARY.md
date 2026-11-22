@@ -95,17 +95,26 @@ kept in names because they are what the libraries and protocols call them.
 
 | Term | Stands for | Meaning | Reference |
 |---|---|---|---|
+| Box filter | — | The resampler's average: each output sample is the mean of the input levels of its period (`Audio::Resampler`, plan 24). | [Moving average](https://en.wikipedia.org/wiki/Moving_average) |
 | CRC | Cyclic Redundancy Check | The 32-bit checksum that closes every PNG chunk, computed over its type and data (`Zlib.crc32`). | [PNG](https://www.w3.org/TR/png-3/) |
+| DC | Direct Current | A constant offset in a signal; the NES's high-pass filter removes the mixer's (`Audio::HighPassFilter`). | [DC bias](https://en.wikipedia.org/wiki/DC_bias) |
 | FFI | Foreign Function Interface | Calling a C library from Ruby without a compiled extension: the `ffi` gem declares each function's signature and calls it at run time. The windowed backend's gem, `raylib-bindings`, is an FFI binding (plan 17). | [Ruby-FFI](https://github.com/ffi/ffi) |
 | HTTP | Hypertext Transfer Protocol | The protocol the test ROM downloader speaks; a `200` status is a delivered file. | [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110) |
 | JIT | Just-In-Time (compiler) | A compiler that turns Ruby methods into machine code while the program runs. Ruby 4.0.9 ships two, YJIT and ZJIT, both off by default; the benchmark (plan 10) measures each against the interpreter. | [YJIT](https://docs.ruby-lang.org/en/master/yjit/yjit_md.html) |
 | JSON | JavaScript Object Notation | The one-line format `bench/cpu.rb` prints its measurement in, for the bench rake tasks to collect. | [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) |
 | KiB | Kibibyte | 1024 bytes, the unit of every NES memory size in the code and the docs (`ONE_KIB`, `TWO_KIB` in `Mappers::Mmc3`). | [IEC binary prefixes](https://en.wikipedia.org/wiki/Binary_prefix) |
+| High-pass, low-pass filter | — | A filter that lets frequencies above (high-pass) or below (low-pass) its cut-off through; first order means one RC stage, 3 dB down at the cut-off. The NES has a high-pass at 90 Hz and a low-pass at 14 kHz (plan 24). | [APU Mixer](https://www.nesdev.org/wiki/APU_Mixer) |
+| Nyquist frequency | — | Half the sample rate (24 kHz at 48 kHz), the highest frequency samples can carry; discrete filters drift from their analogue models near it. | [Nyquist frequency](https://en.wikipedia.org/wiki/Nyquist_frequency) |
+| PCM | Pulse-Code Modulation | Sound as a series of sample values; here signed 16-bit integers, 48 000 per second (`Audio::SAMPLE_RATE`). | [WAVE format](https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html) |
 | PNG | Portable Network Graphics | The image format of the headless frontend's screenshots (`Frontends::Png`): a signature, then chunks (IHDR, IDAT, IEND), the pixels compressed with zlib. | [PNG](https://www.w3.org/TR/png-3/) |
+| RC | Resistor-Capacitor | The circuit of a first-order filter; its time constant RC = 1 / (2π × cut-off) sets the filter's coefficient (`Audio.time_constant`). | [Low-pass filter](https://en.wikipedia.org/wiki/Low-pass_filter#Discrete-time_realization) |
 | RGB | Red, Green, Blue | A colour as its three 8-bit intensities; `Frontends::Palette` turns each pixel into 3 such bytes. | [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes) |
+| RIFF | Resource Interchange File Format | The chunked container a WAV file is: a `RIFF` chunk holding the `WAVE` ID, then the `fmt ` and `data` chunks. | [WAVE format](https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html) |
 | SHA-256 | Secure Hash Algorithm, 256-bit | The digest the test ROM manifest records for each file, and the headless frontend for each frame; a matching digest means the bytes are the expected ones. | [FIPS 180-4](https://csrc.nist.gov/pubs/fips/180-4/upd1/final) |
 | SSL | Secure Sockets Layer | Name kept by Ruby `Net::HTTP` (`use_ssl:`) for an encrypted (TLS) connection. | [Net::HTTP](https://docs.ruby-lang.org/en/master/Net/HTTP.html) |
+| Underrun | — | The audio device asks for samples the stream does not have; raylib plays silence then, so a slow emulator's music has gaps (plan 24, decision 2). | [raudio.c](https://github.com/raysan5/raylib/blob/master/src/raudio.c) |
 | URL | Uniform Resource Locator | The address of a file on the web, e.g. a test ROM at one of the manifest sources. | [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986) |
+| WAV | Waveform Audio File Format | The headless frontend's audio file (`Frontends::Wav`): little-endian RIFF chunks, mono 16-bit PCM. | [WAVE format](https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html) |
 | YAML | YAML Ain't Markup Language | The format of the test ROM manifest (`spec/fixtures/test_roms.yml`) and of the headless frontend's input script. | [YAML](https://yaml.org/) |
 | YJIT | — (Yet another Ruby JIT, by its authors) | CRuby's lazy basic-block-versioning JIT, enabled with `--yjit`. | [YJIT](https://docs.ruby-lang.org/en/master/yjit/yjit_md.html) |
 | ZJIT | — (the name is not expanded by its documentation) | CRuby's newer method-based JIT, enabled with `--zjit`. | [ZJIT](https://docs.ruby-lang.org/en/master/zjit_md.html) |

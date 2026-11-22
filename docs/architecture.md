@@ -188,6 +188,22 @@ disables the channels, clears both interrupt flags, writes `$4017`'s last value 
 `apu_reset` says (plan 22, decision 4), and puts the triangle on its first step and the DMC level to its bit 0
 ([CPU power up state](https://www.nesdev.org/wiki/CPU_power_up_state)).
 
+### Audio
+
+`Ruby::Nes::Audio` turns the APU's output into the samples a speaker plays (plan 24): signal processing in the core,
+not hardware. With a sample rate (`Console.new(cartridge, audio_sample_rate:)`, `Audio::SAMPLE_RATE` = 48 000, the
+macOS output device's own rate, decision 1), the APU's catch-up hands `Apu#output` of every CPU cycle to an
+`Audio::Resampler`, a box filter: each output sample is the mean of the levels of the cycles since the previous one,
+the period kept as an exact fraction (the CPU clock is 945 000 000 / 528 Hz, the master clock "236.25 MHz ÷ 11 by
+definition" ÷ 12, [Cycle reference chart](https://www.nesdev.org/wiki/Cycle_reference_chart)), so the samples never
+drift. `Audio::OutputStage` runs the NES's output circuit on each sample, "A first-order high-pass filter at 90 Hz"
+then "A first-order low-pass filter at 14 kHz" ([APU Mixer](https://www.nesdev.org/wiki/APU_Mixer); the page lists no
+high-pass at 440 Hz), as `Audio::HighPassFilter` and `Audio::LowPassFilter` in the discrete RC form, and rounds the
+result to a signed 16-bit sample (a 0.0-1.0 level leaves the high-pass within (-1, 1), so no clamping) into an
+`Audio::SampleBuffer`, allocated once, which `Console#audio_samples` drains once per frame (about 799 samples). Without
+a sample rate the APU has no resampler and mixes nothing (decision 6). The window plays the samples paced by them
+(Frontends, below); the headless run writes them as a WAV file.
+
 ### PPU bus
 
 Source: [PPU memory map](https://www.nesdev.org/wiki/PPU_memory_map). The PPU addresses 14 bits (`$0000-$3FFF`).
@@ -280,14 +296,29 @@ keys taken from the defaults of other actions),
 cancel), `Frontends::Hotkeys` (Esc quits, P pauses, R resets, F toggles the overlay), `Frontends::FrameRate` (the
 overlay's frames per second, beside the JIT running) and `Frontends::FramePacing` (sleep until the next deadline at
 60.0988 Hz, deadlines a period apart so oversleeping never drifts, a period or more late restarts the schedule with no
-catch-up burst), injected so plan 24 can swap it for audio-driven pacing. It pushes audio into a raylib audio stream.
+catch-up burst). With audio (plan 24) the window paces by it instead: `Frontends::AudioPacing` queues each frame's
+samples and, after the present, submits every whole 800-sample chunk to `Frontends::RaylibAudioStream` (two
+sub-buffers, refilled only once played), waiting for room, so the emulator runs at the pace the speaker plays and the
+audio clock is the master; less than a chunk waits for the next frame, and the queue keeps at most four chunks.
+Chunks the stream has room for are submitted as soon as they are queued, without waiting. A stream with no room for
+about two chunks' time (a dead audio device) loses the chunks queued rather than freezing the window, and a window whose
+audio device does not open runs silent, paced by the timer. An
+emulator slower than the speaker never waits: the stream runs dry between chunks and raylib zero-fills it, so an
+underrun is a gap of silence (plan 24, decision 2; at today's ~15 frames per second the music is choppy). While paused
+the window queues a chunk of silence per frame, so the pacing goes on and the speaker is silent. `--no-audio` opens no
+audio device and paces by the timer.
 Its gem, `raylib-bindings` (FFI, the library built in for each platform), is in the optional `frontends` Gemfile group
 (`bundle config set --local with frontends`), so neither the core nor CI needs it; specs that open its window are
 tagged `frontend_library:` and skipped without it.
-`exe/ruby-nes ROM [--jit=none|yjit|zjit] [--scale N] [--aspect square|8:7] [--crop-overscan] [--config PATH]` is
-`CommandLine`: `CommandLine::Jit` enables the JIT at runtime (YJIT by default), `CommandLine::Window` reads the key
-config (`CommandLine::ConfigFile`) and opens the window through `CommandLine::RaylibWindow`, which loads raylib only
-then. `bench/frontends.rb` and `rake bench:frontends` run and time the backend unpaced.
+`exe/ruby-nes ROM [--jit=none|yjit|zjit] [--scale N] [--aspect square|8:7] [--crop-overscan] [--config PATH]
+[--no-audio]` or `--headless [--frames COUNT] [--screenshot FRAME:PATH]... [--input SCRIPT] [--wav PATH]` is
+`CommandLine`: the console makes audio only when the run plays or keeps it (`Options#audio_sample_rate`), and
+`Frontends::Headless` keeps the samples and writes them with `Frontends::Wav` (mono 16-bit PCM) when it closes,
+however the run ends; `CommandLine::Jit` enables the JIT at runtime (YJIT by default), `CommandLine::Window` reads the
+key config (`CommandLine::ConfigFile`) and opens the window through `CommandLine::RaylibWindow`, which loads raylib
+only then. The driver hands each frame's samples to `queue_audio` after running it and before presenting it.
+`bench/frontends.rb` and `rake bench:frontends` run and time the backend unpaced; its tone still reaches the speaker,
+as the audio pacing submits whatever the stream has room for when samples are queued.
 
 ## Clock
 
@@ -399,7 +430,9 @@ most calls.
 | `lib/ruby/nes/apu/` | `Ruby::Nes::Apu::Pulse`, `::Triangle`, `::Noise`, `::Dmc`, `::Timer`, `::DutySequencer`, `::Envelope`, `::Sweep`, `::LengthCounter`, `::LinearCounter`, `::TriangleSequencer`, `::NoiseShiftRegister`, `::FrameCounter`, `::InterruptFlag`, `::Mixer` | the five channels and their units, the frame counter, the interrupt flags of the frame counter and the DMC, and the mixer (plans 22 and 23) |
 | `lib/ruby/nes/apu/dmc/` | `Ruby::Nes::Apu::Dmc::Sample`, `::MemoryReader`, `::OutputUnit` | the DMC's address and bytes-remaining counters, its sample buffer filled by DMA, and its output level (plan 23) |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller`, `::ControllerPorts` | a standard controller; the device answering `$4016`/`$4017` |
-| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver`, `::Headless`, `::InputScript`, `::Palette`, `::Png`, `::Keyboard`, `::Raylib`, `::RaylibLibrary`, `::Viewport`, `::KeyConfig`, `::KeyBindings`, `::Hotkeys`, `::OppositeDirections`, `::FramePacing`, `::FrameRate`, `::MonotonicClock` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); keys to controller buttons and the raylib window (plan 17); the window's viewport, key config, hotkeys, direction filter, pacing and frame rate (plan 18). Never loaded by `lib/ruby/nes.rb` |
+| `lib/ruby/nes/audio.rb` | `Ruby::Nes::Audio` | the sample rate and the RC time constant (plan 24) |
+| `lib/ruby/nes/audio/` | `Ruby::Nes::Audio::Resampler`, `::OutputStage`, `::HighPassFilter`, `::LowPassFilter`, `::SampleBuffer` | the box resampler, the NES's output filters and 16-bit conversion, the frame's samples (plan 24) |
+| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver`, `::Headless`, `::InputScript`, `::Palette`, `::Png`, `::Wav`, `::Keyboard`, `::Raylib`, `::RaylibLibrary`, `::RaylibAudioStream`, `::Viewport`, `::KeyConfig`, `::KeyBindings`, `::Hotkeys`, `::OppositeDirections`, `::FramePacing`, `::AudioPacing`, `::FrameRate`, `::MonotonicClock` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); keys to controller buttons and the raylib window (plan 17); the window's viewport, key config, hotkeys, direction filter, pacing and frame rate (plan 18); WAV encoding, the raylib audio stream and audio-driven pacing (plan 24). Never loaded by `lib/ruby/nes.rb` |
 | `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer` | tooling off the hot path |
 | `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | the bit constants hot paths use inline (`BYTE_MASK`, `PAGE_MASK`…) and readable bit helpers for code off the hot path |
 | `lib/ruby/nes/command_line.rb`, `command_line/` | `Ruby::Nes::CommandLine`, `::Options`, `::Jit`, `::ConfigFile`, `::Window`, `::RaylibWindow` | `exe/ruby-nes`: loads the core and the frontends, parses the arguments, enables the JIT, runs a ROM headless or in the window (plans 16 and 18) |
@@ -426,7 +459,8 @@ Rules:
 
 A **hot path** is everything called, directly or indirectly, per CPU instruction, per CPU bus access, per PPU dot or
 per APU tick: `Cpu#step` and the instruction implementations, `CpuBus` and `PpuBus` reads and writes, mapper
-`cpu_read`/`cpu_write`/`ppu_read`/`ppu_write`, the PPU dot and the APU tick, and the `Console` loop around them.
+`cpu_read`/`cpu_write`/`ppu_read`/`ppu_write`, the PPU dot and the APU tick (with audio on, `Audio::Resampler#add`
+every CPU cycle, and once per sample the output stage and the sample buffer), and the `Console` loop around them.
 Loading a ROM, the command line, frontends (they run once per frame), debug tooling and specs are not hot paths.
 
 Rules on hot paths:
@@ -517,7 +551,8 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
 | DMC DMA timing | "Load DMAs take 3 cycles and reload DMAs take 4 unless the halt is delayed by an odd number of cycles"; "DMA can only halt on CPU read cycles", so write cycles delay it "up to 3 cycles"; load DMAs "are scheduled to halt the CPU on a get cycle during the 2nd APU cycle after the write"; "DMC DMA occurring during OAM DMA will cost only 2 cycles" ([DMA](https://www.nesdev.org/wiki/DMA)). The emulator halts 3 cycles for a load and 4 for a reload, fetches the load on the `$4015` write, and adds a DMC halt to OAM DMA's whole (plan 23, decisions 2 and 3). The DMC fetches during the APU catch-up, so a reload's halt lands at the next instruction boundary or register access rather than on its cycle; a register access then catches the APU up past the stall, so its stamp and the APU's state agree, a write included, though the hardware would delay a halt past write cycles. The output unit's state at power is a convention (plan 23, decision 9). `apu_test` 7-8 and `apu_reset/works_immediately` pass. | A later DMA pass |
 | IRQ released and re-asserted within a stall | `Cpu::IrqLine` keeps one assert and one release cycle; a poll that looks back past a DMA stall (plan 22, decision 9) misses an IRQ released and asserted again within the stall. OAM DMA's 513 cycles made it possible since plan 22; DMC stalls add 3-4 cycles at a time. No test ROM has needed it (plan 23, decision 7). | When a ROM needs it |
 | Noise shift register at power-up | The APU Noise page loads it with 1; CPU power up state gives "$0000 (all 0s, first clock shifts in a 1)". The emulator starts at 1 (plan 23, decision 6): one step apart. | — |
-| Ultrasonic triangle | Periods below 2 play at up to 55.9 kHz; the hardware's filter averages them "into constant output at roughly half amplitude" ([APU Triangle](https://www.nesdev.org/wiki/APU_Triangle)). The APU outputs every step (plan 23, decision 4); whether the resampler needs help is plan 24's to hear. | Plan 24 |
+| Ultrasonic triangle | Periods below 2 play at up to 55.9 kHz; the hardware's filter averages them "into constant output at roughly half amplitude" ([APU Triangle](https://www.nesdev.org/wiki/APU_Triangle)). The APU outputs every step (plan 23, decision 4) and the box resampler averages them the same way; SMB3's menu and world map music, heard in plan 24, show no audible noise, so no workaround (plan 24, decision 8). | When a game sounds wrong |
+| Low-pass filter near Nyquist | "A first-order low-pass filter at 14 kHz" ([APU Mixer](https://www.nesdev.org/wiki/APU_Mixer)). At 48 kHz the discrete RC form cuts more than the analogue filter near the Nyquist frequency (24 kHz): a 14 kHz sine comes out at 0.55 of its amplitude rather than 1/√2 (measured in plan 24). A bilinear transform with pre-warping would match the cut-off; the difference sits above what the music uses (plan 24). | — |
 
 ## Frame buffer contract
 
@@ -612,3 +647,7 @@ presentation, in a frontend).
 | 65 | 2026-11-21 | DMC fetches stall 3 cycles for a load (on the `$4015` write) and 4 for a reload | The DMA page's rule at no cost; `apu_test` 7-8 pass (plan 23, decisions 2 and 3; Known gaps: DMC DMA timing) | A later DMA pass |
 | 66 | 2026-11-21 | The mixer uses the APU Mixer page's lookup tables (`Apu::Mixer`), `Apu#output` mixing on demand | Two constant reads per sample, within 0.5% of the exact formulas; the per-cycle accumulation belongs to the resampler (plan 23, decisions 5 and 8) | Plan 24 |
 | 67 | 2026-11-21 | The frame counter's and the DMC's interrupt flags are one class, `Apu::InterruptFlag(source:)` | Both are set unless inhibited, cleared when inhibited, and drive their own IRQ source; only who clears them on `$4015` differs, which `Apu` decides | — |
+| 68 | 2026-11-22 | Audio is mono signed 16-bit PCM at 48 kHz (`Audio::SAMPLE_RATE`), made in the core only when a frontend plays or keeps it | The macOS output device's own rate, so miniaudio does not resample again; without a listener the APU mixes nothing (`@resampler&.add(output)` skips evaluating `output`), as mixing every cycle cost about 9% (plan 24, decisions 1 and 6) | Plan 25 (cost of the mix per cycle) |
+| 69 | 2026-11-22 | A box resampler with an exact integer phase, no dynamic rate control | With the audio as the window's master clock there is no drift to correct; band-limited synthesis only if the quality calls for it (plan 24, decision 4) | — |
+| 70 | 2026-11-22 | The output filters are a first-order high-pass at 90 Hz and a first-order low-pass at 14 kHz, in the discrete RC form at the output rate | The APU Mixer page's list (no 440 Hz high-pass); the RC form costs one multiply per filter (plan 24, decision 5; Known gaps: low-pass filter near Nyquist) | — |
+| 71 | 2026-11-22 | With audio the window is paced by it (`Frontends::AudioPacing`); an underrun is a gap of silence; paused, it queues silence | raylib zero-fills a sub-buffer that runs dry; muting while slow or slowing the pitch would add state for a speed plan 25 is to reach (plan 24, decisions 2 and 7) | Plan 25 (crackle-free at full speed) |
