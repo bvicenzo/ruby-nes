@@ -19,7 +19,8 @@ module Ruby
       #   again, so the frontend keeps drawing and pacing (plan 18, decision 5); false by default;
       # - `reset_requested?`: whether the console is to be reset (the reset button) before the next frame; false by
       #   default;
-      # - `queue_audio(samples)`: the audio samples of the frame; ignored until the APU exists (plan 24);
+      # - `queue_audio(samples)`: the signed 16-bit audio samples of the frame just run, before it is presented (plan
+      #   24); ignored by default;
       # - `close`: once the run ends, however it ends, releases what the frontend opened (a window, an audio device;
       #   plan 17); nothing by default.
       class Base

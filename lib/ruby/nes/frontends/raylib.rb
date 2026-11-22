@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require 'raylib'
+require_relative '../audio'
+require_relative 'audio_pacing'
 require_relative 'base'
 require_relative 'frame_pacing'
 require_relative 'frame_rate'
@@ -10,6 +12,7 @@ require_relative 'key_config'
 require_relative 'keyboard'
 require_relative 'opposite_directions'
 require_relative 'palette'
+require_relative 'raylib_audio_stream'
 require_relative 'raylib_library'
 require_relative 'viewport'
 
@@ -22,17 +25,19 @@ module Ruby
       # Frontends::Viewport; the keyboard drives the first controller through Frontends::Keyboard with opposite
       # directions cancelled (Frontends::OppositeDirections) and the emulator through Frontends::Hotkeys; the frame rate
       # (Frontends::FrameRate) and the JIT are drawn over the frame while the overlay is shown; after each frame the
-      # pacing waits (Frontends::FramePacing, or any object answering `wait`); the audio goes through a raylib audio
-      # stream. The gem's module is `::Raylib`; this class is `Frontends::Raylib`.
+      # pacing waits. With audio (plan 24), each frame's samples go through Frontends::AudioPacing into a raylib audio
+      # stream (Frontends::RaylibAudioStream), and the audio paces the window; while paused it queues silence. Without
+      # audio, or when no audio device opens, the timer paces it (Frontends::FramePacing). A pacing given replaces
+      # either, the audio still being fed (the benchmark's tone runs unpaced). The gem's module is `::Raylib`; this
+      # class is `Frontends::Raylib`.
       class Raylib < Base
         TITLE = 'ruby-nes'
-        # Signed 16-bit mono samples, 44.1 kHz.
-        SAMPLE_RATE = 44_100
-        SAMPLE_BITS = 16
-        CHANNELS = 1
+        # Signed 16-bit mono samples at the core's rate, 48 kHz (plan 24, decision 1).
+        SAMPLE_RATE = Audio::SAMPLE_RATE
         # The NTSC frame rate, rounded: 60.0988 (https://www.nesdev.org/wiki/Cycle_reference_chart).
         FRAMES_PER_SECOND = 60
-        # A frame of audio. A raylib audio stream is two sub-buffers of this many samples, refilled only once played.
+        # A frame of audio, 800 samples. A raylib audio stream is two sub-buffers of this many samples, refilled only
+        # once played.
         SAMPLES_PER_FRAME = SAMPLE_RATE / FRAMES_PER_SECOND
         # The frame is drawn upright, from one texture level.
         ROTATION = 0.0
@@ -70,12 +75,15 @@ module Ruby
           @library_loaded = true
         end
 
-        # `keys` maps actions to key names (Frontends::KeyConfig#keys); `jit_name` is shown in the overlay.
+        # `keys` maps actions to key names (Frontends::KeyConfig#keys); `jit_name` is shown in the overlay. The pacing
+        # is the audio's with `audio` and an audio device, the timer's otherwise, unless one is given.
+        # rubocop:disable-next Metrics/ParameterLists
         def initialize(
           keys: KeyConfig.new({}).keys,
           viewport: DEFAULT_VIEWPORT,
           jit_name: 'none',
-          pacing: FramePacing.new,
+          audio: true,
+          pacing: nil,
           hidden: false
         )
           super()
@@ -84,11 +92,11 @@ module Ruby
           @keyboard = Keyboard.new(key_bindings.controller)
           @hotkeys = Hotkeys.new(key_bindings.hotkeys)
           @jit_name = jit_name
-          @pacing = pacing
           open_window(viewport, hidden)
           open_texture
           place_texture(viewport)
-          open_audio
+          open_audio if audio
+          @pacing = pacing || @audio_pacing || FramePacing.new
           # Measured from here, so the first rate shown leaves out the time the window and the audio took to open.
           @frame_rate = FrameRate.new
         end
@@ -104,7 +112,7 @@ module Ruby
         end
 
         # Draws the frame (and the overlay), reads the hotkeys pressed meanwhile (raylib polls its input events as the
-        # drawing ends), counts the frame and waits for the pacing.
+        # drawing ends), counts the frame, queues a frame of silence while paused and waits for the pacing.
         def present(frame_buffer)
           @pixels.put_bytes(0, Palette.rgb(frame_buffer))
           ::Raylib.UpdateTexture(@texture, @pixels)
@@ -114,22 +122,17 @@ module Ruby
           ::Raylib.EndDrawing
           @hotkeys.poll { ::Raylib.IsKeyPressed(it) }
           @frame_rate.tick
+          @audio_pacing.queue_silence if @audio_pacing && paused?
           @pacing.wait
         end
 
-        # Refills a sub-buffer that has finished playing; while both are still queued the samples are dropped, as the
-        # stream has nowhere to keep them. Up to SAMPLES_PER_FRAME samples are taken.
+        # Queues the frame's samples for the audio pacing to submit; ignored without audio.
         def queue_audio(samples)
-          return unless ::Raylib.IsAudioStreamProcessed(@stream)
-
-          taken = samples.first(SAMPLES_PER_FRAME)
-          @audio_buffer.put_array_of_int16(0, taken)
-          ::Raylib.UpdateAudioStream(@stream, @audio_buffer, taken.size)
+          @audio_pacing&.queue(samples)
         end
 
         def close
-          ::Raylib.UnloadAudioStream(@stream)
-          ::Raylib.CloseAudioDevice
+          @audio_stream&.close
           ::Raylib.UnloadTexture(@texture)
           ::Raylib.CloseWindow
         end
@@ -163,12 +166,13 @@ module Ruby
           @origin = ::Raylib::Vector2.create(0, 0)
         end
 
+        # Without a usable output device the window runs silent, paced by the timer.
         def open_audio
-          ::Raylib.SetAudioStreamBufferSizeDefault(SAMPLES_PER_FRAME)
-          ::Raylib.InitAudioDevice
-          @stream = ::Raylib.LoadAudioStream(SAMPLE_RATE, SAMPLE_BITS, CHANNELS)
-          @audio_buffer = FFI::MemoryPointer.new(:int16, SAMPLES_PER_FRAME)
-          ::Raylib.PlayAudioStream(@stream)
+          stream = RaylibAudioStream.new(sample_rate: SAMPLE_RATE, chunk_size: SAMPLES_PER_FRAME)
+          return stream.close unless stream.ready?
+
+          @audio_stream = stream
+          @audio_pacing = AudioPacing.new(stream:, chunk_size: SAMPLES_PER_FRAME)
         end
 
         def draw_overlay

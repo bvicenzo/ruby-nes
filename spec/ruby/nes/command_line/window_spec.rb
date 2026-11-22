@@ -89,11 +89,12 @@ RSpec.describe Ruby::Nes::CommandLine::Window do
                 window.run(console, options, jit_name: 'zjit')
               end
 
-              it 'opens it with the keys, the viewport and the JIT' do
+              it 'opens it with the keys, the viewport, the JIT and the audio' do
                 expect(open_window).to have_received(:call).with(
                   keys: a_hash_including(pause: ['space'], a: ['x']),
                   viewport: an_object_having_attributes(width: 585, height: 448),
-                  jit_name: 'zjit'
+                  jit_name: 'zjit',
+                  audio: true
                 )
               end
 

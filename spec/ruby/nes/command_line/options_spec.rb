@@ -6,7 +6,9 @@ require 'ruby/nes/command_line'
 # `[--scale N] [--aspect square|8:7] [--crop-overscan] [--config PATH]` or the headless run's `--headless [--frames N]
 # [--screenshot FRAME:PATH] [--input SCRIPT]`. Frames count from 1 and numbers are decimal; 60 frames, one second of
 # emulation, when --frames is not given; YJIT, a 3× window of square pixels showing the whole frame and the default
-# config otherwise. --help and --version ask only for information, so they need no ROM.
+# config with sound otherwise. --help and --version ask only for information, so they need no ROM. A run makes audio
+# (at Audio::SAMPLE_RATE, plan 24) when its frontend plays or keeps it: the window unless --no-audio, the headless run
+# only with --wav.
 RSpec.describe Ruby::Nes::CommandLine::Options do
   describe '.parse' do
     context 'when --help is given' do
@@ -124,6 +126,8 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
                   frames: 60,
                   screenshots: {},
                   input_path: nil,
+                  audio: true,
+                  wav_path: nil,
                   information: nil
                 )
               end
@@ -131,8 +135,8 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
 
             context 'and every option is given' do
               let(:arguments) do
-                %w[--headless game.nes --jit=zjit --scale 2 --aspect 8:7 --crop-overscan --config keys.yml] +
-                  %w[--frames 120 --screenshot 60:a.png --screenshot 120:b:c.png --input moves.yml]
+                %w[--headless game.nes --jit=zjit --scale 2 --aspect 8:7 --crop-overscan --config keys.yml --no-audio] +
+                  %w[--frames 120 --screenshot 60:a.png --screenshot 120:b:c.png --input moves.yml --wav out.wav]
               end
 
               it 'holds each of them' do
@@ -146,7 +150,9 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
                   config_path: 'keys.yml',
                   frames: 120,
                   screenshots: { 60 => 'a.png', 120 => 'b:c.png' },
-                  input_path: 'moves.yml'
+                  input_path: 'moves.yml',
+                  audio: false,
+                  wav_path: 'out.wav'
                 )
               end
             end
@@ -160,6 +166,46 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
               end
             end
           end
+        end
+      end
+    end
+  end
+
+  describe '#audio_sample_rate' do
+    subject(:options) { described_class.parse(arguments) }
+
+    context 'when the run is headless' do
+      context 'and no WAV file is asked' do
+        let(:arguments) { %w[game.nes --headless] }
+
+        it 'is nil' do
+          expect(options.audio_sample_rate).to be_nil
+        end
+      end
+
+      context 'and a WAV file is asked' do
+        let(:arguments) { %w[game.nes --headless --wav out.wav] }
+
+        it 'is the audio sample rate' do
+          expect(options.audio_sample_rate).to eq(48_000)
+        end
+      end
+    end
+
+    context 'when the run is in the window' do
+      context 'and --no-audio is given' do
+        let(:arguments) { %w[game.nes --no-audio] }
+
+        it 'is nil' do
+          expect(options.audio_sample_rate).to be_nil
+        end
+      end
+
+      context 'and --no-audio is not given' do
+        let(:arguments) { %w[game.nes] }
+
+        it 'is the audio sample rate' do
+          expect(options.audio_sample_rate).to eq(48_000)
         end
       end
     end

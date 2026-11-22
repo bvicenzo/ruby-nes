@@ -7,7 +7,8 @@ require 'ruby/nes/frontends/driver'
 # (Console#controllers, plan 15), the console runs a frame, and the frontend gets the frame the PPU completed
 # (Ppu#frame_buffer, plan 16, decision 1). Before a frame the console is reset when the frontend asks; a paused
 # frontend gets the last completed frame again, with no frame run, so it keeps drawing and pacing (plan 18, decision
-# 5).
+# 5). After each frame it runs, the frontend gets the frame's audio samples (Console#audio_samples) before the frame
+# itself, so a frontend paced by its audio has them queued when it waits (plan 24).
 RSpec.describe Ruby::Nes::Frontends::Driver do
   describe '#run' do
     subject(:driver) { described_class.new(console:, frontend:) }
@@ -19,7 +20,12 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
     let(:ppu) { instance_double(Ruby::Nes::Ppu) }
     let(:console) do
       instance_double(
-        Ruby::Nes::Console, controllers: [first_controller, second_controller], run_frame: nil, reset: nil, ppu:
+        Ruby::Nes::Console,
+        controllers: [first_controller, second_controller],
+        run_frame: nil,
+        reset: nil,
+        ppu:,
+        audio_samples: []
       )
     end
 
@@ -63,6 +69,7 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
               paused?: true,
               reset_requested?: false,
               present: nil,
+              queue_audio: nil,
               button_states: [0x00, 0x00]
             )
           end
@@ -80,13 +87,19 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
           it 'presents the last completed frame each time' do
             expect(frontend).to have_received(:present).with(first_frame).twice
           end
+
+          it 'queues no audio' do
+            expect(frontend).not_to have_received(:queue_audio)
+          end
         end
       end
 
       context 'and it is not paused' do
         context 'and it asks for a reset' do
           let(:frontend) do
-            instance_double(Ruby::Nes::Frontends::Base, paused?: false, present: nil, button_states: [0x00, 0x00])
+            instance_double(
+              Ruby::Nes::Frontends::Base, paused?: false, present: nil, queue_audio: nil, button_states: [0x00, 0x00]
+            )
           end
 
           before do
@@ -106,7 +119,9 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
 
         context 'and it asks for no reset' do
           let(:frontend) do
-            instance_double(Ruby::Nes::Frontends::Base, paused?: false, reset_requested?: false, present: nil)
+            instance_double(
+              Ruby::Nes::Frontends::Base, paused?: false, reset_requested?: false, present: nil, queue_audio: nil
+            )
           end
 
           before do
@@ -137,6 +152,25 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
             driver.run
             expect(frontend).to have_received(:present).with(first_frame).ordered
             expect(frontend).to have_received(:present).with(second_frame).ordered
+          end
+
+          it "queues each frame's audio samples after running it and before presenting it" do
+            calls = []
+            allow(console).to receive(:run_frame) { calls << :run_frame }
+            allow(console).to receive(:audio_samples).and_return([100, -100], [200])
+            allow(frontend).to receive(:queue_audio) { |samples| calls << [:queue_audio, samples] }
+            allow(frontend).to receive(:present) { |frame| calls << [:present, frame] }
+            driver.run
+            expect(calls).to eq(
+              [
+                :run_frame,
+                [:queue_audio, [100, -100]],
+                [:present, first_frame],
+                :run_frame,
+                [:queue_audio, [200]],
+                [:present, second_frame]
+              ]
+            )
           end
         end
       end

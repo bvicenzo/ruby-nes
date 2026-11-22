@@ -9,11 +9,12 @@ module Ruby
         LIBRARY = File.expand_path('../frontends/raylib', __dir__)
         INSTALL_HINT = 'the window needs the optional frontends group: bundle config set --local with frontends'
 
-        # A Frontends::Raylib with these keys, viewport and JIT name; `library` and `hidden` serve the specs.
-        # The gem, or the raylib library file its platform build should ship, may be missing: both are a LoadError.
-        def self.call(keys:, viewport:, jit_name:, library: LIBRARY, hidden: false)
+        # A Frontends::Raylib with the window's keyword arguments (`keys:`, `viewport:`, `jit_name:`, `audio:`, and
+        # `hidden:` for the specs); `library` serves the specs too. The gem, or the raylib library file its platform
+        # build should ship, may be missing: both are a LoadError.
+        def self.call(library: LIBRARY, **window)
           require library
-          Frontends::Raylib.new(keys:, viewport:, jit_name:, hidden:)
+          Frontends::Raylib.new(**window)
         rescue LoadError => error
           raise Error, "#{error.message} (#{INSTALL_HINT})"
         end

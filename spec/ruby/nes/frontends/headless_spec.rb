@@ -8,11 +8,13 @@ require 'ruby/nes/frontends/driver'
 require 'ruby/nes/frontends/input_script'
 require 'ruby/nes/frontends/palette'
 require 'ruby/nes/frontends/png'
+require 'ruby/nes/frontends/wav'
 require 'ruby/nes/frontends/headless'
 
 # The headless frontend (plan 16): no window and no sound. It runs a number of frames, counted from 1 (decision 6),
 # holds the input script's buttons on the first controller, writes PNG screenshots of the frames asked for, and keeps
-# the SHA-256 of each frame's pixels as 16-bit little-endian integers (pixels go up to 511, decision 2).
+# the SHA-256 of each frame's pixels as 16-bit little-endian integers (pixels go up to 511, decision 2). With a WAV
+# path, it keeps the audio samples of every frame and writes them as a WAV file at 48 kHz when it closes (plan 24).
 RSpec.describe Ruby::Nes::Frontends::Headless do
   describe '#running?' do
     context 'when fewer frames than asked were presented' do
@@ -92,6 +94,40 @@ RSpec.describe Ruby::Nes::Frontends::Headless do
           rgb: Ruby::Nes::Frontends::Palette.rgb(second_frame)
         )
         expect(File.binread(screenshot_path)).to eq(expected_image)
+      end
+    end
+  end
+
+  describe '#close' do
+    let(:directory) { Dir.mktmpdir }
+
+    after { FileUtils.remove_entry(directory) }
+
+    context 'when no WAV file was asked' do
+      subject(:frontend) { described_class.new(frames: 2) }
+
+      before { allow(File).to receive(:binwrite) }
+
+      it 'writes no file' do
+        frontend.queue_audio([100, -100])
+        frontend.close
+
+        expect(File).not_to have_received(:binwrite)
+      end
+    end
+
+    context 'when a WAV file was asked' do
+      subject(:frontend) { described_class.new(frames: 2, wav: wav_path) }
+
+      let(:wav_path) { File.join(directory, 'run.wav') }
+
+      it 'writes every sample queued, in order, as a WAV file at the audio sample rate' do
+        frontend.queue_audio([100, -100])
+        frontend.queue_audio([200])
+        frontend.close
+
+        expect(File.binread(wav_path))
+          .to eq(Ruby::Nes::Frontends::Wav.encode([100, -100, 200], sample_rate: Ruby::Nes::Audio::SAMPLE_RATE))
       end
     end
   end

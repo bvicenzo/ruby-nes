@@ -8,7 +8,8 @@ module Ruby
       # (CommandLine::RaylibWindow by default), runs the console in it through Frontends::Driver until it stops, and
       # closes it however the run ends. Off the hot path.
       class Window
-        # `open_window` takes `keys:` (Frontends::KeyConfig#keys), `viewport:` and `jit_name:` and returns the frontend.
+        # `open_window` takes `keys:` (Frontends::KeyConfig#keys), `viewport:`, `jit_name:` and `audio:` (false with
+        # --no-audio) and returns the frontend.
         def initialize(open_window: RaylibWindow, default_config_path: ConfigFile::DEFAULT_PATH, error_output: $stderr)
           @open_window = open_window
           @default_config_path = default_config_path
@@ -20,7 +21,8 @@ module Ruby
           config_text = ConfigFile.text(options.config_path, default_path: @default_config_path)
           key_config = Frontends::KeyConfig.parse(config_text)
           warn_unbound(key_config.unbound_actions)
-          frontend = @open_window.call(keys: key_config.keys, viewport: viewport(options), jit_name:)
+          frontend = @open_window
+            .call(keys: key_config.keys, viewport: viewport(options), jit_name:, audio: options.audio)
           Frontends::Driver.new(console:, frontend:).run
         ensure
           frontend&.close

@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'digest'
 require 'fileutils'
 require 'stringio'
 require 'tmpdir'
@@ -80,13 +81,50 @@ RSpec.describe Ruby::Nes::CommandLine do
             let(:screenshot_path) { File.join(directory, 'second.png') }
 
             context 'and no input script is given' do
-              subject(:command_line) do
-                described_class.new(['--headless', rom_path, '--frames', '1'], output:, error_output:, jit:, window:)
+              context 'and no WAV file is asked' do
+                subject(:command_line) do
+                  described_class.new(['--headless', rom_path, '--frames', '1'], output:, error_output:, jit:, window:)
+                end
+
+                it 'runs the frames and prints the JIT and the last digest', :aggregate_failures do
+                  expect(command_line.run).to eq(0)
+                  expect(output.string).to match(/\AJIT: yjit\n1 frames, last frame SHA-256 \h{64}\n\z/)
+                end
               end
 
-              it 'runs the frames and prints the JIT and the last digest', :aggregate_failures do
-                expect(command_line.run).to eq(0)
-                expect(output.string).to match(/\AJIT: yjit\n1 frames, last frame SHA-256 \h{64}\n\z/)
+              context 'and a WAV file is asked' do
+                let(:wav_path) { File.join(directory, 'run.wav') }
+
+                context 'but the run fails' do
+                  subject(:command_line) do
+                    arguments = ['--headless', rom_path, '--frames', '2', '--wav', wav_path]
+                    arguments += ['--screenshot', "2:#{missing_directory_path}"]
+                    described_class.new(arguments, output:, error_output:, jit:, window:)
+                  end
+
+                  let(:missing_directory_path) { File.join(directory, 'missing', 'second.png') }
+
+                  it 'writes the audio of the frames run, prints the reason and fails', :aggregate_failures do
+                    expect(command_line.run).to eq(1)
+                    expect(File.size(wav_path)).to be_within(8).of(44 + (2 * 799 * 2))
+                    expect(error_output.string).to include('second.png')
+                  end
+                end
+
+                context 'and the run ends' do
+                  subject(:command_line) do
+                    arguments = ['--headless', rom_path, '--frames', '1', '--wav', wav_path]
+                    described_class.new(arguments, output:, error_output:, jit:, window:)
+                  end
+
+                  # A frame at 48 kHz and "60.0988 Hz" (https://www.nesdev.org/wiki/Cycle_reference_chart): about 799
+                  # samples of 2 bytes, after the 44-byte header.
+                  it "writes the frame's audio as a WAV file", :aggregate_failures do
+                    expect(command_line.run).to eq(0)
+                    expect(File.binread(wav_path, 4)).to eq('RIFF')
+                    expect(File.size(wav_path)).to be_within(4).of(44 + (799 * 2))
+                  end
+                end
               end
             end
 
@@ -160,6 +198,28 @@ RSpec.describe Ruby::Nes::CommandLine do
                 expect(output.string).to eq("JIT: yjit\n")
               end
             end
+          end
+        end
+
+        context 'and the ROM is the Super Mario Bros. 3 dump', :slow, local_rom: 'smb3.nes' do
+          # The title screen is silent: the game first writes the channels after Start (frame 521, the menu's sound),
+          # and the world map music starts at frame 588. A 1200-frame run with this input, whose first 720 frames are
+          # these, was heard and judged right on 2026-11-22 (plan 24); the digest guards it.
+          subject(:command_line) do
+            arguments = [local_rom_path('smb3.nes'), '--headless', '--frames', '720', '--input', script_path]
+            described_class.new([*arguments, '--wav', wav_path], output:, error_output:, jit:, window:)
+          end
+
+          let(:script_path) { File.join(directory, 'start.yml') }
+          let(:wav_path) { File.join(directory, 'smb3.wav') }
+
+          before { File.write(script_path, "450: [start]\n456: []\n520: [start]\n526: []\n") }
+
+          it "writes the menu's sound and the world map music as the WAV heard" do
+            command_line.run
+
+            expect(Digest::SHA256.file(wav_path).hexdigest)
+              .to eq('11c3681a3347f582efb2a3e88c1322c03508c08ebc25beec73a54b7e6f504193')
           end
         end
       end
