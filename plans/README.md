@@ -51,7 +51,7 @@ Conventions (see also `CLAUDE.md`):
 | 20 | [Mapper MMC1](20-mapper-mmc1.md) | 19 | done |
 | 21 | [Mapper MMC3 and Super Mario Bros. 3](21-mapper-mmc3-smb3.md) | 14, 18, 20 | done |
 | 22 | [APU: pulse channels and frame counter](22-apu-pulse-frame-counter.md) | 12 | done |
-| 23 | [APU: triangle, noise, DMC and mixer](23-apu-triangle-noise-dmc-mixer.md) | 22 | todo |
+| 23 | [APU: triangle, noise, DMC and mixer](23-apu-triangle-noise-dmc-mixer.md) | 22 | done |
 | 24 | [Audio output and synchronisation](24-audio-output-sync.md) | 18, 23 | todo |
 | 25 | [Performance pass](25-performance-pass.md) | 21, 24 | todo |
 | 26 | [Spinel AOT experiment](26-spinel-experiment.md) | 10 (minimum), 25 (full) | todo |

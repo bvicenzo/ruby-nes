@@ -30,6 +30,12 @@ the emulator's pace. Milestone M6: SMB3 with sound.
   audio-driven pacing is another strategy with the same `wait` message. While paused the window keeps presenting the
   last frame (plan 18, decision 5): audio should then be silent, not underrun noise.
 
+From plan 23: `Apu#output` returns the mix of the five channels (0.0-1.0, the APU Mixer page's lookup tables) as they
+stand, computed on demand (plan 23, decision 8); accumulating one value per CPU cycle for the box filter belongs here,
+in `Apu#catch_up` or a sink it calls, with no allocation per cycle. Ultrasonic triangle periods (below 2) are played as
+the hardware plays them (plan 23, decision 4): listen for them, and silence them only if the resampler turns them into
+audible noise.
+
 ## Scope
 
 In: resampler, the three first-order filters, a ring buffer between the core and the backend, audio-driven pacing

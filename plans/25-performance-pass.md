@@ -61,6 +61,15 @@ the NMI edge carry cycle stamps, and taken branches and `CLI`/`SEI`/`PLP` tell t
 Candidates: advancing the frame counter straight to its next step instead of cycle by cycle, and measuring the
 per-instruction cost of the poll bookkeeping.
 
+From plan 23: the catch-up also ticks the triangle timer every CPU cycle and the noise and DMC timers every other one,
+and `Apu#output` mixes the five channels through two constant tables on demand. The DMC halts the CPU through
+`Cpu#halt(stall_cycles)` (a push, decision 1); OAM DMA still pulls through `CpuBus#take_stall_cycles` after every step
+(architecture decision 20, measured at about −8% under YJIT): moving it to `Cpu#halt` removes that query, but must keep
+`cpu_interrupts_v2/4-irq_and_dma` passing (plan 22, decision 5). Candidates: skipping a channel's timer while its
+output cannot change (a halted triangle, a silent DMC with an empty buffer). Left by plan 23's review: `Apu::Dmc`
+keeps the cycle `tick_timer` was given in an instance variable so the generic `Timer` → `step` call can pass it to the
+output unit; revisit it if the timer interface changes.
+
 ## Open decisions
 
 - Which accuracy shortcuts are acceptable (e.g. scanline-based fast path, APU catch-up)? Each one is proposed with its
