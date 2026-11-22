@@ -151,6 +151,15 @@ under `rake blargg:run` without a JIT. Plan 12's `cpu_interrupts_v2` failures ab
 | `apu_reset/works_immediately.nes` | Failed (2) | 22 | "At power, writes should work immediately": it plays the DMC and the triangle's linear counter (plan 23). |
 | `mmc3_test_2/rom_singles/4-scanline_timing.nes` | Failed (2) | 60 | Still "Scanline 0 IRQ should occur later when $2000=$08" with the IRQ polled at its cycle (Known gaps: MMC3 IRQ timing). |
 
+Plan 23, 2026-11-21, with the triangle, the noise, the DMC and its DMA, and the mixer. Frames under `rake blargg:run`
+without a JIT. Plan 22's `works_immediately` failure above is superseded by its row here.
+
+| ROM | Result | Frames | Notes |
+|---|---|---|---|
+| `apu_test/rom_singles/7-dmc_basics.nes` | Passed | 25 | Restart only after the sample ended, `$4013` read on restart, the IRQ flag (not cleared by a `$4015` read), loops, the one-byte buffer filled at once (plan 23, decision 3). |
+| `apu_test/rom_singles/8-dmc_rates.nes` | Passed | 29 | The 16 rates; the timer reloads half the CPU-cycle rate minus 1, and a fetch halts the CPU 3 or 4 cycles (decision 2). |
+| `apu_reset/works_immediately.nes` | Passed | 37 | Presses reset; `$4015` reads the DMC's bytes remaining and its IRQ flag at power and after reset. |
+
 Super Mario Bros. 3 (the user's dump, `roms/smb3.nes`, never committed) reaches the title screen, its menu, the world
 map and world 1-1 headless; a slow `local_rom:` example of `Console#run_frame` plays into 1-1 with a scripted input and
 checks that the status bar stays still (pixel for pixel, the timer's ones digit aside) through 100 frames of scrolling.
