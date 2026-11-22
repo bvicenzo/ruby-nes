@@ -5,11 +5,12 @@
 # 1.789773 MHz clock, 16.6 ms (https://www.nesdev.org/wiki/Cycle_reference_chart). The synthetic programs write the
 # signature $DE $B0 $61 at $6001-$6003; RAM is zero at power, so $00 tells a first boot from a run after the reset.
 #
-# The real ROMs below are the ones plans 12, 14, 19, 20, 21 and 22 pass: every instr_test-v5 and instr_misc single plan
-# 12 covers, instr_test-v5's two multi-test builds (MMC1, plan 20), ppu_vbl_nmi 01-09, sprite_hit_tests_2005.10.05
-# 01-11, sprite_overflow_tests 1, 2, 4 and 5, cpu_dummy_reads, mmc3_test_2 1-3 and 5 (MMC3, plan 21), and with the APU
-# (plan 22) apu_test 1-6, apu_reset but works_immediately, cpu_interrupts_v2's singles and multi-test build,
-# instr_timing 1-2 and instr_misc's 04-dummy_reads_apu; every ROM's result, failures included, is in docs/test-roms.md.
+# The real ROMs below are the ones plans 12, 14, 19, 20, 21, 22 and 23 pass: every instr_test-v5 and instr_misc single
+# plan 12 covers, instr_test-v5's two multi-test builds (MMC1, plan 20), ppu_vbl_nmi 01-09, sprite_hit_tests_2005.10.05
+# 01-11, sprite_overflow_tests 1, 2, 4 and 5, cpu_dummy_reads, mmc3_test_2 1-3 and 5 (MMC3, plan 21), with the APU
+# (plan 22) apu_test 1-6, apu_reset, cpu_interrupts_v2's singles and multi-test build, instr_timing 1-2 and instr_misc's
+# 04-dummy_reads_apu, and with the DMC (plan 23) apu_test 7-8 and apu_reset's works_immediately; every ROM's result,
+# failures included, is in docs/test-roms.md.
 # The 2005 suites report through $F8 (Blargg::LegacyReport), 1 meaning passed (a program that reports that way is also
 # given its report); cpu_dummy_reads only on screen (Blargg::ScreenReport). Each context's cartridge is the ROM its
 # `test_rom:` names. They take seconds each, so they are tagged `slow: true` and run only with SLOW=1 (plan 12, decision
@@ -292,7 +293,7 @@ RSpec.describe Blargg::Runner do
       end
     end
 
-    # The APU's length counters and frame counter (plan 22).
+    # The APU's length counters and frame counter (plan 22), and the DMC (plan 23).
     context 'when the program is a single ROM of apu_test' do
       let(:rom_path) { RSpec.current_example.metadata[:test_rom] }
       let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(test_rom_path(rom_path)) }
@@ -333,6 +334,18 @@ RSpec.describe Blargg::Runner do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
       end
+
+      context 'and it is 7-dmc_basics', :slow, test_rom: 'apu_test/rom_singles/7-dmc_basics.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is 8-dmc_rates', :slow, test_rom: 'apu_test/rom_singles/8-dmc_rates.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
     end
 
     # The APU at power and after reset, the runner pressing reset when the program asks (plan 22, decision 4).
@@ -366,6 +379,12 @@ RSpec.describe Blargg::Runner do
       end
 
       context 'and it is len_ctrs_enabled', :slow, test_rom: 'apu_reset/len_ctrs_enabled.nes' do
+        it 'passes' do
+          expect(runner.run).to have_attributes(state: :finished, code: 0x00)
+        end
+      end
+
+      context 'and it is works_immediately', :slow, test_rom: 'apu_reset/works_immediately.nes' do
         it 'passes' do
           expect(runner.run).to have_attributes(state: :finished, code: 0x00)
         end
