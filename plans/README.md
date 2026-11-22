@@ -53,9 +53,10 @@ Conventions (see also `CLAUDE.md`):
 | 22 | [APU: pulse channels and frame counter](22-apu-pulse-frame-counter.md) | 12 | done |
 | 23 | [APU: triangle, noise, DMC and mixer](23-apu-triangle-noise-dmc-mixer.md) | 22 | done |
 | 24 | [Audio output and synchronisation](24-audio-output-sync.md) | 18, 23 | done |
-| 25 | [Performance pass](25-performance-pass.md) | 21, 24 | todo |
+| 25 | [Performance pass](25-performance-pass.md) | 21, 24 | done |
 | 26 | [Spinel AOT experiment](26-spinel-experiment.md) | 10 (minimum), 25 (full) | todo |
 | 27 | [Horizontal edge crop](27-horizontal-edge-crop.md) | 18 | todo |
+| 28 | [PPU dot ranges](28-ppu-dot-ranges.md) | 25 | todo |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
 
