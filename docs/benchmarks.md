@@ -1,8 +1,8 @@
 # Benchmarks
 
-Speed of the emulator under the interpreter, YJIT and ZJIT. `rake bench:cpu` and `rake bench:variants` (plan 10)
-append dated sections at the end of this file; the conclusions drawn from them are written by hand in
-[Findings](#findings).
+Speed of the emulator under the interpreter, YJIT and ZJIT. `rake bench:cpu` and `rake bench:variants` (plan 10) and
+`rake bench:frames` (plan 25) append dated sections at the end of this file; the conclusions drawn from them are written
+by hand in [Findings](#findings). `rake bench:profile` prints vernier's top methods for the frame workload.
 
 How to read the tables:
 
@@ -23,6 +23,52 @@ measured (the result bytes alone are not enough: a variant that missed every bra
 zero). Each configuration and variant runs in a process of its own.
 
 ## Findings
+
+### Plan 25: whole frames (2026-11-22)
+
+The frame workload (`rake bench:frames`, `bench/frame.rb`): Super Mario Bros. 3 from power-up, played by the console
+spec's input script (`spec/fixtures/smb3_world_1_1.yml`) into world 1-1 with audio at 48 kHz drained every frame, 1200
+warm-up frames, then 5 runs of 60 frames; frames per second is the median run. Each run prints the SHA-256 of the last
+frame and of the audio, the same for every configuration and for every optimisation kept (plan 25, decisions 3 and 4).
+
+| Configuration | Baseline (818529a) | Final | Change |
+|---|---|---|---|
+| interpreter | 4.3 fps (230.5 ms) | 5.2 fps (192.1 ms) | -17% per frame |
+| yjit | 14.2 fps (70.3 ms) | 23.4 fps (42.7 ms) | -39% per frame |
+| zjit | 12.7 fps (78.9 ms) | 15.4 fps (65.1 ms) | -17% per frame |
+
+**Kept:** step 1, flag tests inline on hot paths (architecture decision 72, -23% under YJIT); step 2, the renderer as a
+per-dot pipeline (decision 73, a further -19%). **Not kept:** grouping `run_dot`'s flag tests by stage (no gain in a
+prototype). **Not done** (plan 25, decision 9): the APU, OAM DMA, CPU and frontend items of the list, each a few percent
+of the frame at most, and running ranges of dots per call, which is plan 28.
+
+**Default JIT: YJIT stays.** With whole frames it leads ZJIT by 52% (23.4 against 15.4 fps).
+
+**The gap: 42.7 ms per frame under YJIT against 16.6 ms**, about 26 ms. Per component, from `rake bench:profile`
+(vernier, 200 frames; the top 40 methods, about 90% of the samples, grouped by hand):
+
+| Component | Share | ms per frame |
+|---|---|---|
+| The loop around each dot (`Ppu#catch_up`, `FrameTiming#advance`, `RenderSchedule#steps`, `Renderer#run_dot`) | ~26% | ~11 |
+| Background fetches and v updates (fetcher, `PpuBus`, nametables, mapper, MMC3's A12 watch) | ~19% | ~8 |
+| Pixel composition (`Renderer#draw`, the shift registers, `Picture#draw`, palette RAM) | ~17% | ~7 |
+| APU and audio (catch-up per cycle, channel outputs, mixer, resampler) | ~14% | ~6 |
+| CPU, CPU bus and the console loop | ~9% | ~4 |
+| Sprite steps (`SpriteRenderer#run_steps` on dots 257-320, evaluation) | ~7% | ~3 |
+
+The frontend is not in this workload (headless, no RGB conversion): in the window it adds the RGB conversion plan 16
+measured at about 2.8 ms per frame, and the present.
+
+The loop around each dot alone is about two thirds of the budget: no change inside a dot reaches 60 fps, which is why
+the next step, plan 28, runs ranges of dots per call between the sync points.
+
+**`rake bench:cpu` no longer measures the CPU alone.** It reads 4.3 MHz under YJIT on 818529a and on plan 25's tree
+alike, against 16.4 at the end of plan 10: since plan 22, nestest's writes to `$4015` and `$4017` catch the APU up,
+and vernier puts about 60% of the workload in `Apu#catch_up` and the channels' timers. The variants' relative changes
+still compare like with like (the same session, the same workload); `interrupt_poll_inline` now measures +5.5% under
+YJIT and +10.7% under ZJIT, and `bits_helpers` +0.5% under YJIT, both on a workload the APU dominates.
+
+### Plan 10: the CPU alone
 
 Plan 10, 2026-11-18, on the machine of the tables below (Intel Core i5-8257U, macOS, Ruby 4.0.9). The benchmark needs
 a Ruby built with both YJIT and ZJIT. Unless a line says otherwise, the numbers come from the sections measured with
@@ -350,3 +396,107 @@ process (the base's read, no watch).
 The finer windows cost about 3% under both JITs, within the run-to-run variation plans 19 and 20 saw; the A12 watch is
 within noise under YJIT and costs 3-5% under ZJIT. Neither calls for the dot-260 shortcut; plan 25 measures the whole
 frame.
+
+### 2026-11-22 — Baseline (base commit 818529a) — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 4.3 | 230.5 | 7% | 2.2% | f0903fbc59bf | 10369a5b40df |
+| yjit | 14.2 | 70.3 | 24% | 2.8% | f0903fbc59bf | 10369a5b40df |
+| zjit | 12.7 | 78.9 | 21% | 2.2% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-22 — Plan 25, step 1: inline flag tests on hot paths (A/B against 818529a)
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+`bench/frame.rb` with its defaults (Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60),
+the base commit from a git worktree with the same benchmark copied in, alternated with the working tree in two rounds.
+Every `anybits?`/`nobits?`/`allbits?` on the hot paths became `(value & FLAG) != 0` (architecture decision 72). Every
+run's digests were f0903fbc59bf (frame) and 10369a5b40df (audio), the baseline's.
+
+| Configuration | Variant | Frames per second | ms per frame | Spread | Change in ms per frame |
+|---|---|---|---|---|---|
+| yjit | base commit, round 1 | 14.1 | 70.9 | 1.5% | — |
+| yjit | inline flag tests, round 1 | 18.3 | 54.5 | 3.8% | -23.1% |
+| zjit | base commit, round 1 | 12.8 | 78.1 | 1.7% | — |
+| zjit | inline flag tests, round 1 | 14.5 | 68.8 | 2.2% | -11.9% |
+| yjit | base commit, round 2 | 14.1 | 70.8 | 1.0% | — |
+| yjit | inline flag tests, round 2 | 18.3 | 54.7 | 1.2% | -22.7% |
+| zjit | base commit, round 2 | 12.1 | 82.7 | 29.9% | — |
+| zjit | inline flag tests, round 2 | 12.0 | 83.6 | 5.4% | +1.1% |
+
+Kept: about -23% of the frame's time under YJIT, more than the renderer alone measured in the plan's review (-15%),
+since the CPU's status flags, the APU and the mappers are converted too. ZJIT's second round is noise (a 30% spread in
+the base run).
+
+### 2026-11-22 — Plan 25, step 2: the renderer as a per-dot pipeline (A/B against 818529a)
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+The same procedure as step 1, the working tree carrying both steps (architecture decisions 72 and 73): the renderer
+owns the background shift registers, composes each pixel in one method from the sprite line's entries, asks the
+priority multiplexer only where both layers are opaque, and the picture reads palette RAM directly. Every run's digests
+were the baseline's.
+
+| Configuration | Variant | Frames per second | ms per frame | Spread | Change in ms per frame |
+|---|---|---|---|---|---|
+| yjit | base commit, round 1 | 13.9 | 71.9 | 1.6% | — |
+| yjit | steps 1 and 2, round 1 | 22.5 | 44.3 | 0.5% | -38.4% |
+| zjit | base commit, round 1 | 12.7 | 78.8 | 2.7% | — |
+| zjit | steps 1 and 2, round 1 | 15.5 | 64.5 | 0.7% | -18.1% |
+| yjit | base commit, round 2 | 14.6 | 68.7 | 0.6% | — |
+| yjit | steps 1 and 2, round 2 | 22.8 | 43.9 | 1.9% | -36.1% |
+| zjit | base commit, round 2 | 12.7 | 79.0 | 0.9% | — |
+| zjit | steps 1 and 2, round 2 | 15.8 | 63.3 | 0.9% | -19.9% |
+
+Kept: step 2 alone takes the frame from about 54.5 ms (step 1) to 44.1 ms under YJIT, -19%. A first version that kept
+one private method per stage (the background pixel, the layer choice) measured only -8% (50.0 ms); folding them into
+one `draw` gave the rest. A throwaway prototype that also grouped the flag tests of `run_dot` by stage showed no gain
+from the grouping alone (52.2 → 55.4 ms, noise), so it was not kept.
+
+### 2026-11-22 — Final (plan 25) — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 5.2 | 192.1 | 9% | 1.6% | f0903fbc59bf | 10369a5b40df |
+| yjit | 23.4 | 42.7 | 39% | 0.7% | f0903fbc59bf | 10369a5b40df |
+| zjit | 15.4 | 65.1 | 26% | 7.5% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-22 — CPU baseline (nestest, 10 M cycles, 2 warm-up and 5 measured runs)
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Variant | Emulated MHz | % of real time | Spread | Change from baseline |
+|---|---|---|---|---|---|
+| interpreter | baseline | 1.00 | 56% | 4.8% | — |
+| yjit | baseline | 4.25 | 237% | 3.6% | — |
+| zjit | baseline | 2.89 | 162% | 0.6% | — |
+
+### 2026-11-22 — CPU variants (nestest, 10 M cycles, 2 warm-up and 5 measured runs)
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Variant | Emulated MHz | % of real time | Spread | Change from baseline |
+|---|---|---|---|---|---|
+| interpreter | baseline | 1.05 | 59% | 0.0% | — |
+| interpreter | dispatch_lambda_table | 1.08 | 61% | 0.1% | +2.8% |
+| interpreter | memory_string | 1.09 | 61% | 0.2% | +3.0% |
+| interpreter | memory_io_buffer | 1.04 | 58% | 0.3% | -0.9% |
+| interpreter | bits_helpers | 1.04 | 58% | 4.8% | -1.2% |
+| interpreter | interrupt_poll_inline | 1.21 | 67% | 0.1% | +14.4% |
+| yjit | baseline | 4.51 | 252% | 0.3% | — |
+| yjit | dispatch_lambda_table | 4.30 | 240% | 0.2% | -4.7% |
+| yjit | memory_string | 4.42 | 247% | 0.2% | -2.2% |
+| yjit | memory_io_buffer | 4.11 | 230% | 0.3% | -8.9% |
+| yjit | bits_helpers | 4.54 | 253% | 0.3% | +0.5% |
+| yjit | interrupt_poll_inline | 4.76 | 266% | 0.2% | +5.5% |
+| zjit | baseline | 2.96 | 166% | 0.2% | — |
+| zjit | dispatch_lambda_table | 3.22 | 180% | 0.3% | +8.7% |
+| zjit | memory_string | 2.98 | 166% | 0.2% | +0.4% |
+| zjit | memory_io_buffer | 2.81 | 157% | 0.2% | -5.2% |
+| zjit | bits_helpers | 2.86 | 160% | 0.1% | -3.5% |
+| zjit | interrupt_poll_inline | 3.28 | 183% | 0.2% | +10.7% |

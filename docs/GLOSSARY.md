@@ -127,9 +127,10 @@ constant name.
 
 - A tag names the **intent**, not the expression: `low-byte` and `wrap-to-byte` are both `& BYTE_MASK`.
 - Inside these idioms the byte width `8` and the single bit `1` are not magic numbers.
-- **Flag tests are not inline idioms.** Test bits with `anybits?`, `allbits?` or `nobits?` everywhere, hot paths
-  included (`status.anybits?(CARRY_FLAG)`, `value.anybits?(SIGN_BIT)` for the sign bit). RuboCop's
-  `Style/BitwisePredicate` rejects `register & FLAG != 0`.
+- **Flag tests:** off hot paths, test bits with `anybits?`, `allbits?` or `nobits?` (`status.anybits?(CARRY_FLAG)`,
+  `value.anybits?(SIGN_BIT)` for the sign bit); on hot paths they are the inline idioms `flag-set` and `flag-clear`
+  below (architecture decision 72: `anybits?` is a C call the JITs do not inline). RuboCop's `Style/BitwisePredicate`,
+  which rejects the inline form, is disabled for the directories that hold that code (`.rubocop.yml`).
 
 ### wrap-to-byte
 
@@ -215,6 +216,25 @@ constant name.
   field. (`~FLAG` is negative in Ruby, but and-ing it with a non-negative register keeps the result non-negative and
   within the register's width.)
 
+### flag-set
+
+- Inline: `(value & FLAG) != 0`
+- Off the hot path: `value.anybits?(FLAG)`
+- True when any bit of `FLAG` is on in `value`. Under YJIT and ZJIT the operators compile inline, while `anybits?` is
+  a call: about 9 ns more per test (plan 25).
+
+### flag-clear
+
+- Inline: `(value & FLAG) == 0`
+- Off the hot path: `value.nobits?(FLAG)`
+- True when every bit of `FLAG` is off in `value`.
+
+### all-flags-set
+
+- Inline: `(value & MASK) == MASK`
+- Off the hot path: `value.allbits?(MASK)`
+- True when every bit of `MASK` is on in `value`: a field at its highest value, such as coarse X at 31.
+
 ### toggle-flag
 
 - Inline: `register ^ FLAG`
@@ -226,7 +246,7 @@ constant name.
 - Inline: `(value >> index) & 1`
 - Off the hot path: `Bits.bit_at(value, index)`
 - The bit at position `index` (0 is the lowest) as `0` or `1`, for copying a bit into another value (a shifted-out
-  bit into the carry, for example). To *test* a bit, use `anybits?`.
+  bit into the carry, for example). To *test* a bit, use `anybits?` (`flag-set` on hot paths).
 
 ### signed-byte
 
