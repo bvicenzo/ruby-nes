@@ -3,6 +3,7 @@
 require_relative '../lib/ruby/nes'
 require_relative '../spec/support/test_roms'
 require_relative '../spec/support/nestest'
+require_relative 'benchmark_statistics'
 
 # The CPU benchmark (plans/10-jit-benchmark.md): nestest in automation mode, looped from a fresh console, timed under
 # no JIT, YJIT or ZJIT, with optional variants of the hot paths. Benchmark tooling, never loaded by the emulator.

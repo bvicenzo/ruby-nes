@@ -14,6 +14,8 @@ group :development, :test do
   gem 'rubocop-rspec', require: false
   gem 'rubocop-vicenzo', '~> 0.10.0', require: false
   gem 'simplecov', require: false
+  # The sampling profiler of plan 25 (`rake bench:profile`).
+  gem 'vernier', require: false
 end
 
 # The windowed backend chosen by plan 17 (raylib); the core never requires it. Install with

@@ -38,7 +38,7 @@ module CpuBenchmark
       return NO_CHANGE if measurement[:variant] == Variants::BASELINE
 
       baseline = @baselines.fetch(measurement[:configuration])
-      format('%+.1f%%', ((measurement[:megahertz] / baseline[:megahertz]) - 1) * Summary::PERCENT)
+      format('%+.1f%%', ((measurement[:megahertz] / baseline[:megahertz]) - 1) * BenchmarkStatistics::PERCENT)
     end
 
     def baselines_by_configuration(measurements)
