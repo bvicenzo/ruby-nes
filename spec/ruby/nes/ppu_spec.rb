@@ -860,10 +860,19 @@ RSpec.describe Ruby::Nes::Ppu do
 
       let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
       let(:nmi_input) { instance_double(Ruby::Nes::Cpu, nmi_line_changed: nil) }
-      let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
+      let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dots: nil) }
 
       context 'and the PPU stands between two CPU cycles' do
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 0, dot: 0) }
+        let(:frame_timing) do
+          instance_double(
+            Ruby::Nes::Ppu::FrameTiming,
+            advance: nil,
+            scanline: 0,
+            dot: 0,
+            last_quiet_dot: 0,
+            advance_to: nil
+          )
+        end
 
         before { ppu.catch_up(10) }
 
@@ -883,7 +892,9 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the change comes as the PPU enters the middle dot of a CPU cycle' do
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0) }
+        let(:frame_timing) do
+          instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0, last_quiet_dot: 0, advance_to: nil)
+        end
 
         context 'and the output is asserted' do
           before do
@@ -909,7 +920,9 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the change comes as the PPU enters the last dot of a CPU cycle' do
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0) }
+        let(:frame_timing) do
+          instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0, last_quiet_dot: 0, advance_to: nil)
+        end
 
         context 'and the output is asserted' do
           before do
@@ -935,7 +948,9 @@ RSpec.describe Ruby::Nes::Ppu do
       end
 
       context 'and the change comes as the PPU enters the first dot of a CPU cycle' do
-        let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0) }
+        let(:frame_timing) do
+          instance_double(Ruby::Nes::Ppu::FrameTiming, scanline: 0, dot: 0, last_quiet_dot: 0, advance_to: nil)
+        end
 
         context 'and the output is asserted' do
           before do
@@ -962,47 +977,121 @@ RSpec.describe Ruby::Nes::Ppu do
     end
   end
 
+  # The PPU runs the dots up to the CPU cycle as ranges within a scanline, each up to the frame timing's last quiet dot
+  # (plan 28, decision 4); the renderer runs each range with the clock standing on its first dot (decision 5).
   describe '#catch_up' do
-    subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
-
     let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
-    let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 12, dot: 34) }
-    let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
+    let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer) }
+    let(:events) { instance_double(described_class, vertical_blank_started: nil) }
 
     context 'when the CPU cycle is behind the PPU' do
+      subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
+
+      let(:frame_timing) { Ruby::Nes::Ppu::FrameTiming.new(events:, scanline: 100, dot: 0) }
+
       before do
+        allow(renderer).to receive(:run_dots)
         ppu.catch_up(10)
         ppu.catch_up(9)
       end
 
-      it 'advances nothing' do
-        expect(frame_timing).to have_received(:advance).exactly(30).times
+      it 'runs nothing more', :aggregate_failures do
+        expect(renderer).to have_received(:run_dots).once
+        expect(ppu.elapsed_dots).to eq(30)
       end
     end
 
     context "when the CPU cycle is the PPU's" do
+      subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
+
+      let(:frame_timing) { Ruby::Nes::Ppu::FrameTiming.new(events:, scanline: 100, dot: 0) }
+
       before do
+        allow(renderer).to receive(:run_dots)
         ppu.catch_up(10)
         ppu.catch_up(10)
       end
 
-      it 'advances nothing' do
-        expect(frame_timing).to have_received(:advance).exactly(30).times
+      it 'runs nothing more', :aggregate_failures do
+        expect(renderer).to have_received(:run_dots).once
+        expect(ppu.elapsed_dots).to eq(30)
       end
     end
 
     context 'when the CPU cycle is ahead of the PPU' do
-      before do
-        ppu.catch_up(10)
-        ppu.catch_up(12)
+      context 'and its dots stay within the scanline' do
+        subject(:ppu) { described_class.new(bus:, frame_timing:, clock:, renderer: range_log) }
+
+        let(:frame_timing) { Ruby::Nes::Ppu::FrameTiming.new(events:, scanline: 100, dot: 0) }
+        let(:clock) { Ruby::Nes::Ppu::DotClock.new }
+        let(:range_log) { RangeLog.new(clock:) }
+
+        before { ppu.catch_up(10) }
+
+        it 'runs them as one range, three dots per CPU cycle, with the clock on its first dot' do
+          expect(range_log.ranges).to eq([{ scanline: 100, first_dot: 1, last_dot: 30, elapsed_dots: 1 }])
+        end
+
+        it 'stands on the last dot run', :aggregate_failures do
+          expect(ppu.elapsed_dots).to eq(30)
+          expect(ppu.dot).to eq(30)
+        end
       end
 
-      it 'advances three dots per CPU cycle of difference' do
-        expect(frame_timing).to have_received(:advance).exactly(36).times
+      context 'and its dots cross into the next scanline' do
+        subject(:ppu) { described_class.new(bus:, frame_timing:, clock:, renderer: range_log) }
+
+        let(:frame_timing) { Ruby::Nes::Ppu::FrameTiming.new(events:, scanline: 100, dot: 330) }
+        let(:clock) { Ruby::Nes::Ppu::DotClock.new }
+        let(:range_log) { RangeLog.new(clock:) }
+
+        before { ppu.catch_up(10) }
+
+        it 'runs a range on each scanline, with the clock on its first dot' do
+          expect(range_log.ranges).to eq(
+            [
+              { scanline: 100, first_dot: 331, last_dot: 340, elapsed_dots: 1 },
+              { scanline: 101, first_dot: 0, last_dot: 19, elapsed_dots: 11 }
+            ]
+          )
+        end
       end
 
-      it 'runs the renderer on each dot, where the frame timing stands' do
-        expect(renderer).to have_received(:run_dot).with(12, 34).exactly(36).times
+      context "and its dots reach a VBlank scanline's dot 1" do
+        subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
+
+        let(:frame_timing) { Ruby::Nes::Ppu::FrameTiming.new(events:, scanline: 240, dot: 330) }
+
+        before do
+          allow(renderer).to receive(:run_dots)
+          ppu.catch_up(10)
+        end
+
+        it 'runs dot 0 alone, so the frame timing tells VBlank on dot 1', :aggregate_failures do
+          expect(renderer).to have_received(:run_dots).with(240, 331, 340).ordered
+          expect(renderer).to have_received(:run_dots).with(241, 0, 0).ordered
+          expect(events).to have_received(:vertical_blank_started).ordered
+          expect(renderer).to have_received(:run_dots).with(241, 1, 19).ordered
+        end
+      end
+
+      context "and its dots reach an odd frame's skipped dot" do
+        subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
+
+        let(:frame_timing) do
+          Ruby::Nes::Ppu::FrameTiming.new(events:, scanline: 261, dot: 330, odd_frame: true, rendering_enabled: true)
+        end
+
+        before do
+          allow(renderer).to receive(:run_dots)
+          ppu.catch_up(10)
+        end
+
+        it 'ends the range on it and goes on from the next frame', :aggregate_failures do
+          expect(renderer).to have_received(:run_dots).with(261, 331, 339).ordered
+          expect(renderer).to have_received(:run_dots).with(0, 0, 20).ordered
+          expect(ppu.frame_number).to eq(1)
+        end
       end
     end
   end
@@ -1011,8 +1100,8 @@ RSpec.describe Ruby::Nes::Ppu do
     subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
 
     let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil) }
-    let(:frame_timing) { instance_double(Ruby::Nes::Ppu::FrameTiming, advance: nil, scanline: 12, dot: 34) }
-    let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dot: nil) }
+    let(:frame_timing) { Ruby::Nes::Ppu::FrameTiming.new(events: instance_double(described_class), scanline: 100) }
+    let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dots: nil) }
 
     before do
       ppu.catch_up(10)
@@ -1021,6 +1110,138 @@ RSpec.describe Ruby::Nes::Ppu do
 
     it 'counts the dots run since the PPU was built' do
       expect(ppu.elapsed_dots).to eq(36)
+    end
+  end
+
+  # The first CPU cycle at whose end the PPU must be caught up for the CPU to see what it changes on time: the cycle of
+  # the frame timing's next event (its dot divided by 3) or the board's earliest IRQ, whichever comes first (plan 28,
+  # decision 2). Kept until something that could move either happens: a catch-up, a register access or a reset.
+  describe '#sync_cycle' do
+    context "when the frame timing's next event comes first" do
+      subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
+
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, earliest_irq_cycle: 10_000) }
+      let(:frame_timing) do
+        instance_double(
+          Ruby::Nes::Ppu::FrameTiming,
+          advance: nil,
+          scanline: 0,
+          dot: 0,
+          last_quiet_dot: 0,
+          advance_to: nil,
+          dots_to_next_event: 100
+        )
+      end
+      let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dots: nil) }
+
+      # Caught up 10 CPU cycles, 30 dots, one dot per range.
+      before { ppu.catch_up(10) }
+
+      it "is the cycle of the event's dot, 100 dots after the 30 run" do
+        expect(ppu.sync_cycle).to eq(43)
+      end
+    end
+
+    context "when the board's earliest IRQ comes first" do
+      subject(:ppu) { described_class.new(bus:, frame_timing:, renderer:) }
+
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, earliest_irq_cycle: 20) }
+      let(:frame_timing) do
+        instance_double(
+          Ruby::Nes::Ppu::FrameTiming,
+          advance: nil,
+          scanline: 0,
+          dot: 0,
+          last_quiet_dot: 0,
+          advance_to: nil,
+          dots_to_next_event: 100
+        )
+      end
+      let(:renderer) { instance_double(Ruby::Nes::Ppu::Renderer, run_dots: nil) }
+
+      # Caught up 10 CPU cycles, 30 dots, one dot per range.
+      before { ppu.catch_up(10) }
+
+      it "is the IRQ's cycle, asked from the PPU's own cycle", :aggregate_failures do
+        expect(ppu.sync_cycle).to eq(20)
+        expect(bus).to have_received(:earliest_irq_cycle).with(10)
+      end
+    end
+
+    # The frame timing answers 100 dots to its next event, then 40.
+    context 'when it was asked before' do
+      let(:bus) { instance_double(Ruby::Nes::PpuBus, palette_ram: nil, earliest_irq_cycle: 10_000) }
+      let(:frame_timing) do
+        instance_double(
+          Ruby::Nes::Ppu::FrameTiming,
+          reset: nil,
+          :rendering_enabled= => nil
+        )
+      end
+
+      before { allow(frame_timing).to receive(:dots_to_next_event).and_return(100, 40) }
+
+      context 'and nothing happened since' do
+        subject(:ppu) { described_class.new(bus:, frame_timing:) }
+
+        before { ppu.sync_cycle }
+
+        it 'stays the same' do
+          expect(ppu.sync_cycle).to eq(33)
+        end
+      end
+
+      context 'but the PPU caught up since' do
+        subject(:ppu) { described_class.new(bus:, frame_timing:) }
+
+        before do
+          ppu.sync_cycle
+          ppu.catch_up(0)
+        end
+
+        it 'follows the new position' do
+          expect(ppu.sync_cycle).to eq(13)
+        end
+      end
+
+      context 'but a register was read since' do
+        subject(:ppu) { described_class.new(bus:, frame_timing:) }
+
+        before do
+          ppu.sync_cycle
+          ppu.cpu_read(0x2000, 0x00)
+        end
+
+        it 'follows the new position' do
+          expect(ppu.sync_cycle).to eq(13)
+        end
+      end
+
+      context 'but a register was written since' do
+        subject(:ppu) { described_class.new(bus:, frame_timing:) }
+
+        before do
+          ppu.sync_cycle
+          ppu.cpu_write(0x2003, 0x00)
+        end
+
+        it 'follows the new position' do
+          expect(ppu.sync_cycle).to eq(13)
+        end
+      end
+
+      context 'but the PPU was reset since' do
+        subject(:ppu) { described_class.new(bus:, frame_timing:) }
+
+        before do
+          ppu.sync_cycle
+          ppu.reset
+        end
+
+        it 'follows the new position' do
+          expect(ppu.sync_cycle).to eq(13)
+        end
+      end
     end
   end
 

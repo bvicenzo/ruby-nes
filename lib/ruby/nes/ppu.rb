@@ -12,10 +12,12 @@ module Ruby
     # and PPUSTATUS's bits 4-0 answer the latch. The CPU's data bus never reaches it, so `cpu_read` ignores `data_bus`.
     #
     # Time (plan 12): `catch_up` advances the frame timing 3 dots per CPU cycle
-    # (https://www.nesdev.org/wiki/Cycle_reference_chart). The Ppu hears the frame timing's VBlank events and the VBlank
-    # flag's /NMI output, and tells `nmi_input.nmi_line_changed(asserted, cycle)` with the first CPU cycle whose φ2
-    # sample sees the change. `nmi_input` is given as a keyword or, by the Console, which builds the CPU after the PPU,
-    # through its writer.
+    # (https://www.nesdev.org/wiki/Cycle_reference_chart), in ranges within a scanline up to the frame timing's last
+    # quiet dot, each run by the renderer with the dot clock on its first dot (plan 28, decisions 4 and 5). `sync_cycle`
+    # tells the console when it must next catch the PPU up for the CPU to see it on time (decision 2). The Ppu hears the
+    # frame timing's VBlank events and the VBlank flag's /NMI output, and tells `nmi_input.nmi_line_changed(asserted,
+    # cycle)` with the first CPU cycle whose φ2 sample sees the change. `nmi_input` is given as a keyword or, by the
+    # Console, which builds the CPU after the PPU, through its writer.
     #
     # Reset (https://www.nesdev.org/wiki/PPU_power_up_state): the reset signal clears PPUCTRL, PPUMASK, PPUSCROLL,
     # PPUADDR, their latch and the PPUDATA read buffer, and is "cleared at the end of VBlank"; until then writes to
@@ -83,15 +85,17 @@ module Ruby
       # rubocop:disable-next Metrics/ParameterLists
       def initialize(bus:, nmi_input: nil, scroll_registers: ScrollRegisters.new, oam: Oam.new,
                      frame_timing: FrameTiming.new(events: self), vertical_blank: VerticalBlank.new(nmi_output: self),
-                     sprite_status: SpriteStatus.new,
+                     sprite_status: SpriteStatus.new, clock: DotClock.new,
                      sprite_renderer: SpriteRenderer.build(bus:, oam:, status: sprite_status),
                      renderer: Renderer.new(
                        scroll_registers:,
                        fetcher: BackgroundFetcher.new(bus:, scroll_registers:),
                        picture: Picture.new(palette_ram: bus.palette_ram),
                        sprite_renderer:,
-                       multiplexer: PriorityMultiplexer.new(sprite_zero_hit: SpriteZeroHit.new(status: sprite_status))
+                       multiplexer: PriorityMultiplexer.new(sprite_zero_hit: SpriteZeroHit.new(status: sprite_status)),
+                       clock:
                      ))
+        @bus = bus
         @nmi_input = nmi_input
         @scroll_registers = scroll_registers
         @oam = oam
@@ -101,14 +105,15 @@ module Ruby
         @sprite_renderer = sprite_renderer
         @renderer = renderer
         @data_port = DataPort.new(bus:, scroll_registers:, frame_timing:)
+        @clock = clock
         @latch = 0
-        @dots = 0
         @writes_ignored = false
+        @sync_cycle = nil
       end
 
       # The dots run since the PPU was built: a clock that never wraps, which MMC3's A12 filter reads (plan 21,
-      # decision 2).
-      def elapsed_dots = @dots
+      # decision 2); within a range, the dot the renderer is on (plan 28, decision 5).
+      def elapsed_dots = @clock.elapsed_dots
 
       def scanline = @frame_timing.scanline
 
@@ -121,21 +126,32 @@ module Ruby
       def frame_buffer = @renderer.frame_buffer
 
       # Advances the PPU to the start of the given CPU cycle: 3 dots per cycle; a cycle already reached advances
-      # nothing.
+      # nothing. Each range enters its first dot through the frame timing, which tells its events, then runs up to the
+      # frame timing's last quiet dot or the target (plan 28, decision 4).
       def catch_up(cpu_cycle)
+        @sync_cycle = nil
         target = cpu_cycle * DOTS_PER_CPU_CYCLE
-        while @dots < target
+        while @clock.elapsed_dots < target
           # The dot entered counts before the frame timing runs it, so its events carry that dot's CPU cycle.
-          @dots += 1
+          @clock.tick
           @frame_timing.advance
-          @renderer.run_dot(@frame_timing.scanline, @frame_timing.dot)
+          run_range(target)
         end
+      end
+
+      # The first CPU cycle at whose end the PPU must be caught up for the CPU to see on time what it changes: the
+      # cycle of the frame timing's next event, /NMI or a new frame, or the board's earliest IRQ, whichever comes
+      # first (plan 28, decision 2). An event on dot D changes /NMI on cycle (D + 1) / 3, which a step polls only if it
+      # starts after it, so D / 3 is soon enough. Kept until a catch-up, a register access or a reset.
+      def sync_cycle
+        @sync_cycle ||= next_sync_cycle
       end
 
       # The reset signal: clears PPUCTRL, PPUMASK, t, fine x, w and the PPUDATA read buffer, puts the frame timing at
       # the top of an even frame, and ignores the writes it guards until VBlank ends. v, OAMADDR and the VBlank flag
       # stay.
       def reset
+        @sync_cycle = nil
         write_control(0)
         write_mask(0)
         @scroll_registers.reset
@@ -165,11 +181,12 @@ module Ruby
       # from the frame timing, the next one to run between catch-ups): the CPU hears it with the first cycle whose φ2
       # sample sees that dot.
       def nmi_output_changed(asserted)
-        @nmi_input.nmi_line_changed(asserted, (@dots + NMI_SAMPLE_LEAD_DOTS) / DOTS_PER_CPU_CYCLE)
+        @nmi_input.nmi_line_changed(asserted, (@clock.elapsed_dots + NMI_SAMPLE_LEAD_DOTS) / DOTS_PER_CPU_CYCLE)
       end
 
       # The byte the register puts on the CPU data bus; `data_bus` is not read (the PPU answers from its own latch).
       def cpu_read(address, _data_bus)
+        @sync_cycle = nil
         case address
         when PPUSTATUS then read_status
         when OAMDATA then @latch = @oam.read
@@ -181,6 +198,7 @@ module Ruby
       # One `when` per writable register: the decoder is as wide as the register file.
       # rubocop:disable-next Metrics/CyclomaticComplexity
       def cpu_write(address, value)
+        @sync_cycle = nil
         @latch = value
         case address
         when PPUCTRL then write_control(value) unless @writes_ignored
@@ -194,6 +212,26 @@ module Ruby
       end
 
       private
+
+      # The renderer runs the dots from the one just entered, its count on the clock, to the frame timing's last quiet
+      # dot or the target; the renderer may move the clock within the range, which ends on the range's last dot.
+      def run_range(target)
+        first_dot = @frame_timing.dot
+        first_elapsed_dots = @clock.elapsed_dots
+        last_dot = first_dot + target - first_elapsed_dots
+        quiet_dot = @frame_timing.last_quiet_dot
+        last_dot = quiet_dot if quiet_dot < last_dot
+        @renderer.run_dots(@frame_timing.scanline, first_dot, last_dot)
+        @frame_timing.advance_to(last_dot)
+        @clock.elapsed_dots = first_elapsed_dots + last_dot - first_dot
+      end
+
+      def next_sync_cycle
+        elapsed_dots = @clock.elapsed_dots
+        event_cycle = (elapsed_dots + @frame_timing.dots_to_next_event) / DOTS_PER_CPU_CYCLE
+        irq_cycle = @bus.earliest_irq_cycle(elapsed_dots / DOTS_PER_CPU_CYCLE)
+        [event_cycle, irq_cycle].min
+      end
 
       # "Reading this register has the side effect of clearing the PPU's internal w register"; it also clears the VBlank
       # flag, and the frame timing hears of it for the read race.
@@ -254,6 +292,7 @@ require_relative 'ppu/sprite_pattern_address'
 require_relative 'ppu/sprite_evaluation'
 require_relative 'ppu/data_port'
 require_relative 'ppu/frame_timing'
+require_relative 'ppu/dot_clock'
 require_relative 'ppu/vertical_blank'
 require_relative 'ppu/background_fetcher'
 require_relative 'ppu/picture'

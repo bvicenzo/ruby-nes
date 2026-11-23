@@ -5,7 +5,8 @@ module Ruby
     # The console: a cartridge's board, the CPU and the PPU wired together and run in step, the PPU 3 dots per CPU
     # cycle (https://www.nesdev.org/wiki/Cycle_reference_chart). The clock synchronises on register access (plan 12,
     # decision 1): the PPU catches up to the CPU before every access to its registers (PpuRegisterSync) and after every
-    # step. The PPU's NMI output reaches the CPU with the cycle it changed on (plan 12, decision 2).
+    # step, or, in `run_frame`, from the PPU's sync cycle on (plan 28, decision 1). The PPU's NMI output reaches the CPU
+    # with the cycle it changed on (plan 12, decision 2).
     #
     # Building it is the power-up (plan 12, decision 8): the CPU's and the PPU's reset, then the PPU catches up the 7
     # cycles of the reset sequence, so it stands 21 dots into scanline 0, as nestest.log's `PPU:  0, 21` at `CYC:7`.
@@ -54,9 +55,18 @@ module Ruby
       end
 
       # Steps until the PPU wraps to the next frame (plan 12, decision 7); it stops within the first instruction of it.
+      # The PPU is caught up to a step's end only from its sync cycle on, the first at whose end the CPU could miss
+      # what it does, or when a register access within the step brought it into the next frame, so the frame ends
+      # caught up as with `step`; between them, only the register accesses catch it up (plan 28, decision 1). The APU
+      # catches up after every step, as with `step`.
       def run_frame
         frame_number = @ppu.frame_number
-        step while @ppu.frame_number == frame_number
+        while @ppu.frame_number == frame_number
+          @cpu.step
+          cycles = @cpu.cycles
+          @ppu.catch_up(cycles) if cycles >= @ppu.sync_cycle || @ppu.frame_number != frame_number
+          @apu.catch_up(cycles)
+        end
       end
 
       # The signed 16-bit samples of the frames run since the last call, at the sample rate the console was built with;

@@ -21,7 +21,7 @@ module Ruby
       # is set to 0 during each of ticks 257–320" (https://www.nesdev.org/wiki/PPU_registers). With rendering disabled,
       # visible and pre-render lines still clear the sprite line at 257: nothing is fetched, and an output unit shows
       # its row only on the line after its fetch (a derivation, https://www.nesdev.org/wiki/PPU_OAM).
-      # Within a dot, the steps run in flag order. Hot path: one lookup per dot, from constant tables.
+      # Within a dot, the steps run in flag order. Hot path: one line per range of dots, from constant tables.
       class RenderSchedule
         RELOAD = 0x001
         PIXEL = 0x002
@@ -41,6 +41,10 @@ module Ruby
         FETCH_SPRITE_LOW = 0x8000
         FETCH_SPRITE_HIGH = 0x10000
         LOAD_SPRITE = 0x20000
+        # The first dot of a tile a visible line draws: its 8 dots draw, shift and fetch the same way on every tile (only
+        # the reload before the first and the Y increment of the last differ), so a range that covers them can run them
+        # as one sequence (plan 28, decision 6).
+        WHOLE_TILE = 0x40000
         # The steps the sprite renderer runs.
         SPRITE_STEPS =
           CLEAR_SPRITE_LINE |
@@ -50,7 +54,7 @@ module Ruby
           FETCH_SPRITE_HIGH |
           LOAD_SPRITE
 
-        DOTS_PER_SCANLINE = FrameTiming::LAST_DOT + 1
+        DOTS_PER_SCANLINE = FrameTiming::DOTS_PER_SCANLINE
         # The dots of a tile, and its fetches by the dot's place in it (the first dot of each 2-dot access); the
         # tile's last dot increments coarse X.
         TILE_DOTS = 8
@@ -58,6 +62,7 @@ module Ruby
           FETCH_NAMETABLE, 0, FETCH_ATTRIBUTE, 0, FETCH_PATTERN_LOW, 0, FETCH_PATTERN_HIGH, INCREMENT_COARSE_X
         ].freeze
         PIXEL_DOTS = (1..256)
+        WHOLE_TILE_DOTS = PIXEL_DOTS.step(TILE_DOTS)
         NEXT_LINE_TILE_DOTS = (321..336)
         # The reloads after the next line's two tiles, the last one past 336.
         RELOAD_DOTS = [*(9..257).step(TILE_DOTS), 329, 337].freeze
@@ -78,6 +83,7 @@ module Ruby
           def visible_steps(dot)
             steps = rendering_steps(dot) | (PIXEL_DOTS.cover?(dot) ? PIXEL : 0) # glossary: bitwise-or
             steps |= EVALUATE_SPRITES if dot == SPRITE_EVALUATION_DOT # glossary: bitwise-or
+            steps |= WHOLE_TILE if WHOLE_TILE_DOTS.include?(dot) # glossary: bitwise-or
             steps |= LOAD_SPRITE if steps.anybits?(FETCH_SPRITE_HIGH) # glossary: bitwise-or
             steps
           end
@@ -115,6 +121,8 @@ module Ruby
           def tile_dot?(dot) = PIXEL_DOTS.cover?(dot) || NEXT_LINE_TILE_DOTS.cover?(dot)
         end
 
+        # The post-render and VBlank scanlines do nothing.
+        BLANK_LINE = Array.new(DOTS_PER_SCANLINE, 0).freeze
         IDLE_LINE = Array.new(DOTS_PER_SCANLINE) { idle_steps(it) }.freeze
         FORCED_BLANK_LINE = Array.new(DOTS_PER_SCANLINE) { forced_blank_steps(it) }.freeze
         VISIBLE_LINE = Array.new(DOTS_PER_SCANLINE) { visible_steps(it) }.freeze
@@ -129,11 +137,12 @@ module Ruby
           @pre_render_line = enabled ? PRE_RENDER_LINE : IDLE_LINE
         end
 
-        # The step flags of a dot of a scanline.
-        def steps(scanline, dot)
-          if scanline < FrameTiming::POST_RENDER_SCANLINE then @visible_line[dot]
-          elsif scanline == FrameTiming::PRE_RENDER_SCANLINE then @pre_render_line[dot]
-          else 0
+        # The step flags of each dot of a scanline, indexed by dot: one frozen array per kind of line, so a range of
+        # dots reads its line once (plan 28, decision 4).
+        def line(scanline)
+          if scanline < FrameTiming::POST_RENDER_SCANLINE then @visible_line
+          elsif scanline == FrameTiming::PRE_RENDER_SCANLINE then @pre_render_line
+          else BLANK_LINE
           end
         end
       end

@@ -269,11 +269,70 @@ RSpec.describe Ruby::Nes::Console do
       end
     end
 
+    # Between the PPU's sync cycles nothing it does reaches the CPU, so it is caught up only on them (plan 28,
+    # decisions 1 and 2): with rendering disabled and no board IRQ, on the dots that start and end VBlank and the next
+    # frame's first.
+    context 'when the program never touches the PPU' do
+      # JMP $8000, forever.
+      let(:cartridge) { Cartridges.with_program([0x4C, 0x00, 0x80]) }
+
+      before do
+        console.run_frame
+        allow(console.ppu).to receive(:catch_up).and_call_original
+        console.run_frame
+      end
+
+      it 'catches the PPU up on its events only' do
+        expect(console.ppu).to have_received(:catch_up).exactly(3).times
+      end
+    end
+
+    # MMC3's IRQ comes from the PPU's fetches while the program touches neither the PPU nor the board, so only
+    # the sync cycle's IRQ bound catches the PPU up for it (plan 28, decision 3). Catching up after every step is the
+    # reference: the IRQ must interrupt the same instruction of the counting loop. LDA #$40 / STA $4017 (no frame
+    # IRQ), BIT $2002 / BPL twice (the first VBlank, then the second, once the reset signal has ended), LDA #$08 /
+    # STA $2000 (sprites at $1000) / LDA #$18 / STA $2001 (rendering on), LDA #5 / STA $C000 / STA $C001 / STA $E001 /
+    # CLI, LDX #0, then INX / JMP forever. The IRQ handler keeps X and counts: STX $10 / INC $11 / STA $E000 /
+    # STA $E001 / RTI.
+    context 'when the board is an MMC3 whose IRQ comes while the program touches nothing' do
+      let(:cartridge) do
+        Cartridges.with_program(
+          [*inhibit_frame_irq, *wait_two_vertical_blanks, *render, *enable_irq, *count_forever],
+          interrupt_handler: keep_count,
+          mapper_number: 4
+        )
+      end
+      let(:inhibit_frame_irq) { [0xA9, 0x40, 0x8D, 0x17, 0x40] }
+      let(:wait_two_vertical_blanks) { [0x2C, 0x02, 0x20, 0x10, 0xFB, 0x2C, 0x02, 0x20, 0x10, 0xFB] }
+      let(:render) { [0xA9, 0x08, 0x8D, 0x00, 0x20, 0xA9, 0x18, 0x8D, 0x01, 0x20] }
+      let(:enable_irq) { [0xA9, 0x05, 0x8D, 0x00, 0xC0, 0x8D, 0x01, 0xC0, 0x8D, 0x01, 0xE0, 0x58] }
+      let(:count_forever) { [0xA2, 0x00, 0xE8, 0x4C, 0x27, 0x80] }
+      let(:keep_count) { [0x86, 0x10, 0xE6, 0x11, 0x8D, 0x00, 0xE0, 0x8D, 0x01, 0xE0, 0x40] }
+      let(:stepped_console) { described_class.new(cartridge) }
+
+      before do
+        4.times { console.run_frame }
+        stepped_console.step while stepped_console.ppu.frame_number < console.ppu.frame_number
+      end
+
+      it 'takes each IRQ on the instruction stepping takes it on', :aggregate_failures do
+        expect(stepped_console.cpu_bus.read(0x0011)).to be > 0
+        expect(console.cpu_bus.read(0x0011)).to eq(stepped_console.cpu_bus.read(0x0011))
+        expect(console.cpu_bus.read(0x0010)).to eq(stepped_console.cpu_bus.read(0x0010))
+        expect(console.cpu.cycles).to eq(stepped_console.cpu.cycles)
+      end
+    end
+
     context 'when the program keeps enabling rendering' do
       # LDA #$08, then STA $2001 / JMP $8002 forever: background on.
       let(:cartridge) { Cartridges.with_program([0xA9, 0x08, 0x8D, 0x01, 0x20, 0x4C, 0x02, 0x80]) }
 
       before { console.run_frame }
+
+      # The frame's last step is its STA $2001, whose register access catches the PPU up into the next frame.
+      it 'ends with the PPU caught up to the end of that step' do
+        expect(console.ppu.elapsed_dots).to eq(console.cpu.cycles * 3)
+      end
 
       it 'runs an odd frame of 89 341 dots and an even one of 89 342' do
         cycles_before = console.cpu.cycles

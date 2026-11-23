@@ -14,9 +14,14 @@ module Ruby
       # sprite's without SpriteLine's priority and sprite 0 marks; only where both are does the priority multiplexer
       # decide, checking the sprite 0 hit (https://www.nesdev.org/wiki/PPU_sprite_priority). The sprite steps go to the
       # sprite renderer. The Ppu tells it the background's PPUCTRL settings and the PPUMASK settings; it passes each to
-      # the part that uses it. Hot path: one `run_dot` per PPU dot. The pixel is composed here, with the registers as
-      # instance variables and the sprite line read as an array, rather than through one object per stage: a method call
-      # costs about 5 ns under YJIT, and the stages cost about a third of a frame (plan 25).
+      # the part that uses it. The pixel is composed here, with the registers as instance variables and the sprite line
+      # read as an array, rather than through one object per stage: a method call costs about 5 ns under YJIT, and the
+      # stages cost about a third of a frame (plan 25).
+      #
+      # Ranges (plan 28): `run_dots` runs a range of a scanline's dots, the dot clock standing on the first one. A tile
+      # of a visible line whose 8 dots the range covers runs as one unrolled sequence (RenderSchedule::WHOLE_TILE,
+      # decision 6), other dots one at a time; the clock is moved to each dot's count before its fetches, which the
+      # board's A12 watch reads (decision 5). Hot path: one `run_dots` per range, one step lookup per dot or tile.
       class Renderer
         FIRST_PIXEL_BIT = 15
         TILE_ON_SCREEN_MASK = 0xFF00
@@ -31,12 +36,18 @@ module Ruby
         # A pixel whose pattern value (bits 1-0) is 0 is transparent (https://www.nesdev.org/wiki/PPU_palettes).
         TRANSPARENT = 0
         SPRITE_PALETTE_ENTRY_MASK = SpriteLine::PALETTE_ENTRY_MASK
+        # A whole tile's last dot, from its first, and the dots of its fetches (RenderSchedule::TILE_STEPS).
+        TILE_LAST_DOT = RenderSchedule::TILE_DOTS - 1
+        NAMETABLE_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_NAMETABLE)
+        ATTRIBUTE_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_ATTRIBUTE)
+        PATTERN_LOW_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_PATTERN_LOW)
+        PATTERN_HIGH_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_PATTERN_HIGH)
 
         # One optional keyword per part, so specs can stand in for each.
         # rubocop:disable-next Metrics/ParameterLists
         def initialize(scroll_registers:, fetcher:, picture:, sprite_renderer:, multiplexer:,
                        schedule: RenderSchedule.new, background_visibility: LayerVisibility.new,
-                       sprite_visibility: LayerVisibility.new)
+                       sprite_visibility: LayerVisibility.new, clock: DotClock.new)
           @scroll_registers = scroll_registers
           @fetcher = fetcher
           @picture = picture
@@ -46,6 +57,7 @@ module Ruby
           @schedule = schedule
           @background_visibility = background_visibility
           @sprite_visibility = sprite_visibility
+          @clock = clock
           @pattern_low = 0
           @pattern_high = 0
           @attribute_low = 0
@@ -92,10 +104,27 @@ module Ruby
           @schedule.rendering_enabled = enabled
         end
 
-        def run_dot(scanline, dot)
-          steps = @schedule.steps(scanline, dot)
-          return if steps.zero?
+        # Runs dots `first_dot` to `last_dot` of the scanline, the clock standing on `first_dot`'s count.
+        def run_dots(scanline, first_dot, last_dot)
+          line = @schedule.line(scanline)
+          line_elapsed_dots = @clock.elapsed_dots - first_dot
+          dot = first_dot
+          while dot <= last_dot
+            steps = line[dot]
+            if (steps & RenderSchedule::WHOLE_TILE) != 0 && dot + TILE_LAST_DOT <= last_dot # glossary: flag-set
+              run_tile(line, scanline, dot, line_elapsed_dots + dot)
+              dot += RenderSchedule::TILE_DOTS
+            else
+              run_dot(steps, scanline, dot, line_elapsed_dots + dot) unless steps.zero?
+              dot += 1
+            end
+          end
+        end
 
+        private
+
+        def run_dot(steps, scanline, dot, elapsed_dots)
+          @clock.elapsed_dots = elapsed_dots
           output_pixel(steps, scanline, dot)
           fetch(steps)
           update_vram_address(steps)
@@ -104,7 +133,41 @@ module Ruby
           @sprite_renderer.run_steps(steps, scanline, dot)
         end
 
-        private
+        # The 8 dots of a visible line's tile from its first, `dot`, whose count is `elapsed_dots`: each draws its pixel
+        # at x = dot - 1 and shifts, and the tile's fetches (the clock on each one's dot), coarse X and Y follow
+        # RenderSchedule's steps for them, the same as dot by dot; the reload and Y come from the line. Unrolled, without a step lookup per dot: about 15% of a frame (plan 28, decision 6).
+        # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength
+        def run_tile(line, scanline, dot, elapsed_dots)
+          reload if (line[dot] & RenderSchedule::RELOAD) != 0 # glossary: flag-set
+          x_position = dot - 1
+          draw(scanline, x_position)
+          shift
+          @clock.elapsed_dots = elapsed_dots + NAMETABLE_DOT
+          @fetcher.fetch_nametable_byte
+          draw(scanline, x_position + 1)
+          shift
+          draw(scanline, x_position + 2)
+          shift
+          @clock.elapsed_dots = elapsed_dots + ATTRIBUTE_DOT
+          @fetcher.fetch_attribute
+          draw(scanline, x_position + 3)
+          shift
+          draw(scanline, x_position + 4)
+          shift
+          @clock.elapsed_dots = elapsed_dots + PATTERN_LOW_DOT
+          @fetcher.fetch_pattern_low
+          draw(scanline, x_position + 5)
+          shift
+          draw(scanline, x_position + 6)
+          shift
+          @clock.elapsed_dots = elapsed_dots + PATTERN_HIGH_DOT
+          @fetcher.fetch_pattern_high
+          draw(scanline, x_position + 7)
+          shift
+          @scroll_registers.increment_coarse_x
+          last_steps = line[dot + TILE_LAST_DOT]
+          @scroll_registers.increment_y if (last_steps & RenderSchedule::INCREMENT_Y) != 0 # glossary: flag-set
+        end
 
         def output_pixel(steps, scanline, dot)
           reload if (steps & RenderSchedule::RELOAD) != 0 # glossary: flag-set

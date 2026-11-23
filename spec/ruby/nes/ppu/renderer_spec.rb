@@ -10,9 +10,11 @@
 # SpriteLine's priority and sprite 0 marks; where both are, the priority multiplexer decides and checks the sprite 0 hit
 # (https://www.nesdev.org/wiki/PPU_sprite_priority), and only then is it asked. It also runs the forced blank, the
 # fetches and the v updates, hands the sprite steps to the sprite renderer, and passes the PPUCTRL and PPUMASK settings
-# the Ppu tells it to the part that uses each.
+# the Ppu tells it to the part that uses each. It runs a range of a scanline's dots per call, the dot clock standing on
+# the first one: whole tiles of a visible line as one sequence when the range covers them, the other dots one at a time
+# (plan 28, decisions 5 and 6).
 RSpec.describe Ruby::Nes::Ppu::Renderer do
-  describe '#run_dot' do
+  describe '#run_dots' do
     let(:scroll_registers) do
       instance_double(
         Ruby::Nes::Ppu::ScrollRegisters,
@@ -37,14 +39,14 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: sprite_line.entries) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer, palette_entry: 0x15) }
 
-    context 'when the dot has no step' do
+    context 'when the range has no step' do
       subject(:renderer) do
         described_class.new(scroll_registers:, fetcher:, picture:, sprite_renderer:, multiplexer:, schedule:)
       end
 
-      let(:schedule) { instance_double(Ruby::Nes::Ppu::RenderSchedule, steps: 0) }
+      let(:schedule) { instance_double(Ruby::Nes::Ppu::RenderSchedule, line: ScheduleLines.build({})) }
 
-      before { renderer.run_dot(250, 300) }
+      before { renderer.run_dots(250, 0, 340) }
 
       it 'touches nothing', :aggregate_failures do
         expect(picture).not_to have_received(:draw)
@@ -80,26 +82,28 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:sprite_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
 
       before do
-        allow(schedule).to receive(:steps).and_return(
-          Ruby::Nes::Ppu::RenderSchedule::RELOAD,
-          *Array.new(8, Ruby::Nes::Ppu::RenderSchedule::SHIFT),
-          Ruby::Nes::Ppu::RenderSchedule::RELOAD,
-          Ruby::Nes::Ppu::RenderSchedule::PIXEL,
-          *Array.new(8, Ruby::Nes::Ppu::RenderSchedule::SHIFT),
-          Ruby::Nes::Ppu::RenderSchedule::PIXEL
+        allow(schedule).to receive(:line).and_return(
+          ScheduleLines.build(
+            1 => Ruby::Nes::Ppu::RenderSchedule::RELOAD,
+            2..9 => Ruby::Nes::Ppu::RenderSchedule::SHIFT,
+            10 => Ruby::Nes::Ppu::RenderSchedule::RELOAD,
+            11 => Ruby::Nes::Ppu::RenderSchedule::PIXEL,
+            12..19 => Ruby::Nes::Ppu::RenderSchedule::SHIFT,
+            20 => Ruby::Nes::Ppu::RenderSchedule::PIXEL
+          )
         )
         allow(fetcher).to receive(:pattern_low).and_return(0x80, 0x00)
         allow(fetcher).to receive(:pattern_high).and_return(0x00, 0x80)
         allow(fetcher).to receive(:palette).and_return(0b01, 0b10)
-        20.times { renderer.run_dot(100, 1) }
+        renderer.run_dots(100, 1, 20)
       end
 
       it(
         "puts the fetched tile behind the one on screen, the palette's two bits spread over its 8 pixels",
         :aggregate_failures
       ) do
-        expect(picture).to have_received(:draw).with(0, 100, 0b01_01).ordered
-        expect(picture).to have_received(:draw).with(0, 100, 0b10_10).ordered
+        expect(picture).to have_received(:draw).with(10, 100, 0b01_01).ordered
+        expect(picture).to have_received(:draw).with(19, 100, 0b10_10).ordered
       end
     end
 
@@ -122,14 +126,16 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:sprite_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
 
       before do
-        allow(schedule).to receive(:steps).and_return(
-          Ruby::Nes::Ppu::RenderSchedule::RELOAD,
-          *Array.new(9, Ruby::Nes::Ppu::RenderSchedule::SHIFT),
-          Ruby::Nes::Ppu::RenderSchedule::PIXEL
+        allow(schedule).to receive(:line).and_return(
+          ScheduleLines.build(
+            321 => Ruby::Nes::Ppu::RenderSchedule::RELOAD,
+            322..330 => Ruby::Nes::Ppu::RenderSchedule::SHIFT,
+            1 => Ruby::Nes::Ppu::RenderSchedule::PIXEL
+          )
         )
         allow(fetcher).to receive_messages(pattern_low: 0b0100_0000, pattern_high: 0x00, palette: 0b00)
-        10.times { renderer.run_dot(100, 0) }
-        renderer.run_dot(100, 1)
+        renderer.run_dots(99, 321, 330)
+        renderer.run_dots(100, 1, 1)
       end
 
       it 'brings the next pixel under fine X' do
@@ -156,14 +162,16 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:sprite_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
 
       before do
-        allow(schedule).to receive(:steps).and_return(
-          Ruby::Nes::Ppu::RenderSchedule::RELOAD,
-          *Array.new(8, Ruby::Nes::Ppu::RenderSchedule::SHIFT),
-          Ruby::Nes::Ppu::RenderSchedule::PIXEL | Ruby::Nes::Ppu::RenderSchedule::SHIFT
+        allow(schedule).to receive(:line).and_return(
+          ScheduleLines.build(
+            321 => Ruby::Nes::Ppu::RenderSchedule::RELOAD,
+            322..329 => Ruby::Nes::Ppu::RenderSchedule::SHIFT,
+            1 => Ruby::Nes::Ppu::RenderSchedule::PIXEL | Ruby::Nes::Ppu::RenderSchedule::SHIFT
+          )
         )
         allow(fetcher).to receive_messages(pattern_low: 0b1000_0000, pattern_high: 0x00, palette: 0b00)
-        9.times { renderer.run_dot(100, 0) }
-        renderer.run_dot(100, 1)
+        renderer.run_dots(99, 321, 329)
+        renderer.run_dots(100, 1, 1)
       end
 
       it 'draws before shifting' do
@@ -188,10 +196,12 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) { instance_double(Ruby::Nes::Ppu::RenderSchedule) }
 
       before do
-        allow(schedule).to receive(:steps).and_return(
-          Ruby::Nes::Ppu::RenderSchedule::RELOAD,
-          *Array.new(8, Ruby::Nes::Ppu::RenderSchedule::SHIFT),
-          Ruby::Nes::Ppu::RenderSchedule::PIXEL
+        allow(schedule).to receive(:line).and_return(
+          ScheduleLines.build(
+            321 => Ruby::Nes::Ppu::RenderSchedule::RELOAD,
+            322..329 => Ruby::Nes::Ppu::RenderSchedule::SHIFT,
+            1 => Ruby::Nes::Ppu::RenderSchedule::PIXEL
+          )
         )
       end
 
@@ -203,8 +213,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
 
         before do
           allow(fetcher).to receive_messages(pattern_low: 0b1000_0000, pattern_high: 0b0000_0001, palette: 0b01)
-          9.times { renderer.run_dot(100, 0) }
-          renderer.run_dot(100, 1)
+          renderer.run_dots(99, 321, 329)
+          renderer.run_dots(100, 1, 1)
         end
 
         it 'draws the leftmost pixel of the tile on screen, palette and pattern bits together' do
@@ -219,8 +229,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
         before do
           allow(scroll_registers).to receive(:fine_x).and_return(7)
           allow(fetcher).to receive_messages(pattern_low: 0b1000_0000, pattern_high: 0b0000_0001, palette: 0b01)
-          9.times { renderer.run_dot(100, 0) }
-          renderer.run_dot(100, 1)
+          renderer.run_dots(99, 321, 329)
+          renderer.run_dots(100, 1, 1)
         end
 
         it 'draws the rightmost pixel of the tile on screen' do
@@ -238,8 +248,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
 
           before do
             allow(fetcher).to receive_messages(pattern_low: 0x00, pattern_high: 0x00, palette: 0b10)
-            9.times { renderer.run_dot(100, 0) }
-            renderer.run_dot(100, 1)
+            renderer.run_dots(99, 321, 329)
+            renderer.run_dots(100, 1, 1)
           end
 
           it 'draws the backdrop entry' do
@@ -253,8 +263,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
           before do
             allow(fetcher).to receive_messages(pattern_low: 0x00, pattern_high: 0x00, palette: 0b10)
             sprite_line.place(0, 0b1000_0000, 0b0000_0000, 0x23, true)
-            9.times { renderer.run_dot(100, 0) }
-            renderer.run_dot(100, 1)
+            renderer.run_dots(99, 321, 329)
+            renderer.run_dots(100, 1, 1)
           end
 
           it 'draws the backdrop entry' do
@@ -268,8 +278,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
           before do
             allow(fetcher).to receive_messages(pattern_low: 0x00, pattern_high: 0x00, palette: 0b10)
             sprite_line.place(0, 0b1000_0000, 0b0000_0000, 0x23, true)
-            9.times { renderer.run_dot(100, 0) }
-            renderer.run_dot(100, 1)
+            renderer.run_dots(99, 321, 329)
+            renderer.run_dots(100, 1, 1)
           end
 
           it "draws the sprite's entry without its marks, not asking the multiplexer", :aggregate_failures do
@@ -288,8 +298,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
 
             before do
               allow(fetcher).to receive_messages(pattern_low: 0xFF, pattern_high: 0x00, palette: 0b10)
-              9.times { renderer.run_dot(100, 0) }
-              renderer.run_dot(100, 1)
+              renderer.run_dots(99, 321, 329)
+              renderer.run_dots(100, 1, 1)
             end
 
             it 'draws the backdrop entry' do
@@ -303,8 +313,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
             before do
               allow(fetcher).to receive_messages(pattern_low: 0xFF, pattern_high: 0x00, palette: 0b10)
               sprite_line.place(0, 0b1000_0000, 0b0000_0000, 0x23, true)
-              9.times { renderer.run_dot(100, 0) }
-              renderer.run_dot(100, 1)
+              renderer.run_dots(99, 321, 329)
+              renderer.run_dots(100, 1, 1)
             end
 
             it 'draws the backdrop entry' do
@@ -318,8 +328,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
             before do
               allow(fetcher).to receive_messages(pattern_low: 0xFF, pattern_high: 0x00, palette: 0b10)
               sprite_line.place(0, 0b1000_0000, 0b0000_0000, 0x23, true)
-              9.times { renderer.run_dot(100, 0) }
-              renderer.run_dot(100, 1)
+              renderer.run_dots(99, 321, 329)
+              renderer.run_dots(100, 1, 1)
             end
 
             it "draws the sprite's palette entry, without asking the multiplexer", :aggregate_failures do
@@ -337,8 +347,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
 
             before do
               allow(fetcher).to receive_messages(pattern_low: 0xFF, pattern_high: 0x00, palette: 0b10)
-              9.times { renderer.run_dot(100, 0) }
-              renderer.run_dot(100, 1)
+              renderer.run_dots(99, 321, 329)
+              renderer.run_dots(100, 1, 1)
             end
 
             it 'draws the background entry' do
@@ -352,8 +362,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
             before do
               allow(fetcher).to receive_messages(pattern_low: 0xFF, pattern_high: 0x00, palette: 0b10)
               sprite_line.place(0, 0b1000_0000, 0b0000_0000, 0x23, true)
-              9.times { renderer.run_dot(100, 0) }
-              renderer.run_dot(100, 1)
+              renderer.run_dots(99, 321, 329)
+              renderer.run_dots(100, 1, 1)
             end
 
             it 'draws the background entry, without asking the multiplexer', :aggregate_failures do
@@ -368,8 +378,8 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
             before do
               allow(fetcher).to receive_messages(pattern_low: 0xFF, pattern_high: 0x00, palette: 0b10)
               sprite_line.place(0, 0b1000_0000, 0b0000_0000, 0x23, true)
-              9.times { renderer.run_dot(100, 0) }
-              renderer.run_dot(100, 1)
+              renderer.run_dots(99, 321, 329)
+              renderer.run_dots(100, 1, 1)
             end
 
             it "draws the multiplexer's entry for both", :aggregate_failures do
@@ -389,13 +399,13 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::FORCED_BLANK_PIXEL
+          line: ScheduleLines.build(10 => Ruby::Nes::Ppu::RenderSchedule::FORCED_BLANK_PIXEL)
         )
       end
 
       before do
         allow(scroll_registers).to receive(:vram_address).and_return(0x3F05)
-        renderer.run_dot(239, 10)
+        renderer.run_dots(239, 10, 10)
       end
 
       it 'draws the forced blank at x dot - 1 of the scanline with v' do
@@ -411,11 +421,11 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::FETCH_NAMETABLE
+          line: ScheduleLines.build(1 => Ruby::Nes::Ppu::RenderSchedule::FETCH_NAMETABLE)
         )
       end
 
-      before { renderer.run_dot(0, 1) }
+      before { renderer.run_dots(0, 1, 1) }
 
       it 'fetches it' do
         expect(fetcher).to have_received(:fetch_nametable_byte)
@@ -430,11 +440,11 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::FETCH_ATTRIBUTE
+          line: ScheduleLines.build(3 => Ruby::Nes::Ppu::RenderSchedule::FETCH_ATTRIBUTE)
         )
       end
 
-      before { renderer.run_dot(0, 3) }
+      before { renderer.run_dots(0, 3, 3) }
 
       it 'fetches it' do
         expect(fetcher).to have_received(:fetch_attribute)
@@ -449,14 +459,37 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::FETCH_PATTERN_LOW
+          line: ScheduleLines.build(5 => Ruby::Nes::Ppu::RenderSchedule::FETCH_PATTERN_LOW)
         )
       end
 
-      before { renderer.run_dot(0, 5) }
+      before { renderer.run_dots(0, 5, 5) }
 
       it 'fetches it' do
         expect(fetcher).to have_received(:fetch_pattern_low)
+      end
+    end
+
+    # The clock stands on the range's first dot when it is called: the board's A12 watch reads it on each pattern fetch
+    # (plan 28, decision 5).
+    context 'when a dot of the range fetches a pattern byte' do
+      subject(:renderer) do
+        described_class.new(scroll_registers:, fetcher:, picture:, sprite_renderer:, multiplexer:, schedule:, clock:)
+      end
+
+      let(:schedule) do
+        instance_double(
+          Ruby::Nes::Ppu::RenderSchedule,
+          line: ScheduleLines.build(5 => Ruby::Nes::Ppu::RenderSchedule::FETCH_PATTERN_LOW)
+        )
+      end
+      let(:clock) { instance_double(Ruby::Nes::Ppu::DotClock, elapsed_dots: 1_000, :elapsed_dots= => nil) }
+
+      before { renderer.run_dots(0, 1, 5) }
+
+      it "moves the clock to the fetch's dot first", :aggregate_failures do
+        expect(clock).to have_received(:elapsed_dots=).with(1_004).ordered
+        expect(fetcher).to have_received(:fetch_pattern_low).ordered
       end
     end
 
@@ -468,11 +501,11 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::FETCH_PATTERN_HIGH
+          line: ScheduleLines.build(7 => Ruby::Nes::Ppu::RenderSchedule::FETCH_PATTERN_HIGH)
         )
       end
 
-      before { renderer.run_dot(0, 7) }
+      before { renderer.run_dots(0, 7, 7) }
 
       it 'fetches it' do
         expect(fetcher).to have_received(:fetch_pattern_high)
@@ -487,11 +520,11 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::INCREMENT_COARSE_X
+          line: ScheduleLines.build(8 => Ruby::Nes::Ppu::RenderSchedule::INCREMENT_COARSE_X)
         )
       end
 
-      before { renderer.run_dot(0, 8) }
+      before { renderer.run_dots(0, 8, 8) }
 
       it 'increments it in v' do
         expect(scroll_registers).to have_received(:increment_coarse_x)
@@ -504,10 +537,13 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       end
 
       let(:schedule) do
-        instance_double(Ruby::Nes::Ppu::RenderSchedule, steps: Ruby::Nes::Ppu::RenderSchedule::INCREMENT_Y)
+        instance_double(
+          Ruby::Nes::Ppu::RenderSchedule,
+          line: ScheduleLines.build(256 => Ruby::Nes::Ppu::RenderSchedule::INCREMENT_Y)
+        )
       end
 
-      before { renderer.run_dot(0, 256) }
+      before { renderer.run_dots(0, 256, 256) }
 
       it 'increments it in v' do
         expect(scroll_registers).to have_received(:increment_y)
@@ -522,11 +558,11 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::COPY_HORIZONTAL
+          line: ScheduleLines.build(257 => Ruby::Nes::Ppu::RenderSchedule::COPY_HORIZONTAL)
         )
       end
 
-      before { renderer.run_dot(0, 257) }
+      before { renderer.run_dots(0, 257, 257) }
 
       it 'copies it from t to v' do
         expect(scroll_registers).to have_received(:copy_horizontal_position)
@@ -541,11 +577,11 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::COPY_VERTICAL
+          line: ScheduleLines.build(280 => Ruby::Nes::Ppu::RenderSchedule::COPY_VERTICAL)
         )
       end
 
-      before { renderer.run_dot(261, 280) }
+      before { renderer.run_dots(261, 280, 280) }
 
       it 'copies it from t to v' do
         expect(scroll_registers).to have_received(:copy_vertical_position)
@@ -560,13 +596,15 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
       let(:schedule) do
         instance_double(
           Ruby::Nes::Ppu::RenderSchedule,
-          steps: Ruby::Nes::Ppu::RenderSchedule::FETCH_SPRITE_HIGH | Ruby::Nes::Ppu::RenderSchedule::LOAD_SPRITE
+          line: ScheduleLines.build(
+            263 => Ruby::Nes::Ppu::RenderSchedule::FETCH_SPRITE_HIGH | Ruby::Nes::Ppu::RenderSchedule::LOAD_SPRITE
+          )
         )
       end
 
       before do
         allow(sprite_renderer).to receive(:run_steps)
-        renderer.run_dot(100, 263)
+        renderer.run_dots(100, 263, 263)
       end
 
       it 'tells the sprite renderer the steps, the scanline and the dot' do
@@ -575,6 +613,139 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
           100,
           263
         )
+      end
+    end
+
+    # A visible line's tile runs whole when the range reaches its last dot: the same steps as its 8 dots one at a time
+    # (plan 28, decision 6).
+    context 'when the range covers a whole tile' do
+      subject(:renderer) do
+        described_class.new(
+          scroll_registers:,
+          fetcher:,
+          picture:,
+          sprite_renderer:,
+          multiplexer:,
+          schedule:,
+          background_visibility:,
+          sprite_visibility:,
+          clock:
+        )
+      end
+
+      let(:schedule) { instance_double(Ruby::Nes::Ppu::RenderSchedule) }
+      let(:background_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
+      let(:sprite_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
+      let(:clock) { instance_double(Ruby::Nes::Ppu::DotClock, :elapsed_dots= => nil) }
+
+      # Dots 321-329 of the line before put a tile on screen, pattern low 1000 0001 with palette 01: its pixels 0 and
+      # 7 are entry $05, the others transparent. The schedule and the clock answer that range first, then the tile's: the
+      # clock stands on 5000, then on 1000, so the tile's fetches see 1000-1006.
+      context 'and it is the first of the line' do
+        before do
+          allow(schedule).to receive(:line).and_return(
+            ScheduleLines.build(321 => Ruby::Nes::Ppu::RenderSchedule::RELOAD, 322..329 => Ruby::Nes::Ppu::RenderSchedule::SHIFT),
+            Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE
+          )
+          allow(clock).to receive(:elapsed_dots).and_return(5_000, 1_000)
+          allow(fetcher).to receive_messages(pattern_low: 0b1000_0001, pattern_high: 0x00, palette: 0b01)
+          renderer.run_dots(99, 321, 329)
+          renderer.run_dots(100, 1, 8)
+        end
+
+        it 'draws its 8 pixels in order', :aggregate_failures do
+          expect(picture).to have_received(:draw).with(0, 100, 0x05).ordered
+          expect(picture).to have_received(:draw).with(1, 100, 0x00).ordered
+          expect(picture).to have_received(:draw).with(2, 100, 0x00).ordered
+          expect(picture).to have_received(:draw).with(3, 100, 0x00).ordered
+          expect(picture).to have_received(:draw).with(4, 100, 0x00).ordered
+          expect(picture).to have_received(:draw).with(5, 100, 0x00).ordered
+          expect(picture).to have_received(:draw).with(6, 100, 0x00).ordered
+          expect(picture).to have_received(:draw).with(7, 100, 0x05).ordered
+        end
+
+        it 'fetches its four bytes, the clock on the dot of each', :aggregate_failures do
+          expect(clock).to have_received(:elapsed_dots=).with(1_000).ordered
+          expect(fetcher).to have_received(:fetch_nametable_byte).ordered
+          expect(clock).to have_received(:elapsed_dots=).with(1_002).ordered
+          expect(fetcher).to have_received(:fetch_attribute).ordered
+          expect(clock).to have_received(:elapsed_dots=).with(1_004).ordered
+          expect(fetcher).to have_received(:fetch_pattern_low).ordered
+          expect(clock).to have_received(:elapsed_dots=).with(1_006).ordered
+          expect(fetcher).to have_received(:fetch_pattern_high).ordered
+        end
+
+        it 'increments coarse X once, and not Y', :aggregate_failures do
+          expect(scroll_registers).to have_received(:increment_coarse_x).once
+          expect(scroll_registers).not_to have_received(:increment_y)
+        end
+      end
+
+      # The first tile shows the tile of dots 321-329 (pattern low 1000 0001); the second reloads, on its first dot,
+      # the tile the first fetched (0100 0000), which the third shows: its pixel 1, x = 17, is entry $05.
+      context 'and it follows a tile of the line' do
+        before do
+          allow(schedule).to receive(:line).and_return(
+            ScheduleLines.build(321 => Ruby::Nes::Ppu::RenderSchedule::RELOAD, 322..329 => Ruby::Nes::Ppu::RenderSchedule::SHIFT),
+            Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE
+          )
+          allow(clock).to receive(:elapsed_dots).and_return(5_000, 1_000)
+          allow(fetcher).to receive(:pattern_low).and_return(0b1000_0001, 0b0100_0000)
+          allow(fetcher).to receive_messages(pattern_high: 0x00, palette: 0b01)
+          renderer.run_dots(99, 321, 329)
+          renderer.run_dots(100, 1, 24)
+        end
+
+        it 'reloads the shifters with the tile fetched before it', :aggregate_failures do
+          expect(picture).to have_received(:draw).with(16, 100, 0x00)
+          expect(picture).to have_received(:draw).with(17, 100, 0x05)
+          expect(picture).to have_received(:draw).with(18, 100, 0x00)
+        end
+      end
+
+      context 'and it is the last of the line' do
+        before do
+          allow(schedule).to receive(:line).with(100).and_return(Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE)
+          allow(clock).to receive(:elapsed_dots).and_return(1_000)
+          allow(fetcher).to receive_messages(pattern_low: 0x00, pattern_high: 0x00, palette: 0b00)
+          renderer.run_dots(100, 249, 256)
+        end
+
+        it 'increments coarse X and then Y', :aggregate_failures do
+          expect(scroll_registers).to have_received(:increment_coarse_x).once.ordered
+          expect(scroll_registers).to have_received(:increment_y).once.ordered
+        end
+      end
+    end
+
+    context 'when the range ends inside a tile' do
+      subject(:renderer) do
+        described_class.new(
+          scroll_registers:,
+          fetcher:,
+          picture:,
+          sprite_renderer:,
+          multiplexer:,
+          schedule:,
+          background_visibility:,
+          sprite_visibility:
+        )
+      end
+
+      let(:schedule) do
+        instance_double(Ruby::Nes::Ppu::RenderSchedule, line: Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE)
+      end
+      let(:background_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
+      let(:sprite_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
+
+      before { renderer.run_dots(100, 1, 4) }
+
+      it 'runs only the dots it reaches', :aggregate_failures do
+        expect(picture).to have_received(:draw).exactly(4).times
+        expect(fetcher).to have_received(:fetch_nametable_byte)
+        expect(fetcher).to have_received(:fetch_attribute)
+        expect(fetcher).not_to have_received(:fetch_pattern_low)
+        expect(scroll_registers).not_to have_received(:increment_coarse_x)
       end
     end
   end
