@@ -60,7 +60,8 @@ Conventions (see also `CLAUDE.md`):
 | 29 | [APU sync deadline and runs of cycles](29-apu-sync-deadline-and-runs.md) | 28 | done |
 | 30 | [Background pipeline per tile](30-background-pipeline-per-tile.md) | 28 | done |
 | 31 | [Sprites and the horizontal blank](31-sprites-and-horizontal-blank.md) | 30 | done |
-| 32 | [Window presentation](32-window-presentation.md) | 31 | todo |
+| 32 | [Window presentation](32-window-presentation.md) | 31 | done |
+| 33 | [Super Pitfall's emulation cost](33-super-pitfall-emulation-cost.md) | 32 | todo |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
 
@@ -71,7 +72,9 @@ that reaches 60 fps with crackle-free audio. Accuracy shortcuts enter only as an
 model as the default (architecture decision 77).
 
 Plan 31 brought the emulation to 61.5 fps under YJIT; the window still showed 50-52 fps, its presentation (turning a
-frame into RGB, about 2.6 ms) being the gap. Plan 32 takes that, without touching emulation.
+frame into RGB, about 2.6 ms) being the gap. Plan 32 moved the palette lookup to the GPU (about 0.8 ms a frame), and
+Super Mario Bros. 3 plays at about 60 fps with crackle-free audio: M7 closed. Super Pitfall (UxROM, CHR RAM) still
+drops to 48-53 fps in play, its emulation about 12% heavier; plan 33 profiles and cuts it, exactly as plans 29-31.
 
 ## Backlog (not planned)
 
