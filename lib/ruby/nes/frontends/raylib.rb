@@ -11,25 +11,25 @@ require_relative 'key_bindings'
 require_relative 'key_config'
 require_relative 'keyboard'
 require_relative 'opposite_directions'
-require_relative 'palette'
 require_relative 'raylib_audio_stream'
 require_relative 'raylib_library'
+require_relative 'raylib_picture'
 require_relative 'viewport'
 
 module Ruby
   module Nes
     module Frontends
       # The emulator's window on raylib (https://www.raylib.com/cheatsheet/cheatsheet.html) through the raylib-bindings
-      # gem, FFI bindings that ship the library built for each platform (plan 17). An adapter: the decisions live in
-      # its collaborators, each specified on its own (plan 18). The frame is drawn as an RGB24 texture into the
-      # Frontends::Viewport; the keyboard drives the first controller through Frontends::Keyboard with opposite
-      # directions cancelled (Frontends::OppositeDirections) and the emulator through Frontends::Hotkeys; the frame rate
-      # (Frontends::FrameRate) and the JIT are drawn over the frame while the overlay is shown; after each frame the
-      # pacing waits. With audio (plan 24), each frame's samples go through Frontends::AudioPacing into a raylib audio
-      # stream (Frontends::RaylibAudioStream), and the audio paces the window; while paused it queues silence. Without
-      # audio, or when no audio device opens, the timer paces it (Frontends::FramePacing). A pacing given replaces
-      # either, the audio still being fed (the benchmark's tone runs unpaced). The gem's module is `::Raylib`; this
-      # class is `Frontends::Raylib`.
+      # gem, FFI bindings that ship the library built for each platform (plan 17). An adapter: the decisions live in its
+      # collaborators, each specified on its own (plan 18). The frame is drawn by Frontends::RaylibPicture, its colours
+      # looked up on the GPU (plan 32), into the Frontends::Viewport; the keyboard drives the first controller through
+      # Frontends::Keyboard with opposite directions cancelled (Frontends::OppositeDirections) and the emulator through
+      # Frontends::Hotkeys; the frame rate (Frontends::FrameRate) and the JIT are drawn over the frame while the overlay
+      # is shown; after each frame the pacing waits. With audio (plan 24), each frame's samples go through
+      # Frontends::AudioPacing into a raylib audio stream (Frontends::RaylibAudioStream), and the audio paces the
+      # window; while paused it queues silence. Without audio, or when no audio device opens, the timer paces it
+      # (Frontends::FramePacing). A pacing given replaces either, the audio still being fed (the benchmark's tone runs
+      # unpaced). The gem's module is `::Raylib`; this class is `Frontends::Raylib`.
       class Raylib < Base
         TITLE = 'ruby-nes'
         # Signed 16-bit mono samples at the core's rate, 48 kHz (plan 24, decision 1).
@@ -39,9 +39,6 @@ module Ruby
         # A frame of audio, 800 samples. A raylib audio stream is two sub-buffers of this many samples, refilled only
         # once played.
         SAMPLES_PER_FRAME = SAMPLE_RATE / FRAMES_PER_SECOND
-        # The frame is drawn upright, from one texture level.
-        ROTATION = 0.0
-        MIPMAP_LEVELS = 1
         # The overlay's text, at the top left corner of the window, in screen pixels.
         OVERLAY_MARGIN = 8
         OVERLAY_FONT_SIZE = 20
@@ -93,8 +90,8 @@ module Ruby
           @hotkeys = Hotkeys.new(key_bindings.hotkeys)
           @jit_name = jit_name
           open_window(viewport, hidden)
-          open_texture
-          place_texture(viewport)
+          @picture = RaylibPicture.new
+          place_picture(viewport)
           open_audio if audio
           @pacing = pacing || @audio_pacing || FramePacing.new
           # Measured from here, so the first rate shown leaves out the time the window and the audio took to open.
@@ -114,10 +111,8 @@ module Ruby
         # Draws the frame (and the overlay), reads the hotkeys pressed meanwhile (raylib polls its input events as the
         # drawing ends), counts the frame, queues a frame of silence while paused and waits for the pacing.
         def present(frame_buffer)
-          @pixels.put_bytes(0, Palette.rgb(frame_buffer))
-          ::Raylib.UpdateTexture(@texture, @pixels)
           ::Raylib.BeginDrawing
-          ::Raylib.DrawTexturePro(@texture, @source, @destination, @origin, ROTATION, ::Raylib::WHITE)
+          @picture.draw(frame_buffer, @source, @destination)
           draw_overlay if @hotkeys.frame_rate_shown?
           ::Raylib.EndDrawing
           @hotkeys.poll { ::Raylib.IsKeyPressed(it) }
@@ -133,7 +128,7 @@ module Ruby
 
         def close
           @audio_stream&.close
-          ::Raylib.UnloadTexture(@texture)
+          @picture.close
           ::Raylib.CloseWindow
         end
 
@@ -147,23 +142,11 @@ module Ruby
           ::Raylib.SetExitKey(::Raylib::KEY_NULL)
         end
 
-        def open_texture
-          @pixels = FFI::MemoryPointer.new(:uint8, Ppu::Picture::WIDTH * Ppu::Picture::HEIGHT * Palette::BYTES_PER_PIXEL)
-          image = ::Raylib::Image.new
-          image[:data] = @pixels
-          image[:width] = Ppu::Picture::WIDTH
-          image[:height] = Ppu::Picture::HEIGHT
-          image[:mipmaps] = MIPMAP_LEVELS
-          image[:format] = ::Raylib::PIXELFORMAT_UNCOMPRESSED_R8G8B8
-          @texture = ::Raylib.LoadTextureFromImage(image)
-        end
-
         # The part of the frame drawn, and where: the whole window.
-        def place_texture(viewport)
+        def place_picture(viewport)
           source = viewport.source
           @source = ::Raylib::Rectangle.create(source.x, source.y, source.width, source.height)
           @destination = ::Raylib::Rectangle.create(0, 0, viewport.width, viewport.height)
-          @origin = ::Raylib::Vector2.create(0, 0)
         end
 
         # Without a usable output device the window runs silent, paced by the timer.

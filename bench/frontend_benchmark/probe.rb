@@ -2,9 +2,9 @@
 
 module FrontendBenchmark
   # A frontend wrapped to be measured: it runs while the frontend runs, up to a number of frames when one is given;
-  # times each present (RGB conversion, texture upload and drawing, plan 17) and the interval between the starts of
-  # consecutive presents (the whole frame, emulation included); and after each present queues a frame's worth of an
-  # audio source on the frontend, the audio smoke test.
+  # times each present (the pixel values' upload and the drawing with the palette shader, plan 32) and the interval
+  # between the starts of consecutive presents (the whole frame, emulation included); and after each present queues a
+  # frame's worth of an audio source on the frontend, the audio smoke test.
   class Probe < Ruby::Nes::Frontends::Base
     # Seconds each present took, in frame order.
     attr_reader :present_seconds
