@@ -289,6 +289,16 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3 do
     end
   end
 
+  describe '#earliest_irq_cycle' do
+    subject(:board) { described_class.new(Cartridges.build(mapper_number: 4), irq_counter:) }
+
+    let(:irq_counter) { instance_double(Ruby::Nes::Mappers::Mmc3::IrqCounter, earliest_irq_cycle: 640) }
+
+    it "answers the IRQ counter's earliest IRQ cycle" do
+      expect(board.earliest_irq_cycle(600)).to eq(640)
+    end
+  end
+
   describe '#mirroring' do
     context 'when the header asks for four-screen VRAM' do
       subject(:board) do

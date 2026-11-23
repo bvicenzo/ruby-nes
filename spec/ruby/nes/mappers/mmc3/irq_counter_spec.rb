@@ -225,4 +225,84 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3::IrqCounter do
       expect(cpu).not_to have_received(:assert_irq)
     end
   end
+
+  # The PPU standing on M2 cycle `cycle`, the first clock can come on it, and each further one at least 3 M2 cycles
+  # after the previous: A12 must stay low for "three falling edges of M2" before a rise counts (plan 28, decision 3).
+  describe '#earliest_irq_cycle' do
+    context 'when IRQs are disabled' do
+      subject(:counter) { described_class.new(cpu:) }
+
+      let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
+
+      it 'answers never' do
+        expect(counter.earliest_irq_cycle(100)).to eq(Ruby::Nes::Mappers::Base::NEVER)
+      end
+    end
+
+    context 'when IRQs are enabled' do
+      context 'and the counter is 0' do
+        context 'and the latch is 0' do
+          subject(:counter) { described_class.new(cpu:).tap(&:enable) }
+
+          let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
+
+          it 'answers the cycle given, the next clock reloading 0' do
+            expect(counter.earliest_irq_cycle(100)).to eq(100)
+          end
+        end
+
+        context 'but the latch is not 0' do
+          # Loading 4 takes a clock, then 4 more reach 0: 5 clocks, the last 12 M2 cycles after the first.
+          subject(:counter) do
+            described_class.new(cpu:).tap do |irq_counter|
+              irq_counter.latch = 4
+              irq_counter.enable
+            end
+          end
+
+          let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
+
+          it 'answers the cycle of the clock after the latch is counted down' do
+            expect(counter.earliest_irq_cycle(100)).to eq(112)
+          end
+        end
+      end
+
+      context 'and the counter is above 0' do
+        context 'and it is 1' do
+          # Loaded with 2 and decremented to 1.
+          subject(:counter) do
+            described_class.new(cpu:).tap do |irq_counter|
+              irq_counter.latch = 2
+              irq_counter.enable
+              2.times { irq_counter.clock(90) }
+            end
+          end
+
+          let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
+
+          it 'answers the cycle given' do
+            expect(counter.earliest_irq_cycle(100)).to eq(100)
+          end
+        end
+
+        context 'and it is above 1' do
+          # Loaded with 3: 3 clocks reach 0, the last 6 M2 cycles after the first.
+          subject(:counter) do
+            described_class.new(cpu:).tap do |irq_counter|
+              irq_counter.latch = 3
+              irq_counter.enable
+              irq_counter.clock(90)
+            end
+          end
+
+          let(:cpu) { instance_double(Ruby::Nes::Cpu, assert_irq: nil, release_irq: nil) }
+
+          it 'answers the cycle of the clock that reaches 0' do
+            expect(counter.earliest_irq_cycle(100)).to eq(106)
+          end
+        end
+      end
+    end
+  end
 end

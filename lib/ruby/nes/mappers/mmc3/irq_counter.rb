@@ -48,6 +48,25 @@ module Ruby
           def enable
             @enabled = true
           end
+
+          # The earliest CPU cycle the IRQ could be asserted on, the PPU standing on `cycle` (plan 28, decision 3): the
+          # first clock can come on it, and each further one at least A12Watcher::LOW_M2_CYCLES later, since A12 stays
+          # low that long before a rise counts. NEVER while IRQs are disabled: enabling them is a register write, which
+          # catches the PPU up first.
+          def earliest_irq_cycle(cycle)
+            return Base::NEVER unless @enabled
+
+            cycle + ((clocks_to_irq - 1) * A12Watcher::LOW_M2_CYCLES)
+          end
+
+          private
+
+          # A counter at 0 loads the latch on the next clock, which asserts at once only when the latch is 0.
+          def clocks_to_irq
+            return @counter unless @counter.zero?
+
+            @latch.zero? ? 1 : @latch + 1
+          end
         end
       end
     end

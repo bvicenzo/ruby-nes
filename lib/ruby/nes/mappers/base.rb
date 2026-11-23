@@ -49,6 +49,8 @@ module Ruby
         CHR_UPPER_HALF_START = 0x1000
         CHR_HALF_AREA_SIZE = 4_096
         CHR_AREA_SIZE = 8_192
+        # The cycle of an IRQ that cannot come: later than any CPU cycle.
+        NEVER = Float::INFINITY
 
         attr_reader :mirroring
         # The CPU, the board's clock (MMC1, plan 20 decision 1); the PPU, A12's clock (MMC3, plan 21 decision 2); the
@@ -116,6 +118,11 @@ module Ruby
         # outside rendering (plan 21, decision 10). Only a board that watches the bus (MMC3's A12) does anything with
         # it.
         def ppu_address(_address); end
+
+        # The earliest CPU cycle on which the PPU's fetches could make the board assert its IRQ, the PPU standing on
+        # `cycle`: the console catches the PPU up by then (plan 28, decision 3). A board without such an IRQ answers
+        # NEVER.
+        def earliest_irq_cycle(_cycle) = NEVER
 
         # CHR ROM ignores writes; CHR RAM keeps them.
         def ppu_write(address, value)

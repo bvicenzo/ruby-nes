@@ -144,6 +144,16 @@ RSpec.describe Ruby::Nes::PpuBus do
     end
   end
 
+  describe '#earliest_irq_cycle' do
+    subject(:bus) { described_class.new(mapper:) }
+
+    let(:mapper) { instance_double(Ruby::Nes::Mappers::Mmc3, earliest_irq_cycle: 640, mirroring: :horizontal) }
+
+    it "answers the board's earliest IRQ cycle" do
+      expect(bus.earliest_irq_cycle(600)).to eq(640)
+    end
+  end
+
   # The renderer's picture reads the colours straight from palette RAM, without the bus (plan 25, decision 7).
   describe '#palette_ram' do
     subject(:bus) { described_class.new(mapper:) }

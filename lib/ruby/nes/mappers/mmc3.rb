@@ -114,6 +114,8 @@ module Ruby
           @a12_watcher.watch(address)
         end
 
+        def earliest_irq_cycle(cycle) = @irq_counter.earliest_irq_cycle(cycle)
+
         private
 
         # One `when` per register: the decoder is as wide as the register file.

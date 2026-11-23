@@ -352,6 +352,15 @@ RSpec.describe Ruby::Nes::Mappers::Base do
     end
   end
 
+  # A board without an IRQ the PPU's fetches clock never makes the PPU catch up for one (plan 28, decision 3).
+  describe '#earliest_irq_cycle' do
+    subject(:board) { described_class.new(Cartridges.build) }
+
+    it 'answers never' do
+      expect(board.earliest_irq_cycle(600)).to eq(described_class::NEVER)
+    end
+  end
+
   describe '#mirroring' do
     subject(:board) { described_class.new(cartridge) }
 

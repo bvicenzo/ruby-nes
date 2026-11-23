@@ -31,6 +31,10 @@ module Ruby
         end
       end
 
+      # The earliest CPU cycle the board could assert an IRQ clocked by the PPU's fetches, the PPU standing on `cycle`
+      # (plan 28, decision 3).
+      def earliest_irq_cycle(cycle) = @mapper.earliest_irq_cycle(cycle)
+
       # The PPU leaves `address` on its bus without reading or writing (v outside rendering, plan 21 decision 1): the
       # mapper sees it, as a board watching A12 must (https://www.nesdev.org/wiki/MMC3).
       def place_address(address)
