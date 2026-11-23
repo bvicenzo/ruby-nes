@@ -59,7 +59,8 @@ Conventions (see also `CLAUDE.md`):
 | 28 | [PPU dot ranges](28-ppu-dot-ranges.md) | 25 | done |
 | 29 | [APU sync deadline and runs of cycles](29-apu-sync-deadline-and-runs.md) | 28 | done |
 | 30 | [Background pipeline per tile](30-background-pipeline-per-tile.md) | 28 | done |
-| 31 | [Sprites and the horizontal blank](31-sprites-and-horizontal-blank.md) | 30 | todo |
+| 31 | [Sprites and the horizontal blank](31-sprites-and-horizontal-blank.md) | 30 | done |
+| 32 | [Window presentation](32-window-presentation.md) | 31 | todo |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
 
@@ -68,6 +69,9 @@ stay unchanged. They grouped plan 28's per-component profile by what changes tog
 pixel, fetch and loop, the sprites and dots 257-340. Each starts by profiling again, and the series stops at the plan
 that reaches 60 fps with crackle-free audio. Accuracy shortcuts enter only as an optional fast mode, with the exact
 model as the default (architecture decision 77).
+
+Plan 31 brought the emulation to 61.5 fps under YJIT; the window still showed 50-52 fps, its presentation (turning a
+frame into RGB, about 2.6 ms) being the gap. Plan 32 takes that, without touching emulation.
 
 ## Backlog (not planned)
 
