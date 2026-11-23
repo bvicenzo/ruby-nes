@@ -24,6 +24,66 @@ zero). Each configuration and variant runs in a process of its own.
 
 ## Findings
 
+### Plan 30: the background pipeline per tile (2026-11-23)
+
+The same frame workload, with the same digests in every configuration and run: f0903fbc59bf (frame), 10369a5b40df
+(audio).
+
+| Configuration | Plan 29's final | Plan 30's final | Change |
+|---|---|---|---|
+| interpreter | 10.2 fps (97.7 ms) | 14.5 fps (68.8 ms) | -30% per frame |
+| yjit | 34.1 fps (29.3 ms) | 46.6 fps (21.4 ms) | -27% per frame |
+| zjit | 30.3 fps (33.0 ms) | 39.5 fps (25.3 ms) | -23% per frame |
+
+**Measured on a visible line.** Whole frames A/B on this machine drifted by up to 8% between rounds, so each step was
+also timed as `Renderer#run_dots` over dots 1-256 of a visible line, after the 1200 warm-up frames (a throwaway script,
+A/B interleaved against a worktree of 65e1705, ±2%).
+
+| Step (cumulative) | µs per visible line | Kept |
+|---|---|---|
+| Base (65e1705) | ~68-77 | — |
+| Prototype: colours precomputed, the renderer storing into the drawn frame, the window, a `compose` call per pixel | ~71 | partly |
+| Prototype: + the 8 pixels composed inline in one method | ~53 | yes |
+| Prototype: + the window computed inline in `run_tile` | ~54-57 | no |
+| Prototype: + the fetcher reading the nametables and the board without `PpuBus#read` | ~53 | no |
+| Prototype: + mirroring kept by the nametables (upper bound of pushing it) | ~50.5 | yes, pushed |
+| Prototype: + the attribute address and quadrant by tables | ~43.5 | yes |
+| Prototype: + one spread table per bit plane | ~40.5 | yes |
+| Prototype: `Mappers::Base#ppu_read` without its local | ~40.5 | no |
+| Prototype: mirroring cached by an identity check instead of pushed | ~41-43 | no |
+| Built: colours, the composer, the window (frame index computed inside `draw_tile`) | ~57 | no: see below |
+| Built: the same, the frame index handed in | ~45 | yes |
+| Built: + the attribute tables and the mirroring pushed (the plan's final tree) | ~35 (-50%) | — |
+
+Whole frames, A/B interleaved, three rounds: 28.4 ms became 20.7 ms (-27%).
+
+**YJIT findings.**
+
+- A shift by a varying amount (`>> (15 - fine_x)`, `attribute >> quadrant`) is a call to `Integer#>>`: YJIT inlines a
+  shift only for an amount it has seen. A multiplication by a power of two from a table, then a constant shift, is
+  inline (architecture, Hot paths).
+- The calls per pixel cost more than their arithmetic: composing a tile's 8 pixels inline in one method took a visible
+  line from ~71 to ~53 µs.
+- An unrolled method that computed its own frame index, `(y × WIDTH) + x`, into a local ran the line at 57 µs; with
+  the index handed in by the caller, 44-45 µs. The literal 256 in its place was as fast. Named mask constants against
+  literals measured no difference (44.6 against 44.1 µs). The cause inside YJIT was not investigated.
+- Microbenchmarks of these effects were unreliable: a measuring loop entered once is never compiled, and constant cache
+  fills invalidate compiled code, moving a probe by 4×. Only the line benchmark on the real renderer was trusted.
+
+**The gap: 20.7 ms per frame under YJIT against 16.6 ms**, about 4.1 ms. Per component, from vernier's top methods
+(200 frames, self time):
+
+| Component | Share |
+|---|---|
+| Pixel (`Renderer#run_tile`, `PixelComposer#draw_tile`, the window, the per-dot pixels) | ~23% |
+| The loops (`Renderer#run_dots` and `#run_dot`, `Console#run_frame`, `Ppu#run_range`) | ~22% |
+| Background fetches (`Mappers::Base#ppu_read`, `Mmc3#ppu_read`, the fetcher, `PpuBus`, nametables) | ~16% |
+| Sprite steps (`SpriteRenderer#run_steps`, the evaluation, `SpriteLine#place`) | ~14% |
+| CPU and CPU bus | ~8% |
+| APU and audio | ~2% |
+
+Plan 31 (the sprites and dots 257-340) is next.
+
 ### Plan 29: the APU's sync deadline and runs (2026-11-23)
 
 The same frame workload, with the same digests in every configuration and run: f0903fbc59bf (frame), 10369a5b40df
@@ -639,3 +699,13 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) C
 | interpreter | 10.2 | 97.7 | 17% | 1.4% | f0903fbc59bf | 10369a5b40df |
 | yjit | 34.1 | 29.3 | 57% | 2.6% | f0903fbc59bf | 10369a5b40df |
 | zjit | 30.3 | 33.0 | 50% | 1.7% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-23 — Final (plan 30) — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 14.5 | 68.8 | 24% | 2.0% | f0903fbc59bf | 10369a5b40df |
+| yjit | 46.6 | 21.4 | 78% | 2.0% | f0903fbc59bf | 10369a5b40df |
+| zjit | 39.5 | 25.3 | 66% | 2.0% | f0903fbc59bf | 10369a5b40df |

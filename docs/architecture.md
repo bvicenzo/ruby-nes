@@ -110,7 +110,8 @@ device interface above plus:
 |---|---|
 | `ppu_read(address)` | the pattern table byte, for `$0000-$1FFF` (the PPU bus never hands anything else) |
 | `ppu_write(address, value)` | kept by CHR RAM, ignored by CHR ROM |
-| `mirroring` | the nametable arrangement the board selects: `:horizontal`, `:vertical`, `:single_screen_lower`, `:single_screen_upper` or `:four_screen` (asked on every nametable access, so a board may change it at any time) |
+| `mirroring` | the nametable arrangement the board selects: `:horizontal`, `:vertical`, `:single_screen_lower`, `:single_screen_upper` or `:four_screen`, read by the nametables when they are built |
+| `nametables=` | takes the PPU bus's `PpuBus::Nametables`, which give themselves to the board; the board tells them `mirroring_changed(mirroring)` whenever it selects an arrangement, through the base's private `mirroring=` (plan 30, decision 3) |
 | `ppu_address(address)` | the PPU left `address` on its bus without reading or writing: v after a PPUADDR write or a PPUDATA access, outside rendering only, a deliberate divergence from the MMC3 page's "regardless of whether PPU is/is not rendering" (plan 21, decisions 1 and 10); only MMC3 watches it |
 | `cpu=` | takes the CPU: MMC1's clock (its `cycles`, plan 20 decision 1) and MMC3's IRQ line (`assert_irq`/`release_irq`) |
 | `ppu=` | takes the PPU: MMC3's A12 filter reads `Ppu#elapsed_dots` (plan 21, decision 2) |
@@ -133,8 +134,8 @@ on. A bank past the end of the memory wraps around it, one window-sized piece at
 `last_prg_bank(size)` numbers the last bank of a size. PRG RAM at
 `$6000-$7FFF` is 8 KiB when the board says so (`prg_ram: true`), and a board may turn it off at runtime
 (`enable_prg_ram`, MMC1); without it, or off, the range is open bus. Mirroring is the header's until a board changes
-`@mirroring` (AxROM, MMC1, MMC3); a header asking for four-screen VRAM (flags 6 bit 3) makes it `:four_screen`, which
-MMC3 keeps and AxROM and MMC1 set over (plan 21, decision 7).
+it through the private `mirroring=` (AxROM, MMC1, MMC3), which tells the nametables; a header asking for four-screen
+VRAM (flags 6 bit 3) makes it `:four_screen`, which MMC3 keeps and AxROM and MMC1 set over (plan 21, decision 7).
 
 | Board | iNES | Registers (writes to `$8000-$FFFF`) | Bus conflicts | PRG RAM |
 |---|---|---|---|---|
@@ -239,9 +240,9 @@ Source: [PPU memory map](https://www.nesdev.org/wiki/PPU_memory_map). The PPU ad
 `$2000-$3EFF` to `PpuBus::Nametables`, `$3F00-$3FFF` to `PpuBus::PaletteRam`.
 
 - **Nametables** hold 4 KiB of VRAM: the console's 2 KiB of CIRAM (pages 0 and 1) and the 2 KiB a four-screen board
-  brings (pages 2 and 3). Address bits 10-11 pick the logical nametable; the mapper's `mirroring` picks its physical
-  page ([Mirroring](https://www.nesdev.org/wiki/Mirroring), whose names the iNES header follows; the PPU nametables page
-  names the arrangements the other way round):
+  brings (pages 2 and 3). Address bits 10-11 pick the logical nametable; the board's mirroring, told on every change
+  (plan 30, decision 3), picks its physical page ([Mirroring](https://www.nesdev.org/wiki/Mirroring), whose names the
+  iNES header follows; the PPU nametables page names the arrangements the other way round):
 
   | `mirroring` | `$2000` | `$2400` | `$2800` | `$2C00` |
   |---|---|---|---|---|
@@ -272,13 +273,18 @@ timing just entered, with its events, and ends on the frame timing's last quiet 
 the catch-up's target. `Ppu::Renderer#run_dots(scanline, first_dot, last_dot)` runs it. The renderer takes the
 scanline's steps from `Ppu::RenderSchedule#line`, one frozen array of flags per kind of scanline (visible,
 pre-render, forced blank, idle, blank), and runs each dot's steps as one pipeline (plan 25, decision 7):
-`Ppu::BackgroundFetcher` makes the nametable, attribute and pattern fetches from v, the renderer's own shift registers
-hold the two tiles in flight and give the 4-bit pixel under fine X, `Ppu::ScrollRegisters` increments and copies v, and
-`Ppu::Picture` looks a palette entry up in palette RAM (read directly, not through `PpuBus`) and stores it in the frame
-buffer, with greyscale and the forced blank's backdrop override. The pixel of dot 1-256 goes to x = dot − 1. A tile of
-a visible line whose 8 dots the range covers (`RenderSchedule::WHOLE_TILE` on its first dot) runs as one unrolled
-sequence: the reload, 8 pixels each followed by its shift, the four fetches, coarse X, and Y on dot 256. The other
-dots run one at a time (plan 28, decision 6).
+`Ppu::BackgroundFetcher` makes the nametable, attribute and pattern fetches from v (the attribute's address and
+quadrant from two load-time tables indexed by v's low 12 bits), the renderer's own shift registers hold the two tiles
+in flight and give the 4-bit pixel under fine X, `Ppu::ScrollRegisters` increments and copies v, and
+`Ppu::PixelComposer` composes the background's and the sprites' entries and stores the pixel into the picture's drawn
+frame through the picture's colour of each palette entry (`Ppu::Picture#colours`, rebuilt when palette RAM, greyscale
+or emphasis change). The pixel of dot 1-256 goes to x = dot − 1. A tile of a visible line whose 8 dots the range
+covers (`RenderSchedule::WHOLE_TILE` on its first dot) runs as one unrolled sequence: the reload, the window of 8
+pixels under fine X (each register's byte (register × 2^fine X) >> 8, spread one bit per nibble by a load-time table
+per register, 8 pixels of 4 bits in 32 bits), the composer drawing them in one call, the 8 shifts as one, the four
+fetches, coarse X, and Y on dot 256. A layer's first visible column is 0, 8 or 256, so it shows in a whole tile or in
+none of it: the background's hidden tile is a window of 0, and a tile whose sprites are hidden draws the background
+alone. The other dots run one at a time (plan 28, decision 6; plan 30, decisions 2, 6 and 7).
 
 The dot clock (`Ppu::DotClock`) holds the PPU's elapsed dots, which MMC3's A12 watch reads through
 `Ppu#elapsed_dots`. The Ppu ticks it into each range and sets it to the range's last dot. The renderer sets it to
@@ -298,13 +304,14 @@ mark. OAMADDR is 0 on dots 257-320. Each pixel, the renderer reads the backgroun
 pattern value is 0) and the sprite line's entry at x (`SpriteRenderer#line_entries`, one array for the life of the
 line), each shown from its layer's first visible column (`Ppu::LayerVisibility`: layer disabled, leftmost 8 columns
 hidden); where only one is opaque it is drawn, a sprite without its marks, and only where both are does
-`Ppu::PriorityMultiplexer` pick one by NESdev's decision table, asking `Ppu::SpriteZeroHit` (sprite 0, not x = 255).
+`Ppu::PriorityMultiplexer` pick one by NESdev's decision table (the composition is `Ppu::PixelComposer`'s), asking
+`Ppu::SpriteZeroHit` (sprite 0, not x = 255).
 `Ppu` decodes PPUCTRL bits 3, 4 and 5 and PPUMASK bits 0-4 and tells the renderer (both layers' visibility) and the
 sprite renderer (pattern table and size), which pass each setting to its part; PPUSTATUS bits 6-5 are
 `SpriteStatus`'s, cleared at dot 1 of the pre-render line.
-`Ppu::Picture` also ORs PPUMASK's emphasis bits (5-7, told by `Ppu`) into bits 6-8 of every pixel, and draws into
-a buffer of its own that it swaps with the published one when `Ppu::FrameTiming` enters the post-render scanline
-(plan 16, see Frame buffer contract).
+`Ppu::Picture` also ORs PPUMASK's emphasis bits (5-7, told by `Ppu`) into bits 6-8 of every colour it precomputes,
+and keeps two buffers, the one drawn swapped with the published one when `Ppu::FrameTiming` enters the post-render
+scanline (plan 16, see Frame buffer contract).
 
 ### Frontends
 
@@ -489,7 +496,7 @@ most calls.
 | `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding |
 | `lib/ruby/nes/ppu_bus/` | `Ruby::Nes::PpuBus::Nametables`, `::PaletteRam` | VRAM through the mirroring, palette RAM |
 | `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder, the PPU's I/O latch, the catch-up to a CPU cycle, reset and the writes it ignores; the PPUCTRL and PPUMASK settings told to the renderer |
-| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::DotClock`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::LayerVisibility`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the elapsed dots, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
+| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::DotClock`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::LayerVisibility`, `::PixelComposer`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the elapsed dots, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
 | `lib/ruby/nes/apu.rb` | `Ruby::Nes::Apu` | the APU's register decoder (a channel table), `$4015`, the catch-up to a CPU cycle, the mixed output, power-up and reset |
 | `lib/ruby/nes/apu/` | `Ruby::Nes::Apu::Pulse`, `::Triangle`, `::Noise`, `::Dmc`, `::Timer`, `::DutySequencer`, `::Envelope`, `::Sweep`, `::LengthCounter`, `::LinearCounter`, `::TriangleSequencer`, `::NoiseShiftRegister`, `::FrameCounter`, `::InterruptFlag`, `::Mixer`, `::GetCycles` | the five channels and their units, the frame counter, the interrupt flags of the frame counter and the DMC, the mixer (plans 22 and 23), and the get cycles the runs count in (plan 29) |
 | `lib/ruby/nes/apu/dmc/` | `Ruby::Nes::Apu::Dmc::Sample`, `::MemoryReader`, `::OutputUnit` | the DMC's address and bytes-remaining counters, its sample buffer filled by DMA, and its output level (plan 23) |
@@ -539,6 +546,9 @@ Rules on hot paths:
 - `Data.define` value objects are fine for configuration (the iNES header), never per cycle.
 - Memory is an `Array` of Integer (decision 2): plan 10 measured `String` and `IO::Buffer` slower under the default
   JIT and without one.
+- No shift by a varying amount: YJIT compiles `Integer#>>` and `#<<` inline only for an amount it has seen, and a
+  varying one (fine X, a quadrant) becomes a method call. A multiplication by a power of two from a table, then a
+  constant shift, replaces it (plan 30, decisions 7 and 8). Packed values stay below 62 bits, a Fixnum.
 
 ## Readability
 
@@ -586,6 +596,11 @@ address = (high << 8) | low # glossary: combine-bytes
   entirely a comment).
 - `grep -rn 'glossary:' lib` finds every use. A new idiom or acronym gets its glossary entry in the same change.
 
+**Exception 3 — the nibble positions of an unrolled tile** (decision 84). `PixelComposer#draw_tile` and
+`#draw_background_tile` unpack 8 pixels of 4 bits, pixel i at bits 31 − 4i to 28 − 4i, by shifts written as the
+literals 28, 24, …, 4: the layout is stated in the class comment, and eight constants named after their own value
+would add nothing. The masks stay named.
+
 ## Known gaps
 
 Hardware behaviour deliberately not modelled yet, each with the plan that revisits it.
@@ -627,6 +642,12 @@ Hardware behaviour deliberately not modelled yet, each with the plan that revisi
   [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes)), bits 8-6 PPUMASK's emphasis bits 7-5 (bit 6 red, bit 7
   green, bit 8 blue on NTSC, [Colour emphasis](https://www.nesdev.org/wiki/Colour_emphasis)), which "are applied
   independently of greyscale" (plan 16, decision 2).
+- **Who draws** (plan 30, decision 1): `Ppu::Picture` owns both buffers and the colour of each of the 32 palette
+  entries (`colours`, one array rebuilt in place when palette RAM, which tells it of every write, greyscale or emphasis
+  change). `Ppu::PixelComposer` holds the picture's `drawn_frame` and `colours` and stores the visible pixels itself;
+  `PixelComposer#complete_picture` completes the frame and takes the picture's new `drawn_frame`; it is the only caller
+  of `Picture#complete_frame`, or the composer would keep drawing into the published buffer. The picture draws the
+  forced blank's pixels.
 - **Double buffering** (plan 16, decision 1): `Ppu::Picture` draws into one buffer and, when the PPU enters the
   post-render scanline 240, swaps it with the one `Ppu#frame_buffer` returns. So `Ppu#frame_buffer` is always one
   whole frame, although `Console#run_frame` stops within the first instruction of the next one. The two arrays
@@ -667,7 +688,7 @@ presentation, in a frontend).
 | 19 | 2026-11-18 | YJIT is the project's default JIT | Plan 10: fastest with every variant measured, 16.4 emulated MHz (915% of real time) on nestest against 9.0 for ZJIT and 3.7 without a JIT ([benchmarks](benchmarks.md#findings)) | Plan 25 (whole frames): kept, YJIT 23.4 fps against 15.4 for ZJIT |
 | 20 | 2026-11-18 | OAM DMA is `CpuBus::OamDma`, owned by `CpuBus`, which routes `$4014` writes to it; the stall comes back through `CpuBus#take_stall_cycles(halt_cycle)`, added by `Cpu#step` after every step; even CPU cycles are get cycles | The DMA's collaborators are the bus's own (CPU reads, `$2004` writes), so no circular wiring, and the `apu_registers:` and `controller_ports:` slots (decision 35) stay for the APU and the controllers; DMC DMA (plan 23) reports through the same channel. The query per step measured about −8% under YJIT on nestest | Amended by 64 (plan 23: the DMC pushes through `Cpu#halt`); the OAM push model left by plan 25 (decision 9) |
 | 21 | 2026-11-18 | The PPU's I/O latch is modelled without decay; `Ppu#cpu_read` ignores the CPU data bus | Write-only registers and PPUSTATUS's bits 4-0 answer it; decay needs time (Known gaps). Plan 12 kept it without decay (decision 9) | A later PPU pass |
-| 22 | 2026-11-18 | `PpuBus::Nametables` asks the mapper's `mirroring` on every access and maps it through a constant table; 4 KiB of VRAM support four-screen | MMC1, MMC3 and AxROM change the mirroring at runtime; four-screen costs one table row | A later performance plan (the fetch path, about 19% of a frame in plan 25, untouched by plan 28) |
+| 22 | 2026-11-18 | `PpuBus::Nametables` asks the mapper's `mirroring` on every access and maps it through a constant table; 4 KiB of VRAM support four-screen | MMC1, MMC3 and AxROM change the mirroring at runtime; four-screen costs one table row | Pushed by the board since plan 30 (decision 86) |
 | 23 | 2026-11-19 | Clock model: register-access catch-up. `Cpu#step` charges the base cycles before running the instruction; `Console::PpuRegisterSync` catches the PPU up to `cycles - 1` before every `$2000-$3FFF` access, and `Console#step` to `cycles` after the step | `ppu_vbl_nmi/04-nmi_control` cannot pass with instruction-level catch-up; one call per register access and one per step | Mapper registers synchronised since plan 21 (decision 53); plan 22 (APU registers); `run_frame` catches up only from the PPU's sync cycle on since plan 28 (decision 74) |
 | 24 | 2026-11-19 | The NMI edge carries the first CPU cycle whose φ2 sample sees it (`Cpu#nmi_line_changed(asserted, cycle)`, the PPU stamping `(dot + 1) / 3`); a release within that same cycle cancels it; `InterruptLines#acknowledge(cycle)` takes it only when it came before the previous instruction's last cycle | The edge detector "polls the status of the NMI line during φ2 of each CPU cycle", and "the status of the interrupt lines at the end of the second-to-last cycle" is what the poll sees. The φ2 point is calibrated with `ppu_vbl_nmi` 05-08, which pass only with it (not with the change counted on its own dot's cycle, nor two dots ahead) | — |
 | 25 | 2026-11-19 | IRQ sources combine as a wired-OR push: each asserts and releases its own bit on a shared line, replacing the mappers' `irq?` | The hardware's open-collector line; no query per instruction (a similar per-step query cost about 8% under YJIT) | Implemented by decision 51 (plan 21) |
@@ -718,13 +739,18 @@ presentation, in a frontend).
 | 70 | 2026-11-22 | The output filters are a first-order high-pass at 90 Hz and a first-order low-pass at 14 kHz, in the discrete RC form at the output rate | The APU Mixer page's list (no 440 Hz high-pass); the RC form costs one multiply per filter (plan 24, decision 5; Known gaps: low-pass filter near Nyquist) | — |
 | 71 | 2026-11-22 | With audio the window is paced by it (`Frontends::AudioPacing`); an underrun is a gap of silence; paused, it queues silence | raylib zero-fills a sub-buffer that runs dry; muting while slow or slowing the pitch would add state for a speed plan 25 is to reach (plan 24, decisions 2 and 7) | When a configuration reaches full speed (the crackle-free check plan 28 could not run) |
 | 72 | 2026-11-22 | Flag tests on hot paths are inline, `(value & FLAG) != 0 # glossary: flag-set` (and `flag-clear`); `anybits?`/`allbits?`/`nobits?` stay mandatory off them; `Style/BitwisePredicate` is disabled for the directories of per-dot, per-cycle and per-instruction code (`apu`, `cpu`, `input`, `mappers`, `ppu`), where load-time code (tables, board building) still uses the predicates | Under YJIT and ZJIT `anybits?` is a C call and the operator compiles inline: about 9 ns more per test, and converting every hot-path flag test took a Super Mario Bros. 3 frame from 70.9 to 54.5 ms under YJIT (-23%; plan 25, decision 1, benchmarks.md) | — |
-| 73 | 2026-11-22 | The renderer is a per-dot pipeline: it owns the background shift registers (`BackgroundShifters` folded in) and both layers' visibility, composes each pixel itself from the sprite line's entries, asks the priority multiplexer only where both layers are opaque, and the picture reads palette RAM without `PpuBus` | The per-dot chain of objects cost about a third of a Super Mario Bros. 3 frame in calls (vernier); still one `run_dot` per dot, so `@dots` is right at every fetch MMC3's A12 watch reads (plan 25, decision 7) | Ranges of dots and whole tiles since plan 28 (decisions 75 and 76) |
+| 73 | 2026-11-22 | The renderer is a per-dot pipeline: it owns the background shift registers (`BackgroundShifters` folded in) and both layers' visibility, composes each pixel itself from the sprite line's entries, asks the priority multiplexer only where both layers are opaque, and the picture reads palette RAM without `PpuBus` | The per-dot chain of objects cost about a third of a Super Mario Bros. 3 frame in calls (vernier); still one `run_dot` per dot, so `@dots` is right at every fetch MMC3's A12 watch reads (plan 25, decision 7) | Ranges of dots and whole tiles since plan 28 (decisions 75 and 76); the composition moved to `PixelComposer` (decision 84) |
 | 74 | 2026-11-22 | `Console#run_frame` catches the PPU up to a step's end only from `Ppu#sync_cycle` on: the earlier of its frame timing's next event (VBlank start or end, the next frame) divided by 3 and the board's `earliest_irq_cycle` (MMC3: `cycle + (clocks to the IRQ − 1) × 3`), memoised until a catch-up, register access or reset; `Console#step` still catches up after every step | With a catch-up after every instruction each covered 6-21 dots, too few for ranges to pay; between register accesses the PPU reaches the CPU only through /NMI, the frame's end and the board's IRQ, all predictable with a bound that never comes late, so the output is exact (identical digests). The tracer reads the PPU after each `step` (plan 28, decisions 1-3) | Done for the APU by plan 29 (decision 78) |
 | 75 | 2026-11-22 | `Ppu#catch_up` runs ranges within a scanline up to `FrameTiming#last_quiet_dot` (dot 0 on scanlines 241 and 261, the skipped dot on an odd frame's pre-render line with rendering, 340 otherwise) through `Renderer#run_dots`; `Ppu::DotClock`, shared with the renderer, holds the elapsed dots, which the renderer sets before each dot's fetches | The loop lives where the dot count and the frame timing are; a shared clock keeps the board's contract (`Ppu#elapsed_dots` at each fetch) instead of a dot on every PPU bus read (plan 28, decisions 4 and 5) | — |
-| 76 | 2026-11-22 | A tile of a visible line whose 8 dots a range covers runs as one unrolled sequence (`RenderSchedule::WHOLE_TILE`), the other dots one at a time | About 15% of a Super Mario Bros. 3 frame under YJIT; the same tile as a `while` loop with the pixel inline and a `case` for the fetches was measured slower than the per-dot path (plan 28, decision 6) | — |
+| 76 | 2026-11-22 | A tile of a visible line whose 8 dots a range covers runs as one unrolled sequence (`RenderSchedule::WHOLE_TILE`), the other dots one at a time | About 15% of a Super Mario Bros. 3 frame under YJIT; the same tile as a `while` loop with the pixel inline and a `case` for the fetches was measured slower than the per-dot path (plan 28, decision 6) | The tile's pixels from a window under fine X since plan 30 (decision 83) |
 | 77 | 2026-11-23 | Accuracy shortcuts (a scanline drawn at once regardless of writes in the middle of it, MMC3's IRQ clocked once per line, the sprite 0 hit per line, the audio averaged per sample) enter only as an optional fast mode behind a command-line flag; the exact model stays the default, the one the suite, the test ROMs and the `rake bench:frames` digests run | The study is about the hardware, and the digests are what proves an optimisation changed nothing; a fast mode lets a game be played at full speed without giving that up, at the price of two code paths. The user's choice over never taking a shortcut and over shortcuts by default | When the exact plans 29-31 leave the gap open: each shortcut is proposed with its measured gain and the tests it puts at risk (plan 25, decision 4) |
 | 78 | 2026-11-23 | `Console#run_frame` catches the APU up only from `Apu#sync_cycle` on, one past the earlier of the frame counter's next interrupt (or a pending `$4017` write's effect) and the DMC's next fetch, and once more after its loop, to the last step's end; memoised until a catch-up, register write or reset. `Console#step` still catches up after every step | Between register accesses the APU reaches the CPU only through its interrupt flags and the DMC's fetches, both predictable; an event on cycle F happened after the step that crosses F, so F + 1 keeps every IRQ stamp and stall (identical digests). From about 9 900 catch-ups a frame to about 30 (plan 29, decisions 4 and 5) | — |
 | 79 | 2026-11-23 | `Apu#catch_up` runs by runs of quiet cycles: each unit tells how far it is quiet (`quiet_cycles`, `quiet_ticks`), a muted channel answering `Apu::NEVER`, and every unit skips the run at once; the cycle with a change runs on its own, and the mix is taken once per run | The mix every cycle was about half of the APU's share, and the mix changes about 250 times a frame. Runs that end at every clock stayed 2-3 cycles long under the noise's fastest period, while the noise was audible on 4% of the cycles; letting muted channels skip clocks makes runs long (plan 29, decisions 1 and 3). About -18% per frame under YJIT | — |
 | 80 | 2026-11-23 | A run hands the resampler one level for its cycles (`Resampler#add_run`), which still adds it once per cycle | Adding a level n times and adding n × it differ in the float sum's last bits, and the audio digest would change; an integer accumulator would too, so it belongs to the fast mode (plan 29, decision 2) | — |
 | 81 | 2026-11-23 | `Apu::NEVER` is an Integer, 2**60, not `Float::INFINITY` | The runs add and double it on the hot path; an Integer keeps the arithmetic in Fixnums (plan 29, decision 6) | — |
 | 82 | 2026-11-23 | A catch-up loop calls a method per step of its loop instead of holding the step's body inline (`Apu#run_cycle`, `#skip`) | Under YJIT a catch-up of thousands of cycles whose `while` held the cycle's body ran about half as fast per cycle as catch-ups of 3 (measured: 4.2 against 2.2 ms per 29 780 cycles without audio); with the body in a method both cost about the same. The interpreter showed no difference (plan 29) | When YJIT changes |
+| 83 | 2026-11-23 | A whole tile reads its 8 pixels as a window under fine X of the four 16-bit shift registers, (register × 2^fine X) >> 8, spread one bit per nibble by a load-time table per register into 32 bits, and shifts them by 8 once; the registers stay the only model and the per-dot path is unchanged | Within a whole tile nothing reloads, so the 8 shifts are one; two tiles of 4-bit pixels would be 64 bits, past a Fixnum; a shift by fine X is a method call under YJIT, a multiplication by a power of two is not (plan 30, decisions 2 and 7) | — |
+| 84 | 2026-11-23 | `Ppu::PixelComposer` composes the pixels and stores them into the picture's drawn frame through `Picture#colours`; a whole tile is one call drawing 8 pixels unrolled, the background alone when the tile's sprites are hidden, and it takes the frame index computed | Three calls per pixel (`draw`, `shift`, `Picture#draw`) cost more than their arithmetic; a layer shows in a whole tile or in none of it; an index computed inside the unrolled method made it about a third slower under YJIT (plan 30, decisions 1 and 6) | — |
+| 85 | 2026-11-23 | `Ppu::Picture` keeps the final pixel of each of the 32 palette entries, rebuilt when palette RAM (which tells its one observer of every write), greyscale or emphasis change | All three are register writes, which catch the PPU up first, so a colour is never stale for a pixel; one table read instead of a palette RAM read, a mask and an OR per pixel (plan 30, decision 4) | — |
+| 86 | 2026-11-23 | The board tells its one `PpuBus::Nametables` every mirroring it selects (`nametables=`, `mirroring_changed`), through the base's private `mirroring=` | A board selects a mirroring at power-up or on a register write, which catches the PPU up first, so the nametables are never stale for a fetch; no Hash lookup per nametable access (plan 30, decision 3) | — |
+| 87 | 2026-11-23 | The attribute fetch takes its address and the factor that brings its quadrant to bits 7-6 from two load-time tables of 4096 entries indexed by v's low 12 bits | About 14% of a visible line: the address arithmetic and the shift by the quadrant, a method call under YJIT (plan 30, decision 8) | — |
