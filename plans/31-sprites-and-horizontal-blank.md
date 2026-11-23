@@ -9,10 +9,11 @@ digests of `rake bench:frames` must stay those of the last kept step.
 
 ## Context
 
-After plan 28, the sprite steps take about 9% of a Super Mario Bros. 3 frame under YJIT, about 3.5 ms
-(`docs/benchmarks.md`, Findings, plan 28). The sprite side of each pixel's composition is counted in the pixel share
-plan 30 works on. Every visible pixel reads the sprite line and checks the sprite layer's visibility, even on lines
-with no sprite at all.
+After plan 30, a Super Mario Bros. 3 frame takes about 20.7 ms under YJIT, and the sprite steps about 14% of it, about
+2.9 ms (`docs/benchmarks.md`, Findings, plan 30). The sprite side of each pixel's composition is counted in the pixel
+share: `Ppu::PixelComposer#draw_tile` composes a whole tile's 8 pixels with the sprite line. Every visible pixel reads
+the sprite line, even on lines with no sprite at all; the sprite layer's visibility is checked once per whole tile and
+once per pixel drawn dot by dot.
 
 Dots 257-340 of every rendered line still run one dot at a time (`Renderer#run_dot`):
 
@@ -32,6 +33,8 @@ In, each step measured A/B and kept only if it pays (plan 25, decision 4):
 1. **Tiles without sprites.** When the sprite line is loaded, record which 8-column groups hold an opaque sprite pixel
    (for example a 32-bit mask). A whole tile with no sprite pixel composes the background alone, skipping the sprite
    lookup, the visibility check and the multiplexer. A line with no sprites skips it for all 32 tiles.
+   `PixelComposer#draw_background_tile` already draws a tile without reading the sprite line (plan 30, decision 6):
+   a sprite-free tile can take it, as a tile whose sprites are hidden does.
 2. **Whole sprite slots.** Like `WHOLE_TILE` (plan 28, decision 6): when a range covers a slot's 8 dots, run them as one
    unrolled sequence. That sequence covers:
    - `OAMADDR` reset;

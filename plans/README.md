@@ -58,7 +58,7 @@ Conventions (see also `CLAUDE.md`):
 | 27 | [Horizontal edge crop](27-horizontal-edge-crop.md) | 18 | todo |
 | 28 | [PPU dot ranges](28-ppu-dot-ranges.md) | 25 | done |
 | 29 | [APU sync deadline and runs of cycles](29-apu-sync-deadline-and-runs.md) | 28 | done |
-| 30 | [Background pipeline per tile](30-background-pipeline-per-tile.md) | 28 | todo |
+| 30 | [Background pipeline per tile](30-background-pipeline-per-tile.md) | 28 | done |
 | 31 | [Sprites and the horizontal blank](31-sprites-and-horizontal-blank.md) | 30 | todo |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
