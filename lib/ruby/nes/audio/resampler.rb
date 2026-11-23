@@ -33,6 +33,41 @@ module Ruby
           @sum = 0.0
           @count = 0
         end
+
+        # `level` for `cycles` cycles, a run of quiet cycles (plan 29): the samples are those of as many #add calls. The
+        # run is split where samples are due, found from the integer phase; within each part the level is still added
+        # once per cycle, since adding it n times and adding n × it can differ in the float sum's last bits. Hot path:
+        # once per run, a loop of float additions per cycle.
+        def add_run(level, cycles)
+          until cycles.zero?
+            # At least one cycle: with an output rate above the input rate the phase can stand past a sample, and #add
+            # then pushes one per cycle.
+            part = (@phase_per_sample - @phase).ceildiv(@phase_step).clamp(1, cycles)
+            add_level(level, part)
+            cycles -= part
+            next if @phase < @phase_per_sample
+
+            @phase -= @phase_per_sample
+            @output.push(@sum / @count)
+            @sum = 0.0
+            @count = 0
+          end
+        end
+
+        private
+
+        # `level` for `cycles` cycles within one output period.
+        def add_level(level, cycles)
+          sum = @sum
+          remaining = cycles
+          until remaining.zero?
+            sum += level
+            remaining -= 1
+          end
+          @sum = sum
+          @count += cycles
+          @phase += cycles * @phase_step
+        end
       end
     end
   end
