@@ -9,7 +9,8 @@ module Ruby
       # $3F00-$3F1F" (https://www.nesdev.org/wiki/PPU_memory_map). Entry 0 of each sprite palette is the same storage as
       # entry 0 of the matching background palette: "writing to either one updates the same internal storage", so
       # $3F10, $3F14, $3F18 and $3F1C reach $3F00, $3F04, $3F08 and $3F0C. Starts all zero (the power-up contents are
-      # "unspecified"). The PPU bus only hands addresses from $3F00.
+      # "unspecified"). The PPU bus only hands addresses from $3F00. Its observer, the picture, which keeps a colour per
+      # entry, is told of every write once the colour is stored (plan 30, decision 4).
       class PaletteRam
         ENTRY_COUNT = 32
         # $3F20-$3FFF fold onto the 32 entries.
@@ -32,8 +33,13 @@ module Ruby
         # The storage entry of each of the 32 addresses, computed once.
         STORAGE_ENTRY = Array.new(ENTRY_COUNT) { |entry| storage_entry(entry) }.freeze
 
-        def initialize
+        # The picture, told `palette_changed` after every write; nil while none watches. One observer: a later one
+        # replaces it.
+        attr_writer :observer
+
+        def initialize(observer: nil)
           @entries = Array.new(ENTRY_COUNT, 0)
+          @observer = observer
         end
 
         def read(address)
@@ -42,6 +48,7 @@ module Ruby
 
         def write(address, colour)
           @entries[STORAGE_ENTRY[address & ENTRY_MIRROR_MASK]] = colour & COLOUR_MASK # glossary: mirror-down, low-bits
+          @observer&.palette_changed
         end
       end
     end

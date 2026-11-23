@@ -8,7 +8,9 @@
 # be drawn, instead" (https://www.nesdev.org/wiki/PPU_palettes, Backdrop override). The emphasis bits, PPUMASK bits 5-7,
 # go to the pixel's bits 6-8 (plan 16, decision 2); they "are applied independently of greyscale"
 # (https://www.nesdev.org/wiki/Colour_emphasis). The pixels drawn reach the frame buffer when the frame is completed
-# (plan 16, decision 1).
+# (plan 16, decision 1). The picture keeps each palette entry's final pixel value, rebuilt whenever palette RAM (which
+# tells it of every write), greyscale or emphasis change, and hands it and the buffer it draws into to the renderer
+# (plan 30, decisions 1 and 4).
 RSpec.describe Ruby::Nes::Ppu::Picture do
   describe '#draw' do
     let(:palette_ram) { Ruby::Nes::PpuBus::PaletteRam.new }
@@ -146,6 +148,101 @@ RSpec.describe Ruby::Nes::Ppu::Picture do
         it "stores the colour's bits 5-4" do
           expect(picture.frame_buffer[(3 * 256) + 17]).to eq(0x20)
         end
+      end
+    end
+  end
+
+  describe '#colours' do
+    let(:palette_ram) { Ruby::Nes::PpuBus::PaletteRam.new }
+
+    context 'when palette RAM is written after the picture was built' do
+      subject(:picture) { described_class.new(palette_ram:, greyscale: true, emphasis: 0x20) }
+
+      before do
+        picture
+        palette_ram.write(0x3F0D, 0x2C)
+      end
+
+      it 'holds the new colour at its entry, greyscale and emphasis applied' do
+        expect(picture.colours[0x0D]).to eq(0x60)
+      end
+    end
+
+    context 'when the entry is entry 0 of a sprite palette' do
+      subject(:picture) { described_class.new(palette_ram:) }
+
+      before { palette_ram.write(0x3F04, 0x16) }
+
+      it 'holds the colour of entry 0 of the background palette 16 entries below' do
+        expect(picture.colours[0x14]).to eq(0x16)
+      end
+    end
+
+    context 'when a colour changes' do
+      subject(:picture) { described_class.new(palette_ram:) }
+
+      it 'stays the same array' do
+        expect { palette_ram.write(0x3F0D, 0x2C) }.not_to(change { picture.colours.object_id })
+      end
+    end
+  end
+
+  describe '#drawn_frame' do
+    subject(:picture) { described_class.new(palette_ram:) }
+
+    let(:palette_ram) { Ruby::Nes::PpuBus::PaletteRam.new }
+
+    before { palette_ram.write(0x3F0D, 0x2C) }
+
+    context 'when no frame was completed' do
+      before { picture.draw(17, 3, 0x0D) }
+
+      it 'holds the pixels drawn' do
+        expect(picture.drawn_frame[(3 * 256) + 17]).to eq(0x2C)
+      end
+    end
+
+    context 'when a frame was completed' do
+      let!(:frame_buffer_before_the_completion) { picture.frame_buffer }
+
+      before { picture.complete_frame }
+
+      it 'is the buffer published before the completion' do
+        expect(picture.drawn_frame).to be(frame_buffer_before_the_completion)
+      end
+    end
+  end
+
+  describe '#greyscale=' do
+    let(:palette_ram) { Ruby::Nes::PpuBus::PaletteRam.new }
+
+    before { palette_ram.write(0x3F0D, 0x2C) }
+
+    context 'when greyscale is turned on' do
+      subject(:picture) { described_class.new(palette_ram:) }
+
+      before { picture.draw(16, 3, 0x0D) }
+
+      it 'greys the pixels drawn after it only', :aggregate_failures do
+        picture.greyscale = true
+        picture.draw(17, 3, 0x0D)
+        picture.complete_frame
+        expect(picture.frame_buffer[(3 * 256) + 16]).to eq(0x2C)
+        expect(picture.frame_buffer[(3 * 256) + 17]).to eq(0x20)
+      end
+    end
+
+    context 'when greyscale is turned off' do
+      subject(:picture) { described_class.new(palette_ram:, greyscale: true) }
+
+      before { picture.draw(16, 3, 0x0D) }
+
+      it 'draws the whole colour of the pixels drawn after it only', :aggregate_failures do
+        picture.greyscale = false
+        picture.draw(17, 3, 0x0D)
+        picture.complete_frame
+        expect(picture.frame_buffer[(3 * 256) + 16]).to eq(0x20)
+        expect(picture.frame_buffer[(3 * 256) + 17]).to eq(0x2C)
       end
     end
   end
