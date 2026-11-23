@@ -362,4 +362,228 @@ RSpec.describe Ruby::Nes::Apu::FrameCounter do
       end
     end
   end
+
+  # The console catches the APU up only where it could affect the CPU (plan 29): the frame counter reaches it by
+  # setting the interrupt flag on mode 0's interrupt steps, unless inhibited; a pending $4017 write restarts the
+  # sequence, so it bounds the answer too. `cycle` is the cycle of the counter's next tick.
+  describe '#next_interrupt_cycle' do
+    context 'when no $4017 write is waiting to take effect' do
+      context 'and interrupts are inhibited' do
+        subject(:frame_counter) do
+          described_class.new(listener:, interrupt:).tap do |counter|
+            counter.write(0x40, 1)
+            (2..4).each { |cycle| counter.tick(cycle) }
+          end
+        end
+
+        let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+        it 'answers never' do
+          expect(frame_counter.next_interrupt_cycle(5)).to eq(Ruby::Nes::Apu::NEVER)
+        end
+      end
+
+      context 'and interrupts are not inhibited' do
+        context 'but the sequence runs in mode 1' do
+          subject(:frame_counter) do
+            described_class.new(listener:, interrupt:).tap do |counter|
+              counter.write(0x80, 0)
+              (1..4).each { |cycle| counter.tick(cycle) }
+            end
+          end
+
+          let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+          let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+          it 'answers never' do
+            expect(frame_counter.next_interrupt_cycle(5)).to eq(Ruby::Nes::Apu::NEVER)
+          end
+        end
+
+        context 'and the sequence runs in mode 0' do
+          context 'and the frame has not reached its first interrupt step' do
+            subject(:frame_counter) { described_class.new(listener:, interrupt:) }
+
+            let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+            let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
+
+            it 'answers the cycle of the tick that reaches frame cycle 29828' do
+              expect(frame_counter.next_interrupt_cycle(1000)).to eq(30_827)
+            end
+
+            it 'leaves the sequence where it stood', :aggregate_failures do
+              frame_counter.next_interrupt_cycle(1000)
+              (1000..30_826).each { |cycle| frame_counter.tick(cycle) }
+              expect(interrupt).not_to have_received(:trigger)
+              frame_counter.tick(30_827)
+              expect(interrupt).to have_received(:trigger).with(30_827)
+            end
+          end
+
+          context 'and the frame is past its first interrupt step' do
+            subject(:frame_counter) do
+              described_class.new(listener:, interrupt:).tap do |counter|
+                (1..29_828).each { |cycle| counter.tick(cycle) }
+              end
+            end
+
+            let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+            let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, trigger: nil) }
+
+            it 'answers the cycle of the tick that reaches the next interrupt step' do
+              expect(frame_counter.next_interrupt_cycle(29_829)).to eq(29_829)
+            end
+          end
+        end
+      end
+    end
+
+    context 'when a $4017 write is waiting to take effect' do
+      context 'and interrupts are inhibited' do
+        subject(:frame_counter) do
+          described_class.new(listener:, interrupt:).tap { |counter| counter.write(0x40, 101) }
+        end
+
+        let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+        it 'answers the cycle of the tick the write takes effect on' do
+          expect(frame_counter.next_interrupt_cycle(102)).to eq(104)
+        end
+      end
+
+      context 'and interrupts are not inhibited' do
+        context 'and the write takes effect before the next interrupt step' do
+          subject(:frame_counter) do
+            described_class.new(listener:, interrupt:).tap { |counter| counter.write(0x00, 101) }
+          end
+
+          let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+          let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+          it 'answers the cycle of the tick the write takes effect on' do
+            expect(frame_counter.next_interrupt_cycle(102)).to eq(104)
+          end
+        end
+
+        context 'and the sequence reaches an interrupt step before the write takes effect' do
+          subject(:frame_counter) do
+            described_class.new(listener:, interrupt:).tap do |counter|
+              (1..29_826).each { |cycle| counter.tick(cycle) }
+              counter.write(0x00, 29_826)
+            end
+          end
+
+          let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+          let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+          it "answers the cycle of that step's tick" do
+            expect(frame_counter.next_interrupt_cycle(29_827)).to eq(29_828)
+          end
+        end
+      end
+    end
+  end
+
+  # A run of quiet cycles skips the counter's ticks at once (plan 29): quiet cycles are the ones before the next tick
+  # that runs a step or takes a pending $4017 write in.
+  describe '#quiet_cycles' do
+    context 'when no $4017 write is waiting to take effect' do
+      subject(:frame_counter) do
+        described_class.new(listener:, interrupt:).tap { |counter| (1..1000).each { |cycle| counter.tick(cycle) } }
+      end
+
+      let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag) }
+
+      it 'answers the cycles before the tick that reaches the next step' do
+        expect(frame_counter.quiet_cycles).to eq(6456)
+      end
+    end
+
+    context 'when a $4017 write is waiting to take effect' do
+      context 'and it takes effect before the next step' do
+        subject(:frame_counter) do
+          described_class.new(listener:, interrupt:).tap { |counter| counter.write(0x00, 101) }
+        end
+
+        let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+        it "answers the cycles before the write's tick" do
+          expect(frame_counter.quiet_cycles).to eq(2)
+        end
+      end
+
+      context 'and both come on the same tick' do
+        subject(:frame_counter) do
+          described_class.new(listener:, interrupt:).tap do |counter|
+            (2..7455).each { |cycle| counter.tick(cycle) }
+            counter.write(0x00, 7455)
+          end
+        end
+
+        let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+        it 'answers the cycles before that tick' do
+          expect(frame_counter.quiet_cycles).to eq(2)
+        end
+      end
+
+      context 'and the next step comes first' do
+        subject(:frame_counter) do
+          described_class.new(listener:, interrupt:).tap do |counter|
+            (1..7455).each { |cycle| counter.tick(cycle) }
+            counter.write(0x00, 7455)
+          end
+        end
+
+        let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+        let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+        it "answers the cycles before the step's tick" do
+          expect(frame_counter.quiet_cycles).to eq(1)
+        end
+      end
+    end
+  end
+
+  describe '#skip' do
+    context 'when no $4017 write is waiting to take effect' do
+      subject(:frame_counter) { described_class.new(listener:, interrupt:) }
+
+      let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag) }
+
+      before do
+        frame_counter.skip(7000)
+        (7001..7456).each { |cycle| frame_counter.tick(cycle) }
+      end
+
+      it 'brings the next step as many ticks sooner', :aggregate_failures do
+        expect(listener).not_to have_received(:quarter_frame)
+        frame_counter.tick(7457)
+        expect(listener).to have_received(:quarter_frame).once
+      end
+    end
+
+    context 'when a $4017 write is waiting to take effect' do
+      subject(:frame_counter) do
+        described_class.new(listener:, interrupt:).tap { |counter| counter.write(0x80, 101) }
+      end
+
+      let(:listener) { instance_double(Ruby::Nes::Apu, quarter_frame: nil, half_frame: nil) }
+      let(:interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, change_inhibit: nil) }
+
+      before { frame_counter.skip(2) }
+
+      it 'brings its effect as many ticks sooner', :aggregate_failures do
+        frame_counter.tick(104)
+        expect(listener).to have_received(:quarter_frame).once
+        expect(listener).to have_received(:half_frame).once
+      end
+    end
+  end
 end

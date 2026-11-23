@@ -210,4 +210,72 @@ RSpec.describe Ruby::Nes::Apu::Triangle do
       end
     end
   end
+
+  # A run of quiet cycles goes on until a channel's output can change (plan 29): the timer steps the sequencer only
+  # while both counters are above 0, and they change only on frame counter steps and register writes.
+  describe '#quiet_ticks' do
+    context 'when the linear counter is 0' do
+      subject(:channel) { described_class.new(linear_counter:) }
+
+      let(:linear_counter) { instance_double(Ruby::Nes::Apu::LinearCounter, active?: false) }
+
+      it 'answers never' do
+        expect(channel.quiet_ticks).to eq(Ruby::Nes::Apu::NEVER)
+      end
+    end
+
+    context 'when the linear counter is above 0' do
+      context 'but the length counter is 0' do
+        subject(:channel) { described_class.new(linear_counter:, length_counter:) }
+
+        let(:linear_counter) { instance_double(Ruby::Nes::Apu::LinearCounter, active?: true) }
+        let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: false) }
+
+        it 'answers never' do
+          expect(channel.quiet_ticks).to eq(Ruby::Nes::Apu::NEVER)
+        end
+      end
+
+      context 'and the length counter is above 0' do
+        subject(:channel) { described_class.new(linear_counter:, length_counter:, timer:) }
+
+        let(:linear_counter) { instance_double(Ruby::Nes::Apu::LinearCounter, active?: true) }
+        let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: true) }
+        let(:timer) { instance_double(Ruby::Nes::Apu::Timer, ticks_before_next_clock: 40) }
+
+        it "answers the timer's ticks before its next clock", :aggregate_failures do
+          expect(channel.quiet_ticks).to eq(40)
+          expect(timer).to have_received(:ticks_before_next_clock)
+        end
+      end
+    end
+  end
+
+  # A stopped sequencer's clocks change nothing, so its timer skips the ticks without one call per clock (plan 29).
+  describe '#skip' do
+    context 'when a counter at 0 stops the sequencer' do
+      subject(:channel) { described_class.new(linear_counter:, timer:) }
+
+      let(:linear_counter) { instance_double(Ruby::Nes::Apu::LinearCounter, active?: false) }
+      let(:timer) { instance_double(Ruby::Nes::Apu::Timer, skip_without_clocking: nil) }
+
+      it "skips the timer's ticks without clocking the sequencer" do
+        channel.skip(25)
+        expect(timer).to have_received(:skip_without_clocking).with(25)
+      end
+    end
+
+    context 'when both counters are above 0' do
+      subject(:channel) { described_class.new(linear_counter:, length_counter:, timer:) }
+
+      let(:linear_counter) { instance_double(Ruby::Nes::Apu::LinearCounter, active?: true) }
+      let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: true) }
+      let(:timer) { instance_double(Ruby::Nes::Apu::Timer, skip: nil) }
+
+      it "skips the timer's ticks, clocking the sequencer on each reload" do
+        channel.skip(25)
+        expect(timer).to have_received(:skip).with(25)
+      end
+    end
+  end
 end

@@ -160,4 +160,34 @@ RSpec.describe Ruby::Nes::Apu::Dmc::OutputUnit do
       end
     end
   end
+
+  # The clock that ends the output cycle starts the next one, which takes the reader's byte (plan 29: the DMC's next
+  # fetch).
+  describe '#clocks_to_output_cycle' do
+    subject(:output_unit) { described_class.new(reader:).tap { |unit| 3.times { |cycle| unit.clock(cycle) } } }
+
+    let(:reader) { instance_double(Ruby::Nes::Apu::Dmc::MemoryReader) }
+
+    it 'answers the clocks left in the output cycle' do
+      expect(output_unit.clocks_to_output_cycle).to eq(5)
+    end
+  end
+
+  describe '#silent?' do
+    context 'when the output cycle has no byte' do
+      subject(:output_unit) { described_class.new(reader:) }
+
+      let(:reader) { instance_double(Ruby::Nes::Apu::Dmc::MemoryReader) }
+
+      it { is_expected.to be_silent }
+    end
+
+    context 'when the output cycle plays a byte' do
+      subject(:output_unit) { described_class.new(reader:).tap { |unit| 8.times { |cycle| unit.clock(cycle) } } }
+
+      let(:reader) { instance_double(Ruby::Nes::Apu::Dmc::MemoryReader, take_sample: 0x55) }
+
+      it { is_expected.not_to be_silent }
+    end
+  end
 end

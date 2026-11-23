@@ -83,6 +83,34 @@ module Ruby
           end
         end
 
+        # The CPU cycle of the next sample fetch, `cycle` being the APU's next cycle: the get cycle of the timer tick
+        # whose clock starts the output unit's next output cycle, which takes the buffer's byte and has the reader
+        # fetch the next one while bytes remain; NEVER when none remain, since only a $4015 write starts a sample. The
+        # fetch halts the CPU and sets the interrupt after the last byte, so the console catches the APU up from there
+        # (plan 29).
+        def next_fetch_cycle(cycle)
+          return NEVER unless @reader.active?
+
+          GetCycles.cycle_of_tick(cycle, @timer.ticks_before_clock(@output_unit.clocks_to_output_cycle))
+        end
+
+        # The ticks before the next clock that can change the level: the timer's next clock while the output unit plays
+        # a byte; while it is silent, the clock that starts its next output cycle, which takes the buffer's byte and may
+        # fetch; NEVER when that cycle stays silent too, the buffer empty and no sample playing, since only a register
+        # write starts one (plan 29). Hot path: once per run.
+        def quiet_ticks
+          return @timer.ticks_before_next_clock unless @output_unit.silent?
+          return NEVER if @reader.empty? && !@reader.active?
+
+          @timer.ticks_before_clock(@output_unit.clocks_to_output_cycle)
+        end
+
+        # `ticks` APU cycles at once, for a run of quiet cycles. A run never reaches a clock that fetches, so the output
+        # cycles it starts on the way take no byte and read no cycle.
+        def skip(ticks)
+          @timer.skip(ticks)
+        end
+
         # $4015 bit 4: bytes remain.
         def active? = @reader.active?
 

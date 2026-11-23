@@ -42,7 +42,27 @@ module Ruby
 
         # The timer clocks the channel.
         def step
-          @sequencer.step if @linear_counter.active? && @length_counter.active?
+          @sequencer.step if sequencing?
+        end
+
+        # The ticks before the timer's next clock, NEVER while a counter at 0 stops the sequencer: its clocks then change
+        # nothing, and the counters change only on frame counter steps and register writes (plan 29). Hot path: once
+        # per run.
+        def quiet_ticks
+          return NEVER unless sequencing?
+
+          @timer.ticks_before_next_clock
+        end
+
+        # `ticks` CPU cycles at once, for a run of quiet cycles: the timer clocks the sequencer on each reload, unless a
+        # counter at 0 stops it, whose clocks would change nothing. A stopped triangle's period is often 0 (its value at
+        # power), a clock every cycle.
+        def skip(ticks)
+          if sequencing?
+            @timer.skip(ticks)
+          else
+            @timer.skip_without_clocking(ticks)
+          end
         end
 
         def quarter_frame
@@ -68,6 +88,9 @@ module Ruby
         end
 
         private
+
+        # Both counters are above 0: the timer's clocks step the sequencer.
+        def sequencing? = @linear_counter.active? && @length_counter.active?
 
         def write_control(value)
           @linear_counter.write(value)

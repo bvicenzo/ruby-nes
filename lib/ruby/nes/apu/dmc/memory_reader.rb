@@ -47,6 +47,9 @@ module Ruby
 
           def active? = @sample.active?
 
+          # The buffer holds no byte.
+          def empty? = @buffer.nil?
+
           private
 
           def fill(stall_cycles, cycle)

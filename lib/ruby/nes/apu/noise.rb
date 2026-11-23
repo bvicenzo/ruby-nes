@@ -46,6 +46,20 @@ module Ruby
           @timer.tick
         end
 
+        # The ticks before the timer's next clock, NEVER while the channel is muted by its length counter or a volume of
+        # 0: its output stays 0 whatever the shift register does, and those change only on frame counter steps and
+        # register writes (plan 29). Hot path: once per run.
+        def quiet_ticks
+          return NEVER if !@length_counter.active? || @envelope.volume.zero?
+
+          @timer.ticks_before_next_clock
+        end
+
+        # `ticks` APU cycles at once, for a run of quiet cycles.
+        def skip(ticks)
+          @timer.skip(ticks)
+        end
+
         def quarter_frame
           @envelope.clock
         end

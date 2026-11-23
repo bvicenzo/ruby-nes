@@ -36,6 +36,38 @@ module Ruby
           @period = (high << Bits::BYTE_WIDTH) | (@period & Bits::BYTE_MASK) # glossary: combine-bytes
         end
 
+        # The ticks before the next clock: the tick that finds the counter at 0. A run of quiet cycles goes on until a
+        # channel's next clock (plan 29).
+        def ticks_before_next_clock = @counter
+
+        # The ticks before the one on which clock number `clocks` (1 is the next) comes: the tick that finds the counter
+        # at 0, then one every period + 1 ticks. The DMC's next fetch is on such a clock (plan 29).
+        def ticks_before_clock(clocks)
+          @counter + ((clocks - 1) * (@period + 1))
+        end
+
+        # `ticks` ticks at once, for a run of quiet cycles (plan 29): the sequencer is clocked on each reload, as the
+        # ticks one by one would. Hot path: once per run, a loop per clock.
+        def skip(ticks)
+          while ticks > @counter
+            ticks -= @counter + 1
+            @counter = @period
+            @sequencer.step
+          end
+          @counter -= ticks
+        end
+
+        # `ticks` ticks at once for a sequencer whose clocks would change nothing (a stopped triangle, plan 29): the
+        # counter ends where the ticks would leave it, reloads included, without a call per clock.
+        def skip_without_clocking(ticks)
+          if ticks <= @counter
+            @counter -= ticks
+          else
+            ticks_after_reload = ticks - @counter - 1
+            @counter = @period - (ticks_after_reload % (@period + 1))
+          end
+        end
+
         def tick
           if @counter.zero?
             @counter = @period

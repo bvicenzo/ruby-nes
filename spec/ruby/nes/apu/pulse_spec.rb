@@ -217,4 +217,78 @@ RSpec.describe Ruby::Nes::Apu::Pulse do
       end
     end
   end
+
+  # A run of quiet cycles goes on until a channel's output can change (plan 29): a muted pulse outputs 0 whatever its
+  # sequencer does, and what mutes it changes only on frame counter steps and register writes, which end runs anyway.
+  describe '#quiet_ticks' do
+    context 'when the length counter is 0' do
+      subject(:channel) { described_class.new(negation: Ruby::Nes::Apu::Sweep::ONES_COMPLEMENT, length_counter:) }
+
+      let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: false) }
+
+      it 'answers never' do
+        expect(channel.quiet_ticks).to eq(Ruby::Nes::Apu::NEVER)
+      end
+    end
+
+    context 'when the length counter is above 0' do
+      context 'but the sweep mutes the channel' do
+        subject(:channel) do
+          described_class.new(negation: Ruby::Nes::Apu::Sweep::ONES_COMPLEMENT, length_counter:, sweep:)
+        end
+
+        let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: true) }
+        let(:sweep) { instance_double(Ruby::Nes::Apu::Sweep, muting?: true) }
+
+        it 'answers never' do
+          expect(channel.quiet_ticks).to eq(Ruby::Nes::Apu::NEVER)
+        end
+      end
+
+      context 'and the sweep does not mute it' do
+        context 'but the volume is 0' do
+          subject(:channel) do
+            described_class.new(negation: Ruby::Nes::Apu::Sweep::ONES_COMPLEMENT, length_counter:, sweep:, envelope:)
+          end
+
+          let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: true) }
+          let(:sweep) { instance_double(Ruby::Nes::Apu::Sweep, muting?: false) }
+          let(:envelope) { instance_double(Ruby::Nes::Apu::Envelope, volume: 0) }
+
+          it 'answers never' do
+            expect(channel.quiet_ticks).to eq(Ruby::Nes::Apu::NEVER)
+          end
+        end
+
+        context 'and the volume is above 0' do
+          subject(:channel) do
+            described_class.new(
+              negation: Ruby::Nes::Apu::Sweep::ONES_COMPLEMENT, length_counter:, sweep:, envelope:, timer:
+            )
+          end
+
+          let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: true) }
+          let(:sweep) { instance_double(Ruby::Nes::Apu::Sweep, muting?: false) }
+          let(:envelope) { instance_double(Ruby::Nes::Apu::Envelope, volume: 9) }
+          let(:timer) { instance_double(Ruby::Nes::Apu::Timer, ticks_before_next_clock: 40) }
+
+          it "answers the timer's ticks before its next clock", :aggregate_failures do
+            expect(channel.quiet_ticks).to eq(40)
+            expect(timer).to have_received(:ticks_before_next_clock)
+          end
+        end
+      end
+    end
+  end
+
+  describe '#skip' do
+    subject(:channel) { described_class.new(negation: Ruby::Nes::Apu::Sweep::ONES_COMPLEMENT, timer:) }
+
+    let(:timer) { instance_double(Ruby::Nes::Apu::Timer, skip: nil) }
+
+    it "skips the timer's ticks" do
+      channel.skip(25)
+      expect(timer).to have_received(:skip).with(25)
+    end
+  end
 end

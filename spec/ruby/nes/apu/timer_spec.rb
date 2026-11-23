@@ -99,4 +99,162 @@ RSpec.describe Ruby::Nes::Apu::Timer do
       end
     end
   end
+
+  # The sync deadline asks when a clock comes (plan 29): the next clock is on the tick that finds the counter at 0, and
+  # each later one t + 1 ticks after it.
+  describe '#ticks_before_clock' do
+    context 'when asked for the next clock' do
+      context 'and the counter is at 0' do
+        subject(:timer) { described_class.new(sequencer: nil, period: 5) }
+
+        it 'answers 0' do
+          expect(timer.ticks_before_clock(1)).to eq(0)
+        end
+      end
+
+      context 'and the counter is above 0' do
+        subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+        let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+        it 'answers the counter' do
+          expect(timer.ticks_before_clock(1)).to eq(3)
+        end
+      end
+    end
+
+    context 'when asked for a later clock' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'answers the counter and the period + 1 ticks of each clock between' do
+        expect(timer.ticks_before_clock(3)).to eq(15)
+      end
+    end
+  end
+
+  # A run of quiet cycles goes on until a channel's next clock (plan 29): the tick that finds the counter at 0.
+  describe '#ticks_before_next_clock' do
+    context 'when the counter is at 0' do
+      subject(:timer) { described_class.new(sequencer: nil, period: 5) }
+
+      it 'answers 0' do
+        expect(timer.ticks_before_next_clock).to eq(0)
+      end
+    end
+
+    context 'when the counter is above 0' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'answers the counter' do
+        expect(timer.ticks_before_next_clock).to eq(3)
+      end
+    end
+  end
+
+  # A run of quiet cycles skips ticks at once (plan 29): `skip(ticks)` leaves the timer and its sequencer as that many
+  # ticks would. The examples start with the period at 5 and the counter at 3, the sequencer clocked once.
+  describe '#skip' do
+    context 'when no tick passes' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'changes nothing', :aggregate_failures do
+        timer.skip(0)
+        expect(sequencer).to have_received(:step).once
+        expect(timer.ticks_before_clock(1)).to eq(3)
+      end
+    end
+
+    context 'when the ticks end before the counter reaches 0' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'counts down without clocking the sequencer', :aggregate_failures do
+        timer.skip(2)
+        expect(sequencer).to have_received(:step).once
+        expect(timer.ticks_before_clock(1)).to eq(1)
+      end
+    end
+
+    context 'when the ticks end with the counter at 0' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'leaves the clock to the next tick', :aggregate_failures do
+        timer.skip(3)
+        expect(sequencer).to have_received(:step).once
+        expect(timer.ticks_before_clock(1)).to eq(0)
+      end
+    end
+
+    context 'when the last tick finds the counter at 0' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'clocks the sequencer once and reloads the period', :aggregate_failures do
+        timer.skip(4)
+        expect(sequencer).to have_received(:step).twice
+        expect(timer.ticks_before_clock(1)).to eq(5)
+      end
+    end
+
+    context 'when the ticks span several periods' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'clocks the sequencer on each reload', :aggregate_failures do
+        timer.skip(18)
+        expect(sequencer).to have_received(:step).exactly(4).times
+        expect(timer.ticks_before_clock(1)).to eq(3)
+      end
+    end
+  end
+
+  # A stopped triangle's clocks change nothing (plan 29), so its runs move the counter without one call per clock. The
+  # examples start with the counter at 3 and the sequencer clocked once.
+  describe '#skip_without_clocking' do
+    context 'when the ticks end before the counter reloads' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'counts down', :aggregate_failures do
+        timer.skip_without_clocking(3)
+        expect(timer.ticks_before_clock(1)).to eq(0)
+        expect(sequencer).to have_received(:step).once
+      end
+    end
+
+    context 'when the ticks cross reloads' do
+      subject(:timer) { described_class.new(sequencer:, period: 5).tap { |divider| 3.times { divider.tick } } }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'leaves the counter where they would, without clocking the sequencer', :aggregate_failures do
+        timer.skip_without_clocking(18)
+        expect(timer.ticks_before_clock(1)).to eq(3)
+        expect(sequencer).to have_received(:step).once
+      end
+    end
+
+    context 'when the period is 0' do
+      subject(:timer) { described_class.new(sequencer:).tap(&:tick) }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'leaves the counter at 0' do
+        timer.skip_without_clocking(29_780)
+        expect(timer.ticks_before_clock(1)).to eq(0)
+      end
+    end
+  end
 end

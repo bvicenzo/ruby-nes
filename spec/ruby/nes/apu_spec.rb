@@ -17,7 +17,7 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
 
       it 'leaves the data bus' do
         expect(apu.cpu_read(0x4000, 0x5A)).to eq(0x5A)
@@ -30,10 +30,10 @@ RSpec.describe Ruby::Nes::Apu do
           subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, first_pulse:, second_pulse:) }
 
           let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
           let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
-          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
 
           it 'returns $00' do
             expect(apu.cpu_read(0x4015, 0xDF)).to eq(0x00)
@@ -44,10 +44,10 @@ RSpec.describe Ruby::Nes::Apu do
           subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, first_pulse:, second_pulse:) }
 
           let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
           let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
-          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
 
           it 'returns bit 5 from the data bus' do
             expect(apu.cpu_read(0x4015, 0x20)).to eq(0x20)
@@ -59,10 +59,10 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, first_pulse:, second_pulse:) }
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
         let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: true, tick_timer: nil) }
-        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
+        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: true, tick_timer: nil, quiet_ticks: 0) }
+        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
 
         it 'sets bit 0' do
           expect(apu.cpu_read(0x4015, 0x00)).to eq(0x01)
@@ -73,10 +73,10 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, first_pulse:, second_pulse:) }
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
         let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
-        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: true, tick_timer: nil) }
+        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
+        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: true, tick_timer: nil, quiet_ticks: 0) }
 
         it 'sets bit 1' do
           expect(apu.cpu_read(0x4015, 0x00)).to eq(0x02)
@@ -87,10 +87,10 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, triangle:, noise:) }
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
         let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-        let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, active?: true) }
-        let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, active?: false) }
+        let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, quiet_ticks: 0, active?: true) }
+        let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, quiet_ticks: 0, active?: false) }
 
         it 'sets bit 2' do
           expect(apu.cpu_read(0x4015, 0x00)).to eq(0x04)
@@ -101,10 +101,10 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, triangle:, noise:) }
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
         let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-        let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, active?: false) }
-        let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, active?: true) }
+        let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, quiet_ticks: 0, active?: false) }
+        let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, quiet_ticks: 0, active?: true) }
 
         it 'sets bit 3' do
           expect(apu.cpu_read(0x4015, 0x00)).to eq(0x08)
@@ -115,9 +115,9 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, dmc:) }
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
         let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, active?: true, interrupt?: false, tick_timer: nil) }
+        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, active?: true, interrupt?: false, tick_timer: nil, quiet_ticks: 0) }
 
         it 'sets bit 4' do
           expect(apu.cpu_read(0x4015, 0x00)).to eq(0x10)
@@ -128,9 +128,9 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, dmc:) }
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
         let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, active?: false, interrupt?: true, tick_timer: nil) }
+        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, active?: false, interrupt?: true, tick_timer: nil, quiet_ticks: 0) }
 
         it 'sets bit 7, leaving the flag set', :aggregate_failures do
           expect(apu.cpu_read(0x4015, 0x00)).to eq(0x80)
@@ -142,10 +142,10 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, first_pulse:, second_pulse:) }
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
         let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: true, :cpu= => nil) }
-        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
-        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
+        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
+        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
 
         it 'sets bit 6, reading the flag on the access cycle', :aggregate_failures do
           expect(apu.cpu_read(0x4015, 0x00)).to eq(0x40)
@@ -158,10 +158,10 @@ RSpec.describe Ruby::Nes::Apu do
           subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, first_pulse:, second_pulse:) }
 
           let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
           let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
-          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil) }
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, active?: false, tick_timer: nil, quiet_ticks: 0) }
 
           it 'catches it up through the access cycle first', :aggregate_failures do
             apu.cpu_read(0x4015, 0x00)
@@ -175,9 +175,9 @@ RSpec.describe Ruby::Nes::Apu do
           subject(:apu) { described_class.new(cpu:, frame_counter:, frame_interrupt:, dmc:) }
 
           let(:cpu) { Ruby::Nes::Cpu.new(bus: FlatBus.new, cycles: 10) }
-          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
           let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, read: false, :cpu= => nil) }
-          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, active?: false, interrupt?: false) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, active?: false, interrupt?: false, quiet_ticks: 0) }
 
           before do
             allow(dmc).to receive(:tick_timer)
@@ -199,9 +199,9 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:, first_pulse:, second_pulse:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil) }
-      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil, quiet_ticks: 0) }
+      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil, quiet_ticks: 0) }
 
       before { apu.cpu_write(0x4003, 0xF8) }
 
@@ -215,9 +215,9 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:, first_pulse:, second_pulse:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil) }
-      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil, quiet_ticks: 0) }
+      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil, quiet_ticks: 0) }
 
       before { apu.cpu_write(0x4004, 0xBF) }
 
@@ -231,9 +231,9 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:, triangle:, noise:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, write: nil) }
-      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, write: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, quiet_ticks: 0, write: nil) }
+      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, quiet_ticks: 0, write: nil) }
 
       before { apu.cpu_write(0x400B, 0xF8) }
 
@@ -247,9 +247,9 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:, triangle:, noise:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, write: nil) }
-      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, write: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, quiet_ticks: 0, write: nil) }
+      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, quiet_ticks: 0, write: nil) }
 
       before { apu.cpu_write(0x400C, 0x30) }
 
@@ -263,9 +263,9 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:, noise:, dmc:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, write: nil) }
-      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, write: nil, tick_timer: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, quiet_ticks: 0, write: nil) }
+      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, write: nil, tick_timer: nil, quiet_ticks: 0) }
 
       before { apu.cpu_write(0x4013, 0x01) }
 
@@ -279,13 +279,13 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, :enabled= => nil, tick_timer: nil) }
-      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, :enabled= => nil, tick_timer: nil) }
-      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, :enabled= => nil) }
-      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, :enabled= => nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, :enabled= => nil, tick_timer: nil, quiet_ticks: 0) }
+      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, :enabled= => nil, tick_timer: nil, quiet_ticks: 0) }
+      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, quiet_ticks: 0, :enabled= => nil) }
+      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, quiet_ticks: 0, :enabled= => nil) }
 
-      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, write_status: nil, tick_timer: nil) }
+      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, write_status: nil, tick_timer: nil, quiet_ticks: 0) }
 
       before { apu.cpu_write(0x4015, 0x1A) }
 
@@ -302,7 +302,7 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, write: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, write: nil) }
 
       before { apu.cpu_write(0x4017, 0x40) }
 
@@ -316,9 +316,9 @@ RSpec.describe Ruby::Nes::Apu do
       subject(:apu) { described_class.new(cpu:, frame_counter:, first_pulse:, second_pulse:) }
 
       let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, write: nil) }
-      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil) }
-      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, write: nil) }
+      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil, quiet_ticks: 0) }
+      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil, quiet_ticks: 0) }
 
       before { apu.cpu_write(0x4014, 0x02) }
 
@@ -334,9 +334,9 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, first_pulse:, second_pulse:) }
 
         let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 10, access_cycle: 9) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil) }
-        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, tick_timer: nil) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, write: nil, tick_timer: nil, quiet_ticks: 0) }
+        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, tick_timer: nil, quiet_ticks: 0) }
 
         before { apu.cpu_write(0x4000, 0x30) }
 
@@ -353,8 +353,8 @@ RSpec.describe Ruby::Nes::Apu do
         subject(:apu) { described_class.new(cpu:, frame_counter:, dmc:) }
 
         let(:cpu) { Ruby::Nes::Cpu.new(bus: FlatBus.new, cycles: 10) }
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, write: nil) }
-        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, write: nil) }
+        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: 0) }
 
         before do
           allow(dmc).to receive(:tick_timer)
@@ -370,64 +370,416 @@ RSpec.describe Ruby::Nes::Apu do
     end
   end
 
+  # Runs every CPU cycle before the target (plan 22, decision 3) by runs (plan 29): the cycles before the next one on
+  # which a unit changes are quiet, and every unit skips them at once, the timers on get cycles by the get cycles among
+  # them; the cycle with a change runs as before, the frame counter and the triangle every cycle, the other timers on
+  # even ones. With a resampler, a run hands it the mix as it stands, one level for all its cycles; without one,
+  # nothing is mixed (plan 24, decision 6). The doubles answer NEVER for the units that do not bound the run.
   describe '#catch_up' do
-    context 'when the APU is behind the target cycle' do
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
-      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, tick_timer: nil, output: 3) }
-      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, tick_timer: nil, output: 4) }
-      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, output: 5) }
-      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, output: 6) }
-      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, output: 7) }
+    context 'when the APU has already reached the target' do
+      subject(:apu) { described_class.new(frame_counter:) }
 
-      before { apu.catch_up(5) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter) }
 
-      context 'and no resampler is attached' do
-        subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
-
-        it 'ticks the frame counter and triangle every cycle, the other timers on even ones', :aggregate_failures do
-          expect(frame_counter).to have_received(:tick).with(0).ordered
-          expect(frame_counter).to have_received(:tick).with(4).ordered
-          expect(frame_counter).to have_received(:tick).exactly(5).times
-          expect(triangle).to have_received(:tick_timer).exactly(5).times
-          expect(first_pulse).to have_received(:tick_timer).exactly(3).times
-          expect(second_pulse).to have_received(:tick_timer).exactly(3).times
-          expect(noise).to have_received(:tick_timer).exactly(3).times
-          expect(dmc).to have_received(:tick_timer).exactly(3).times
-          expect(dmc).to have_received(:tick_timer).with(0)
-          expect(dmc).to have_received(:tick_timer).with(2)
-          expect(dmc).to have_received(:tick_timer).with(4)
-        end
-
-        it 'never asks the channels for their output', :aggregate_failures do
-          expect(first_pulse).not_to have_received(:output)
-          expect(second_pulse).not_to have_received(:output)
-          expect(triangle).not_to have_received(:output)
-          expect(noise).not_to have_received(:output)
-          expect(dmc).not_to have_received(:output)
-        end
-      end
-
-      context 'and a resampler is attached' do
-        subject(:apu) do
-          described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, resampler:)
-        end
-
-        let(:resampler) { instance_double(Ruby::Nes::Audio::Resampler, add: nil) }
-
-        it 'adds the mix of the channels for every cycle caught up' do
-          expect(resampler).to have_received(:add).with(Ruby::Nes::Apu::Mixer.mix(3, 4, 5, 6, 7)).exactly(5).times
-        end
+      it 'runs nothing' do
+        expect { apu.catch_up(0) }.not_to raise_error
       end
     end
 
-    context 'when the APU already reached the target cycle' do
-      subject(:apu) { described_class.new(frame_counter:).tap { |unit| unit.catch_up(5) } }
+    context 'when it is behind the target' do
+      context 'and no unit changes before the target' do
+        context 'and no resampler is attached' do
+          subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
 
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil) }
+          let(:frame_counter) do
+            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil)
+          end
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
 
-      it 'ticks nothing' do
-        apu.catch_up(5)
-        expect(frame_counter).to have_received(:tick).exactly(5).times
+          before { apu.catch_up(5) }
+
+          it(
+            'skips every unit to the target at once, the timers on get cycles by the get cycles among them',
+            :aggregate_failures
+          ) do
+            expect(frame_counter).to have_received(:skip).once.with(5)
+            expect(triangle).to have_received(:skip).once.with(5)
+            expect(first_pulse).to have_received(:skip).once.with(3)
+            expect(second_pulse).to have_received(:skip).once.with(3)
+            expect(noise).to have_received(:skip).once.with(3)
+            expect(dmc).to have_received(:skip).once.with(3)
+          end
+        end
+
+        context 'and a resampler is attached' do
+          subject(:apu) do
+            described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, resampler:)
+          end
+
+          let(:frame_counter) do
+            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil)
+          end
+          let(:first_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 3)
+          end
+          let(:second_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 4)
+          end
+          let(:triangle) do
+            instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 5)
+          end
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 6) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 7) }
+          let(:resampler) { instance_double(Ruby::Nes::Audio::Resampler, add_run: nil) }
+
+          before { apu.catch_up(5) }
+
+          it 'hands it the mix as it stands for every cycle, as one run' do
+            expect(resampler).to have_received(:add_run).once.with(Ruby::Nes::Apu::Mixer.mix(3, 4, 5, 6, 7), 5)
+          end
+        end
+      end
+
+      context 'and the frame counter changes first' do
+        subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
+
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, skip: nil, tick: nil) }
+        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+        let(:triangle) do
+          instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+        end
+        let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+
+        before do
+          allow(frame_counter).to receive(:quiet_cycles).and_return(3, 0)
+          apu.catch_up(4)
+        end
+
+        it 'skips the quiet cycles before it, then runs its cycle', :aggregate_failures do
+          expect(frame_counter).to have_received(:skip).once.with(3).ordered
+          expect(frame_counter).to have_received(:tick).once.with(3).ordered
+          expect(triangle).to have_received(:tick_timer).once
+          expect(first_pulse).to have_received(:skip).once.with(2)
+        end
+      end
+
+      context 'and the triangle changes first' do
+        subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
+
+        let(:frame_counter) do
+          instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
+        end
+        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+        let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, skip: nil, tick_timer: nil) }
+        let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+
+        before do
+          allow(triangle).to receive(:quiet_ticks).and_return(3, 0)
+          apu.catch_up(4)
+        end
+
+        it 'skips the quiet cycles before it, then runs its cycle', :aggregate_failures do
+          expect(triangle).to have_received(:skip).once.with(3).ordered
+          expect(triangle).to have_received(:tick_timer).once.ordered
+          expect(frame_counter).to have_received(:tick).once.with(3)
+        end
+      end
+
+      context 'and a timer on get cycles changes first' do
+        context 'and the run starts on a get cycle' do
+          subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
+
+          let(:frame_counter) do
+            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
+          end
+          let(:first_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+          let(:second_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+          let(:triangle) do
+            instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, skip: nil, tick_timer: nil) }
+          let(:dmc) do
+            instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+
+          before do
+            allow(noise).to receive(:quiet_ticks).and_return(2, 0)
+            apu.catch_up(5)
+          end
+
+          it 'skips the cycles before its tick, then runs that cycle', :aggregate_failures do
+            expect(frame_counter).to have_received(:skip).once.with(4).ordered
+            expect(noise).to have_received(:skip).once.with(2).ordered
+            expect(frame_counter).to have_received(:tick).once.with(4).ordered
+            expect(noise).to have_received(:tick_timer).once.ordered
+            expect(dmc).to have_received(:tick_timer).once.with(4)
+          end
+        end
+
+        context 'and the run starts on a put cycle' do
+          subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
+
+          let(:frame_counter) do
+            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
+          end
+          let(:first_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+          let(:second_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+          let(:triangle) do
+            instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, skip: nil, tick_timer: nil) }
+          let(:dmc) do
+            instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+
+          before do
+            allow(noise).to receive(:quiet_ticks).and_return(2, 2, 0)
+            apu.catch_up(1)
+            apu.catch_up(7)
+          end
+
+          it 'skips the cycles before its tick, then runs that cycle', :aggregate_failures do
+            expect(frame_counter).to have_received(:skip).once.with(5).ordered
+            expect(frame_counter).to have_received(:tick).once.with(6).ordered
+            expect(noise).to have_received(:skip).once.with(2)
+          end
+        end
+      end
+
+      context "and a unit changes on the APU's next cycle" do
+        context 'and no resampler is attached' do
+          subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
+
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: 0, tick: nil) }
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: 0, tick_timer: nil, output: 3) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: 0, tick_timer: nil, output: 4) }
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: 0, tick_timer: nil, output: 5) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: 0, tick_timer: nil, output: 6) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: 0, tick_timer: nil, output: 7) }
+
+          before { apu.catch_up(5) }
+
+          it 'ticks the frame counter and triangle every cycle, the other timers on even ones', :aggregate_failures do
+            expect(frame_counter).to have_received(:tick).with(0).ordered
+            expect(frame_counter).to have_received(:tick).with(4).ordered
+            expect(frame_counter).to have_received(:tick).exactly(5).times
+            expect(triangle).to have_received(:tick_timer).exactly(5).times
+            expect(first_pulse).to have_received(:tick_timer).exactly(3).times
+            expect(second_pulse).to have_received(:tick_timer).exactly(3).times
+            expect(noise).to have_received(:tick_timer).exactly(3).times
+            expect(dmc).to have_received(:tick_timer).exactly(3).times
+            expect(dmc).to have_received(:tick_timer).with(0)
+            expect(dmc).to have_received(:tick_timer).with(2)
+            expect(dmc).to have_received(:tick_timer).with(4)
+          end
+
+          it 'never asks the channels for their output', :aggregate_failures do
+            expect(first_pulse).not_to have_received(:output)
+            expect(second_pulse).not_to have_received(:output)
+            expect(triangle).not_to have_received(:output)
+            expect(noise).not_to have_received(:output)
+            expect(dmc).not_to have_received(:output)
+          end
+        end
+
+        context 'and a resampler is attached' do
+          subject(:apu) do
+            described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, resampler:)
+          end
+
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, skip: nil) }
+          let(:first_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          end
+          let(:second_pulse) do
+            instance_double(
+              Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil, output: 4
+            )
+          end
+          let(:triangle) do
+            instance_double(
+              Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil, output: 5
+            )
+          end
+          let(:noise) do
+            instance_double(
+              Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil, output: 6
+            )
+          end
+          let(:dmc) do
+            instance_double(
+              Ruby::Nes::Apu::Dmc,
+              quiet_ticks: Ruby::Nes::Apu::NEVER,
+              skip: nil,
+              tick_timer: nil,
+              output: 7
+            )
+          end
+          let(:resampler) { instance_double(Ruby::Nes::Audio::Resampler, add: nil, add_run: nil) }
+
+          before do
+            allow(frame_counter).to receive(:quiet_cycles).and_return(0, Ruby::Nes::Apu::NEVER)
+            allow(first_pulse).to receive(:output).and_return(3, 9)
+            apu.catch_up(5)
+          end
+
+          it 'mixes that cycle on its own, then the run after it at the new mix', :aggregate_failures do
+            expect(resampler).to have_received(:add).once.with(Ruby::Nes::Apu::Mixer.mix(9, 4, 5, 6, 7)).ordered
+            expect(resampler).to have_received(:add_run).once.with(Ruby::Nes::Apu::Mixer.mix(9, 4, 5, 6, 7), 4).ordered
+          end
+        end
+      end
+    end
+  end
+
+  # The console catches the APU up only from this cycle on (plan 29): one past the earlier of the frame counter's next
+  # interrupt and the DMC's next fetch, asked from the APU's next cycle, since an event on cycle F changes the CPU only
+  # after the step that crosses F. Kept until a catch-up, a register write or a reset.
+  describe '#sync_cycle' do
+    context 'when neither the frame counter nor the DMC can reach the CPU' do
+      subject(:apu) { described_class.new(frame_counter:, dmc:) }
+
+      let(:frame_counter) do
+        instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, next_interrupt_cycle: Ruby::Nes::Apu::NEVER)
+      end
+      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, quiet_ticks: 0, next_fetch_cycle: Ruby::Nes::Apu::NEVER) }
+
+      it 'answers never' do
+        expect(apu.sync_cycle).to eq(Ruby::Nes::Apu::NEVER)
+      end
+    end
+
+    context "when the frame counter's next interrupt comes first" do
+      subject(:apu) { described_class.new(frame_counter:, dmc:) }
+
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, next_interrupt_cycle: 500) }
+      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, quiet_ticks: 0, next_fetch_cycle: 700) }
+
+      before { apu.catch_up(10) }
+
+      it 'answers the cycle after it, asked from the next cycle the APU runs', :aggregate_failures do
+        expect(apu.sync_cycle).to eq(501)
+        expect(frame_counter).to have_received(:next_interrupt_cycle).with(10)
+        expect(dmc).to have_received(:next_fetch_cycle).with(10)
+      end
+    end
+
+    context "when the DMC's next fetch comes first" do
+      subject(:apu) { described_class.new(frame_counter:, dmc:) }
+
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, next_interrupt_cycle: 700) }
+      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, quiet_ticks: 0, next_fetch_cycle: 500) }
+
+      it 'answers the cycle after it' do
+        expect(apu.sync_cycle).to eq(501)
+      end
+    end
+
+    context 'when both come on the same cycle' do
+      subject(:apu) { described_class.new(frame_counter:, dmc:) }
+
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, next_interrupt_cycle: 500) }
+      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, quiet_ticks: 0, next_fetch_cycle: 500) }
+
+      it 'answers the cycle after it' do
+        expect(apu.sync_cycle).to eq(501)
+      end
+    end
+
+    context 'when it was asked before' do
+      context 'and nothing ran since' do
+        subject(:apu) { described_class.new(frame_counter:, dmc:) }
+
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, quiet_ticks: 0, next_fetch_cycle: 700) }
+
+        before do
+          allow(frame_counter).to receive(:next_interrupt_cycle).and_return(500, 900)
+          apu.sync_cycle
+        end
+
+        it 'keeps its answer without asking again', :aggregate_failures do
+          expect(apu.sync_cycle).to eq(501)
+          expect(frame_counter).to have_received(:next_interrupt_cycle).once
+        end
+      end
+
+      context 'but the APU caught up since' do
+        subject(:apu) { described_class.new(frame_counter:, dmc:) }
+
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, quiet_ticks: 0, next_fetch_cycle: 2000) }
+
+        before do
+          allow(frame_counter).to receive(:next_interrupt_cycle).and_return(500, 900)
+          apu.sync_cycle
+          apu.catch_up(10)
+        end
+
+        it 'answers anew' do
+          expect(apu.sync_cycle).to eq(901)
+        end
+      end
+
+      context 'but a register was written since' do
+        subject(:apu) { described_class.new(cpu:, frame_counter:, dmc:) }
+
+        let(:cpu) { instance_double(Ruby::Nes::Cpu, cycles: 0, access_cycle: 0) }
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0) }
+        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, tick_timer: nil, quiet_ticks: 0, next_fetch_cycle: 2000) }
+
+        before do
+          allow(frame_counter).to receive(:next_interrupt_cycle).and_return(500, 900)
+          apu.sync_cycle
+          apu.cpu_write(0x4000, 0x3F)
+        end
+
+        it 'answers anew' do
+          expect(apu.sync_cycle).to eq(901)
+        end
+      end
+
+      context 'but the APU was reset since' do
+        subject(:apu) { described_class.new(frame_counter:, frame_interrupt:, dmc:) }
+
+        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, reset: nil) }
+        let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, clear: nil) }
+        let(:dmc) do
+          instance_double(
+            Ruby::Nes::Apu::Dmc,
+            tick_timer: nil,
+            quiet_ticks: 0,
+            write_status: nil,
+            reset: nil,
+            next_fetch_cycle: 2000
+          )
+        end
+
+        before do
+          allow(frame_counter).to receive(:next_interrupt_cycle).and_return(500, 900)
+          apu.sync_cycle
+          apu.reset
+        end
+
+        it 'answers anew' do
+          expect(apu.sync_cycle).to eq(901)
+        end
       end
     end
   end
@@ -457,8 +809,8 @@ RSpec.describe Ruby::Nes::Apu do
 
       let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, half_frame: nil) }
       let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, half_frame: nil) }
-      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, half_frame: nil) }
-      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, half_frame: nil) }
+      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, quiet_ticks: 0, half_frame: nil) }
+      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, quiet_ticks: 0, half_frame: nil) }
 
       it 'clocks the four channels', :aggregate_failures do
         apu.half_frame
@@ -526,13 +878,13 @@ RSpec.describe Ruby::Nes::Apu do
         described_class.new(frame_counter:, frame_interrupt:, first_pulse:, second_pulse:, triangle:, noise:, dmc:)
       end
 
-      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, reset: nil) }
+      let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, quiet_cycles: 0, reset: nil) }
       let(:frame_interrupt) { instance_double(Ruby::Nes::Apu::InterruptFlag, clear: nil) }
-      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, :enabled= => nil, tick_timer: nil) }
-      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, :enabled= => nil, tick_timer: nil) }
-      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, :enabled= => nil, tick_timer: nil, reset: nil) }
-      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, :enabled= => nil, tick_timer: nil) }
-      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, write_status: nil, tick_timer: nil, reset: nil) }
+      let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, :enabled= => nil, tick_timer: nil, quiet_ticks: 0) }
+      let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, :enabled= => nil, tick_timer: nil, quiet_ticks: 0) }
+      let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, :enabled= => nil, tick_timer: nil, quiet_ticks: 0, reset: nil) }
+      let(:noise) { instance_double(Ruby::Nes::Apu::Noise, :enabled= => nil, tick_timer: nil, quiet_ticks: 0) }
+      let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, write_status: nil, tick_timer: nil, quiet_ticks: 0, reset: nil) }
 
       before do
         apu.catch_up(30)

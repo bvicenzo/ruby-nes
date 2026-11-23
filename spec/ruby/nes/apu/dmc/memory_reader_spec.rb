@@ -137,4 +137,24 @@ RSpec.describe Ruby::Nes::Apu::Dmc::MemoryReader do
       end
     end
   end
+
+  describe '#empty?' do
+    context 'when the buffer holds no byte' do
+      subject(:reader) { described_class.new(sample:) }
+
+      let(:sample) { instance_double(Ruby::Nes::Apu::Dmc::Sample) }
+
+      it { is_expected.to be_empty }
+    end
+
+    context 'when the buffer holds a byte' do
+      subject(:reader) { described_class.new(sample:, memory:, cpu:).tap { |dma| dma.start(10) } }
+
+      let(:sample) { instance_double(Ruby::Nes::Apu::Dmc::Sample, active?: true, address: 0xC000, advance: nil) }
+      let(:memory) { instance_double(Ruby::Nes::CpuBus, read_for_dma: 0x55) }
+      let(:cpu) { instance_double(Ruby::Nes::Cpu, halt: nil) }
+
+      it { is_expected.not_to be_empty }
+    end
+  end
 end

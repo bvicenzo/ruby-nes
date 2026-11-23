@@ -17,7 +17,8 @@ module Ruby
     # them to the frontend, which sets the buttons held on each.
     #
     # The APU answers the rest of $4000-$4017 (plan 22): it gets the CPU as its clock and IRQ line, and the CPU bus for
-    # the DMC's sample reads (plan 23), is caught up after every step like the PPU, and its reset writes $00 to $4015.
+    # the DMC's sample reads (plan 23), is caught up like the PPU, from its own sync cycle on in `run_frame` (plan 29),
+    # and its reset writes $00 to $4015.
     # The CPU gets the register sync as its interrupt sync, so an NMI edge during BRK or the interrupt sequence is known
     # before the vector is picked (plan 22, decision 1).
     #
@@ -58,15 +59,17 @@ module Ruby
       # The PPU is caught up to a step's end only from its sync cycle on, the first at whose end the CPU could miss
       # what it does, or when a register access within the step brought it into the next frame, so the frame ends
       # caught up as with `step`; between them, only the register accesses catch it up (plan 28, decision 1). The APU
-      # catches up after every step, as with `step`.
+      # likewise from its own sync cycle on, and once more to the last step's end, so the frame's audio is complete: not
+      # past a DMC stall its catch-up added, which `step` leaves to the next step too (plan 29, decision 4).
       def run_frame
         frame_number = @ppu.frame_number
         while @ppu.frame_number == frame_number
           @cpu.step
           cycles = @cpu.cycles
           @ppu.catch_up(cycles) if cycles >= @ppu.sync_cycle || @ppu.frame_number != frame_number
-          @apu.catch_up(cycles)
+          @apu.catch_up(cycles) if cycles >= @apu.sync_cycle
         end
+        @apu.catch_up(cycles)
       end
 
       # The signed 16-bit samples of the frames run since the last call, at the sample rate the console was built with;

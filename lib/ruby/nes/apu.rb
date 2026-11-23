@@ -12,11 +12,13 @@ module Ruby
     #
     # Caught up like the PPU (plan 22, decision 3): `catch_up(cpu_cycle)` runs every CPU cycle before `cpu_cycle`, the
     # frame counter and the triangle timer on each, the pulse, noise and DMC timers on the even ones (the GET cycles,
-    # decision 5). The console calls it after each step; a register access first catches up through the access cycle,
-    # Cpu#access_cycle, past any DMC stall on the way, the CPU being this unit's clock as it is MMC1's. With an audio
-    # resampler attached, each cycle caught up also hands it the mix of the five channels (plan 24). Reset writes $00
-    # to $4015 and clears the frame interrupt flag, writes $4017's last value again (apu_reset's readme, plan 22
-    # decision 4) and resets the triangle's phase and the DMC's level (https://www.nesdev.org/wiki/CPU_power_up_state).
+    # decision 5), by runs of quiet cycles that every unit skips at once (plan 29). The console calls it from
+    # `sync_cycle` on in `run_frame`, after each step in `step`; a register access first catches up through the access
+    # cycle, Cpu#access_cycle, past any DMC stall on the way, the CPU being this unit's clock as it is MMC1's. With an
+    # audio resampler attached, each cycle caught up also hands it the mix of the five channels (plan 24), one level
+    # per run. Reset writes $00 to $4015 and clears the frame interrupt flag, writes $4017's last value again
+    # (apu_reset's readme, plan 22 decision 4) and resets the triangle's phase and the DMC's level
+    # (https://www.nesdev.org/wiki/CPU_power_up_state).
     # Hot path: integers only, no allocation per cycle.
     class Apu
       # "2 CPU cycles = 1 APU cycle" (https://www.nesdev.org/wiki/APU_Frame_Counter).
@@ -37,6 +39,10 @@ module Ruby
       OPEN_BUS_FLAG = 0x20
       FRAME_INTERRUPT_FLAG = 0x40
       DMC_INTERRUPT_FLAG = 0x80
+      # The cycle of an event that cannot come, or the quiet ticks of a channel whose clock cannot change its output
+      # (plan 29, decision 6). An Integer, unlike Mappers::Base::NEVER, so the runs' arithmetic stays in Integers on the
+      # hot path; 2**60 cycles is about 20 000 years of NTSC time, and twice it still fits a Fixnum.
+      NEVER = 2**60
 
       # One keyword per collaborator, so specs can stand in for each; the frame counter clocks this APU's channels.
       # `resampler`, an Audio::Resampler, takes the mix of every CPU cycle; without one nothing is mixed (plan 24,
@@ -58,6 +64,8 @@ module Ruby
         @frame_counter = frame_counter
         @resampler = resampler
         @cycle = 0
+        @sync_cycle = nil
+        @level = 0.0
       end
 
       # The CPU, the APU's clock, the IRQ line of its interrupt flags and what the DMC halts.
@@ -81,6 +89,7 @@ module Ruby
 
       def cpu_write(address, value)
         catch_up_to_access
+        @sync_cycle = nil
         if address < CHANNEL_REGISTERS_END
           channel = @channels[(address & CHANNEL_INDEX_MASK) >> CHANNEL_INDEX_SHIFT] # glossary: bit-field
           channel.write(address & CHANNEL_REGISTER_MASK, value) # glossary: low-bits
@@ -91,20 +100,33 @@ module Ruby
         end
       end
 
-      # Runs every CPU cycle before `cpu_cycle`.
+      # Runs every CPU cycle before `cpu_cycle`, by runs (plan 29): the cycles before the next one on which a unit
+      # changes are quiet and skipped at once, at the mix as it stands; the cycle with a change runs on its own. The mix
+      # is taken afresh at each catch-up, since register writes between them change it. Each part is a method of its
+      # own: under YJIT a long catch-up whose loop held the cycle's body ran about half as fast per cycle as short ones
+      # (benchmarks.md, plan 29).
       def catch_up(cpu_cycle)
+        @sync_cycle = nil
+        return unless @cycle < cpu_cycle
+
+        @level = output if @resampler
         while @cycle < cpu_cycle
-          @frame_counter.tick(@cycle)
-          @triangle.tick_timer
-          if @cycle.even?
-            @first_pulse.tick_timer
-            @second_pulse.tick_timer
-            @noise.tick_timer
-            @dmc.tick_timer(@cycle)
+          quiet = quiet_cycles(cpu_cycle - @cycle)
+          if quiet.zero?
+            run_cycle
+          else
+            skip(quiet)
           end
-          @resampler&.add(output)
-          @cycle += 1
         end
+      end
+
+      # The first CPU cycle at whose end the APU must be caught up for the CPU to see on time what it does between
+      # register accesses: one past the earlier of the frame counter's next interrupt and the DMC's next fetch, which
+      # halts the CPU and sets the DMC's interrupt after the last byte (plan 29, decision 5). An event on cycle F
+      # reaches the CPU after the step that crosses F, so the catch-up after that step keeps it there. Kept until a
+      # catch-up, a register write or a reset: a $4015 read changes neither.
+      def sync_cycle
+        @sync_cycle ||= next_sync_cycle
       end
 
       # The frame counter's quarter frame: the envelopes and the triangle's linear counter.
@@ -132,6 +154,7 @@ module Ruby
       # (apu_reset's readme; plan 22, decision 4), on the cycle the APU stands at; then the triangle's phase and the
       # DMC's level (https://www.nesdev.org/wiki/CPU_power_up_state).
       def reset
+        @sync_cycle = nil
         write_status(0, @cycle)
         @frame_interrupt.clear(@cycle)
         @frame_counter.reset(@cycle)
@@ -140,6 +163,52 @@ module Ruby
       end
 
       private
+
+      def next_sync_cycle
+        event_cycle = [@frame_counter.next_interrupt_cycle(@cycle), @dmc.next_fetch_cycle(@cycle)].min
+        event_cycle == NEVER ? NEVER : event_cycle + 1
+      end
+
+      # The cycles from the APU's next one, at most `limit`, before the first on which a unit changes: the frame
+      # counter's and the triangle's quiet cycles, and the cycles before the get cycle of the other timers' first
+      # changing tick.
+      def quiet_cycles(limit)
+        timer_ticks = [@first_pulse.quiet_ticks, @second_pulse.quiet_ticks, @noise.quiet_ticks, @dmc.quiet_ticks].min
+        timer_cycles = GetCycles.cycle_of_tick(@cycle, timer_ticks) - @cycle
+        [limit, @frame_counter.quiet_cycles, @triangle.quiet_ticks, timer_cycles].min
+      end
+
+      # `cycles` quiet cycles at once: each unit skips them, the timers on get cycles by the get cycles among them, and
+      # the resampler takes the mix as it stands for all of them.
+      def skip(cycles)
+        timer_ticks = GetCycles.count(@cycle, cycles)
+        @frame_counter.skip(cycles)
+        @triangle.skip(cycles)
+        @first_pulse.skip(timer_ticks)
+        @second_pulse.skip(timer_ticks)
+        @noise.skip(timer_ticks)
+        @dmc.skip(timer_ticks)
+        @resampler&.add_run(@level, cycles)
+        @cycle += cycles
+      end
+
+      # One CPU cycle with a change: the frame counter and the triangle timer, on even cycles the other timers, then the
+      # mix, which stands for the quiet cycles after it.
+      def run_cycle
+        @frame_counter.tick(@cycle)
+        @triangle.tick_timer
+        if @cycle.even?
+          @first_pulse.tick_timer
+          @second_pulse.tick_timer
+          @noise.tick_timer
+          @dmc.tick_timer(@cycle)
+        end
+        if @resampler
+          @level = output
+          @resampler.add(@level)
+        end
+        @cycle += 1
+      end
 
       # Catches up through the access cycle. A DMC fetch on the way halts the CPU and moves the access past the stall,
       # so the catch-up goes on until it reaches the CPU: the access sees the APU as it stands after the stall, on the
@@ -178,6 +247,7 @@ module Ruby
   end
 end
 
+require_relative 'apu/get_cycles'
 require_relative 'apu/length_counter'
 require_relative 'apu/envelope'
 require_relative 'apu/timer'

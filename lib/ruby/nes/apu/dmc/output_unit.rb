@@ -50,6 +50,13 @@ module Ruby
           # 0-127.
           def output = @level
 
+          # The output cycle has no byte: the level holds.
+          def silent? = @silent
+
+          # The timer clocks left in the output cycle: the last one starts the next cycle, which takes the reader's
+          # byte.
+          def clocks_to_output_cycle = @bits_remaining
+
           private
 
           def change_level

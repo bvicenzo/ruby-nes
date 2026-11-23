@@ -75,6 +75,32 @@ module Ruby
           @write_delay = cycle.odd? ? WRITE_DELAY_DURING_APU_CYCLE : WRITE_DELAY_BETWEEN_APU_CYCLES
         end
 
+        # The CPU cycle of the next tick that may set the interrupt flag, `cycle` being the cycle of the next tick: the
+        # tick that reaches mode 0's next interrupt step unless interrupts are inhibited, or sooner the tick a pending
+        # write takes effect on, which restarts the sequence; NEVER without either (plan 29, decision 5). The console
+        # catches the APU up from there, so the CPU sees the flag on time.
+        def next_interrupt_cycle(cycle)
+          interrupt_cycle = interrupt_step_cycle(cycle)
+          return interrupt_cycle if @write_delay.zero?
+
+          [cycle + @write_delay - 1, interrupt_cycle].min
+        end
+
+        # The CPU cycles before the next tick that runs a step or takes a pending write in: a run of quiet cycles skips
+        # them at once (plan 29). Hot path: once per run.
+        def quiet_cycles
+          quiet = @step_cycles[@step] - @frame_cycle - 1
+          return quiet if @write_delay.zero?
+
+          [@write_delay - 1, quiet].min
+        end
+
+        # `cycles` quiet ticks at once: the frame cycle and a pending write's delay move on as the ticks would.
+        def skip(cycles)
+          @frame_cycle += cycles
+          @write_delay -= cycles unless @write_delay.zero?
+        end
+
         # "At reset, same as above, except last value written to $4017 is written again, rather than $00" (apu_reset's
         # readme; plan 22, decision 4): the mode stays and the sequence restarts.
         def reset(cycle)
@@ -82,6 +108,18 @@ module Ruby
         end
 
         private
+
+        # The cycle of the tick that reaches the sequence's next step with an interrupt, `cycle` being the next tick's;
+        # NEVER while interrupts are inhibited or in mode 1. Asked once per sync deadline: off the hot path.
+        def interrupt_step_cycle(cycle)
+          return NEVER if @written_value.anybits?(INHIBIT_FLAG)
+
+          step = @step
+          step += 1 while step < @step_events.size && @step_events[step].nobits?(INTERRUPT)
+          return NEVER if step == @step_events.size
+
+          cycle + @step_cycles[step] - @frame_cycle - 1
+        end
 
         # Counts a pending write down; on its last cycle the sequence restarts instead of advancing.
         def write_takes_effect?(cycle)

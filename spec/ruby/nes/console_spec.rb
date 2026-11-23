@@ -323,6 +323,96 @@ RSpec.describe Ruby::Nes::Console do
       end
     end
 
+    # Between the APU's sync cycles nothing it does reaches the CPU, so it is caught up only on them and at the end of the
+    # frame (plan 29): with the frame IRQ inhibited and no DMC sample, only at the end. LDA #$40 / STA $4017, then
+    # JMP $8005 forever.
+    context 'when the program never touches the APU and inhibits its frame IRQ' do
+      let(:cartridge) { Cartridges.with_program([0xA9, 0x40, 0x8D, 0x17, 0x40, 0x4C, 0x05, 0x80]) }
+
+      before do
+        console.run_frame
+        allow(console.apu).to receive(:catch_up).and_call_original
+        console.run_frame
+      end
+
+      it 'catches the APU up once, at the end of the frame', :aggregate_failures do
+        expect(console.apu).to have_received(:catch_up).once
+        expect(console.apu).to have_received(:catch_up).with(console.cpu.cycles)
+      end
+    end
+
+    # The frame counter's IRQ, the DMC's sample-end IRQ and the DMC's fetches, which halt the CPU, come while the program
+    # touches no APU register, so only the APU's sync cycle catches it up for them (plan 29). Catching up after every
+    # step is the reference: each IRQ must interrupt the same instruction of the counting loop, and each stall must
+    # land after the same one. LDA #$8F / STA $4010 (IRQ on, no loop, the fastest rate), LDA #1 / STA $4013 (17
+    # bytes), LDA #$10 / STA $4015 (play), CLI, LDX #0, then INX / JMP forever. The IRQ handler keeps X, counts,
+    # acknowledges the frame IRQ and replays the sample, which acknowledges the DMC's: STX $10 / INC $11 / LDA $4015 /
+    # LDA #$10 / STA $4015 / RTI.
+    context 'when frame IRQs, DMC IRQs and DMC fetches come while the program touches no APU register' do
+      let(:cartridge) do
+        Cartridges.with_program([*play_sample, *count_forever], interrupt_handler: keep_count_and_replay)
+      end
+      let(:play_sample) do
+        [0xA9, 0x8F, 0x8D, 0x10, 0x40, 0xA9, 0x01, 0x8D, 0x13, 0x40, 0xA9, 0x10, 0x8D, 0x15, 0x40, 0x58]
+      end
+      let(:count_forever) { [0xA2, 0x00, 0xE8, 0x4C, 0x12, 0x80] }
+      let(:keep_count_and_replay) do
+        [0x86, 0x10, 0xE6, 0x11, 0xAD, 0x15, 0x40, 0xA9, 0x10, 0x8D, 0x15, 0x40, 0x40]
+      end
+      let(:stepped_console) { described_class.new(cartridge) }
+
+      before do
+        3.times { console.run_frame }
+        stepped_console.step while stepped_console.ppu.frame_number < console.ppu.frame_number
+      end
+
+      it 'takes each IRQ and each stall on the instruction stepping takes them on', :aggregate_failures do
+        expect(stepped_console.cpu_bus.read(0x0011)).to be > 10
+        expect(console.cpu_bus.read(0x0011)).to eq(stepped_console.cpu_bus.read(0x0011))
+        expect(console.cpu_bus.read(0x0010)).to eq(stepped_console.cpu_bus.read(0x0010))
+        expect(console.cpu.cycles).to eq(stepped_console.cpu.cycles)
+      end
+    end
+
+    # A DMC fetch in the APU's catch-up after a step halts the CPU past that step; stepping leaves the stall to the next
+    # step's catch-up, and so must the end of the frame (plan 29, decision 4), or the APU stands 4 cycles ahead and a
+    # reset stamps its $4017 rewrite 4 cycles late, moving every frame IRQ after it. The program, calibrated so that a
+    # fetch lands in the catch-up after the 4th frame's last step: on its first run it marks $00 (LDA $00 / BNE /
+    # INC $00 / NOP), loops a sample at the fastest rate (LDA #$4F / STA $4010 / LDA #$10 / STA $4015) and waits with
+    # interrupts masked (JMP $8011); after the reset it counts in X with interrupts on (CLI / LDX #0 / 200 × INX /
+    # JMP $8017), 2 cycles per count, and the IRQ handler keeps X: STX $10 / INC $11 / LDA $4015 / RTI.
+    context "when a DMC fetch halts the CPU in the catch-up after the frame's last step" do
+      let(:cartridge) do
+        Cartridges.with_program(
+          [*mark_first_run, *play_sample, *wait_masked, *count_after_reset], interrupt_handler: keep_count
+        )
+      end
+      let(:mark_first_run) { [0xA5, 0x00, 0xD0, 0x10, 0xE6, 0x00, 0xEA] }
+      let(:play_sample) { [0xA9, 0x4F, 0x8D, 0x10, 0x40, 0xA9, 0x10, 0x8D, 0x15, 0x40] }
+      let(:wait_masked) { [0x4C, 0x11, 0x80] }
+      let(:count_after_reset) { [0x58, 0xA2, 0x00, *Array.new(200, 0xE8), 0x4C, 0x17, 0x80] }
+      let(:keep_count) { [0x86, 0x10, 0xE6, 0x11, 0xAD, 0x15, 0x40, 0x40] }
+      let(:stepped_console) { described_class.new(cartridge) }
+
+      before do
+        4.times do
+          console.run_frame
+          stepped_console.step while stepped_console.ppu.frame_number < console.ppu.frame_number
+        end
+        console.reset
+        stepped_console.reset
+        2.times do
+          console.run_frame
+          stepped_console.step while stepped_console.ppu.frame_number < console.ppu.frame_number
+        end
+      end
+
+      it 'leaves the stall to the next frame, as stepping does', :aggregate_failures do
+        expect(stepped_console.cpu_bus.read(0x0011)).to eq(1)
+        expect(console.cpu_bus.read(0x0010)).to eq(stepped_console.cpu_bus.read(0x0010))
+      end
+    end
+
     context 'when the program keeps enabling rendering' do
       # LDA #$08, then STA $2001 / JMP $8002 forever: background on.
       let(:cartridge) { Cartridges.with_program([0xA9, 0x08, 0x8D, 0x01, 0x20, 0x4C, 0x02, 0x80]) }

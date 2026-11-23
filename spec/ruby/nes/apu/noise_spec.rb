@@ -215,4 +215,55 @@ RSpec.describe Ruby::Nes::Apu::Noise do
       end
     end
   end
+
+  # A run of quiet cycles goes on until a channel's output can change (plan 29): a muted noise outputs 0 whatever its
+  # shift register does, and what mutes it changes only on frame counter steps and register writes.
+  describe '#quiet_ticks' do
+    context 'when the length counter is 0' do
+      subject(:channel) { described_class.new(length_counter:) }
+
+      let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: false) }
+
+      it 'answers never' do
+        expect(channel.quiet_ticks).to eq(Ruby::Nes::Apu::NEVER)
+      end
+    end
+
+    context 'when the length counter is above 0' do
+      context 'but the volume is 0' do
+        subject(:channel) { described_class.new(length_counter:, envelope:) }
+
+        let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: true) }
+        let(:envelope) { instance_double(Ruby::Nes::Apu::Envelope, volume: 0) }
+
+        it 'answers never' do
+          expect(channel.quiet_ticks).to eq(Ruby::Nes::Apu::NEVER)
+        end
+      end
+
+      context 'and the volume is above 0' do
+        subject(:channel) { described_class.new(length_counter:, envelope:, timer:) }
+
+        let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter, active?: true) }
+        let(:envelope) { instance_double(Ruby::Nes::Apu::Envelope, volume: 9) }
+        let(:timer) { instance_double(Ruby::Nes::Apu::Timer, ticks_before_next_clock: 40) }
+
+        it "answers the timer's ticks before its next clock", :aggregate_failures do
+          expect(channel.quiet_ticks).to eq(40)
+          expect(timer).to have_received(:ticks_before_next_clock)
+        end
+      end
+    end
+  end
+
+  describe '#skip' do
+    subject(:channel) { described_class.new(timer:) }
+
+    let(:timer) { instance_double(Ruby::Nes::Apu::Timer, skip: nil) }
+
+    it "skips the timer's ticks" do
+      channel.skip(25)
+      expect(timer).to have_received(:skip).with(25)
+    end
+  end
 end

@@ -261,4 +261,103 @@ RSpec.describe Ruby::Nes::Apu::Dmc do
       end
     end
   end
+
+  # The DMC reaches the CPU by its fetches, which halt it, and by its interrupt, set on the fetch of the last byte; the
+  # reader fetches on the timer clock that starts an output cycle, while bytes remain (plan 29). `cycle` is the cycle
+  # of the APU's next CPU cycle; the timer ticks on get cycles.
+  describe '#next_fetch_cycle' do
+    context 'when no sample is playing' do
+      subject(:dmc) { described_class.new(reader:) }
+
+      let(:reader) { instance_double(Ruby::Nes::Apu::Dmc::MemoryReader, active?: false) }
+
+      it 'answers never' do
+        expect(dmc.next_fetch_cycle(101)).to eq(Ruby::Nes::Apu::NEVER)
+      end
+    end
+
+    context 'when a sample is playing' do
+      subject(:dmc) { described_class.new(reader:, output_unit:, timer:) }
+
+      let(:reader) { instance_double(Ruby::Nes::Apu::Dmc::MemoryReader, active?: true) }
+      let(:output_unit) { instance_double(Ruby::Nes::Apu::Dmc::OutputUnit, clocks_to_output_cycle: 5) }
+      let(:timer) { instance_double(Ruby::Nes::Apu::Timer, ticks_before_clock: 40) }
+
+      it 'answers the get cycle of the timer tick that starts the next output cycle', :aggregate_failures do
+        expect(dmc.next_fetch_cycle(101)).to eq(182)
+        expect(timer).to have_received(:ticks_before_clock).with(5)
+      end
+    end
+  end
+
+  # A run of quiet cycles goes on until the level can change (plan 29): a silent output unit holds the level until the
+  # clock that starts its next output cycle, which may take a byte; with the buffer empty and no sample playing, that
+  # cycle stays silent too, and only a register write starts a sample.
+  describe '#quiet_ticks' do
+    context 'when the output unit plays a byte' do
+      subject(:dmc) { described_class.new(output_unit:, timer:) }
+
+      let(:output_unit) { instance_double(Ruby::Nes::Apu::Dmc::OutputUnit, silent?: false) }
+      let(:timer) { instance_double(Ruby::Nes::Apu::Timer, ticks_before_next_clock: 40) }
+
+      it "answers the timer's ticks before its next clock", :aggregate_failures do
+        expect(dmc.quiet_ticks).to eq(40)
+        expect(timer).to have_received(:ticks_before_next_clock)
+      end
+    end
+
+    context 'when the output unit is silent' do
+      context 'but the buffer holds a byte' do
+        subject(:dmc) { described_class.new(reader:, output_unit:, timer:) }
+
+        let(:reader) { instance_double(Ruby::Nes::Apu::Dmc::MemoryReader, empty?: false) }
+        let(:output_unit) { instance_double(Ruby::Nes::Apu::Dmc::OutputUnit, silent?: true, clocks_to_output_cycle: 5) }
+        let(:timer) { instance_double(Ruby::Nes::Apu::Timer, ticks_before_clock: 40) }
+
+        it 'answers the ticks before the clock that starts the next output cycle', :aggregate_failures do
+          expect(dmc.quiet_ticks).to eq(40)
+          expect(timer).to have_received(:ticks_before_clock).with(5)
+        end
+      end
+
+      context 'and the buffer is empty' do
+        context 'but a sample is playing' do
+          subject(:dmc) { described_class.new(reader:, output_unit:, timer:) }
+
+          let(:reader) { instance_double(Ruby::Nes::Apu::Dmc::MemoryReader, empty?: true, active?: true) }
+          let(:output_unit) do
+            instance_double(Ruby::Nes::Apu::Dmc::OutputUnit, silent?: true, clocks_to_output_cycle: 5)
+          end
+          let(:timer) { instance_double(Ruby::Nes::Apu::Timer, ticks_before_clock: 40) }
+
+          it 'answers the ticks before the clock that starts the next output cycle', :aggregate_failures do
+            expect(dmc.quiet_ticks).to eq(40)
+            expect(timer).to have_received(:ticks_before_clock).with(5)
+          end
+        end
+
+        context 'and no sample is playing' do
+          subject(:dmc) { described_class.new(reader:, output_unit:) }
+
+          let(:reader) { instance_double(Ruby::Nes::Apu::Dmc::MemoryReader, empty?: true, active?: false) }
+          let(:output_unit) { instance_double(Ruby::Nes::Apu::Dmc::OutputUnit, silent?: true) }
+
+          it 'answers never' do
+            expect(dmc.quiet_ticks).to eq(Ruby::Nes::Apu::NEVER)
+          end
+        end
+      end
+    end
+  end
+
+  describe '#skip' do
+    subject(:dmc) { described_class.new(timer:) }
+
+    let(:timer) { instance_double(Ruby::Nes::Apu::Timer, skip: nil) }
+
+    it "skips the timer's ticks" do
+      dmc.skip(25)
+      expect(timer).to have_received(:skip).with(25)
+    end
+  end
 end
