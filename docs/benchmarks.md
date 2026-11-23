@@ -767,3 +767,62 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) C
 | interpreter | 17.2 | 58.3 | 29% | 3.3% | f0903fbc59bf | 10369a5b40df |
 | yjit | 61.5 | 16.3 | 102% | 2.4% | f0903fbc59bf | 10369a5b40df |
 | zjit | 44.5 | 22.5 | 74% | 2.9% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-23 — Plan 32: the window's presentation
+
+After plan 31 the emulation ran at 61.5 fps under YJIT but the window showed 50-52 fps. The window's frame was timed by
+part in a hidden raylib window (YJIT, Super Mario Bros. 3 world 1-1 from its input script, 600 warm-up frames then 1200
+timed, no pacing, no audio device), two runs each; the emulation's own spread between runs (15.7-18.3 ms) is the
+machine's, not the window's.
+
+| Part of the window's frame | RGB on the CPU (before) | Palette shader (prototype) | Built (`Frontends::RaylibPicture`) |
+|---|---|---|---|
+| Emulation (`Console#run_frame`) | 15.9-18.0 ms | 15.7-16.1 ms | 15.8-18.3 ms |
+| `present` | 3.05-3.43 ms | 0.76-0.82 ms | 0.79-0.88 ms |
+| `queue_audio` | ~0 | ~0 | ~0 |
+| GC | 0.17-0.19 ms a frame, 31 runs | 0.00 ms, 2 runs | 0.00-0.02 ms, 2 runs |
+| Whole frame | 19.0-21.4 ms (47-53 fps) | 16.5-16.9 ms (59-61 fps) | 16.6-19.2 ms (52-60 fps) |
+
+The pieces of `present`, each alone (YJIT, 300 calls on a frame of varied pixels):
+
+| Piece | ms |
+|---|---|
+| `Frontends::Palette.rgb` (`COLOURS.values_at(*frame_buffer).join`) | 2.86 |
+| `FFI::Pointer#put_bytes` of its result | 0.006 |
+| `frame_buffer.pack('S<*')` | 2.24 |
+| `FFI::Pointer#put_array_of_uint16(0, frame_buffer)` | 0.35 |
+| Best CPU lookup: an Integer RGBA table, `values_at`, `put_array_of_uint32` | 1.34 |
+| `UpdateTexture`, drawing and `EndDrawing` | ~0.4-0.5 |
+
+**The palette lookup on the GPU: kept** (architecture decision 92). `present` falls from about 3.2 ms to 0.8 ms, and
+with nothing frame-sized allocated the window's GC runs fall from 31 to 2 per 1200 frames. `pack('S<*')`, which the
+plan proposed for the upload, costs as much as the lookup; FFI's `put_array_of_uint16` copies the array in C. The CPU
+path was not built: its best form would still leave about 1.8 ms. What remains of `present` is the upload (0.35 ms)
+and raylib's drawing.
+
+`rake bench:frontends` (nestest, 600 frames, medians), before and after:
+
+| JIT | Present before (ms) | Present after (ms) | Frame before (ms) | Frame after (ms) |
+|---|---|---|---|---|
+| interpreter | 3.01 | 0.84 | 49.47 | 47.77 |
+| yjit | 2.88 | 0.73 | 12.53 | 10.35 |
+| zjit | 2.92 | 0.76 | 25.85 | 23.85 |
+
+The remaining gap, when the window falls short of 60 fps, is the emulation: about 15.5-16.3 ms a frame under YJIT in
+`rake bench:frames` (below), 16.6 ms being a frame of real time, with the window's own part at about 0.8 ms.
+
+**Played** (the user, the real window with audio): Super Mario Bros. 3 world 1-1 runs at about 60 fps with audio free
+of crackles (M7 closes). Super Pitfall drops to 48-53 fps in play (about 60 on its black screens): headless, under
+YJIT, 900 warm-up frames then 3 runs of 120 with Right held after Start, it took 23.2 ms a frame against 20.7 ms for
+Super Mario Bros. 3 in the same conditions (1200 warm-up, 3 runs of 120, the machine slower in that session than in the
+table below), about 12% heavier. Plan 33 takes that gap.
+
+### 2026-11-23 — Final (plan 32) — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 17.8 | 56.1 | 30% | 2.0% | f0903fbc59bf | 10369a5b40df |
+| yjit | 64.7 | 15.5 | 108% | 1.4% | f0903fbc59bf | 10369a5b40df |
+| zjit | 46.6 | 21.5 | 77% | 2.7% | f0903fbc59bf | 10369a5b40df |
