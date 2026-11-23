@@ -56,7 +56,7 @@ Conventions (see also `CLAUDE.md`):
 | 25 | [Performance pass](25-performance-pass.md) | 21, 24 | done |
 | 26 | [Spinel AOT experiment](26-spinel-experiment.md) | 10 (minimum), 25 (full) | todo |
 | 27 | [Horizontal edge crop](27-horizontal-edge-crop.md) | 18 | todo |
-| 28 | [PPU dot ranges](28-ppu-dot-ranges.md) | 25 | todo |
+| 28 | [PPU dot ranges](28-ppu-dot-ranges.md) | 25 | done |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
 
