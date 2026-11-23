@@ -284,12 +284,18 @@ pixels under fine X (each register's byte (register × 2^fine X) >> 8, spread on
 per register, 8 pixels of 4 bits in 32 bits), the composer drawing them in one call, the 8 shifts as one, the four
 fetches, coarse X, and Y on dot 256. A layer's first visible column is 0, 8 or 256, so it shows in a whole tile or in
 none of it: the background's hidden tile is a window of 0, and a tile whose sprites are hidden draws the background
-alone. The other dots run one at a time (plan 28, decision 6; plan 30, decisions 2, 6 and 7).
+alone, as does a tile the sprite line flags clear (`SpriteRenderer#occupied_tiles`, one flag per 8 columns, set
+where an opaque sprite pixel lies). A visible line's sprite slot whose 8 dots the range covers (`WHOLE_SLOT` on 257,
+265, …, 313) runs its first dot's own steps only where it has more than the slot's (257), then
+`SpriteRenderer#run_slot` resets OAMADDR once and makes the two fetches with the clock on their dots and the load. The
+next line's two tiles (`WHOLE_NEXT_LINE_TILE` on 321 and 329, both rendering lines) run as a whole tile without its
+pixels: the reload where the dot has one, the 8 shifts as one, the four fetches and coarse X. The other dots run one
+at a time (plan 28, decision 6; plan 30, decisions 2, 6 and 7; plan 31, decisions 1-3 and 5).
 
 The dot clock (`Ppu::DotClock`) holds the PPU's elapsed dots, which MMC3's A12 watch reads through
 `Ppu#elapsed_dots`. The Ppu ticks it into each range and sets it to the range's last dot. The renderer sets it to
-each dot's count before that dot's fetches, so the board sees the dot of every fetch inside a range (plan 28,
-decision 5).
+each dot's count before that dot's fetches, and the sprite renderer, which shares it, before a whole slot's fetches,
+so the board sees the dot of every fetch inside a range (plan 28, decision 5; plan 31, decision 3).
 
 Sprites (plan 14): the renderer hands the sprite steps to `Ppu::SpriteRenderer`. At dot 257 of each visible line it
 clears `Ppu::SpriteLine` and `Ppu::SpriteEvaluation` selects the next line's sprites from OAM into `Ppu::SecondaryOam`
@@ -754,3 +760,7 @@ presentation, in a frontend).
 | 85 | 2026-11-23 | `Ppu::Picture` keeps the final pixel of each of the 32 palette entries, rebuilt when palette RAM (which tells its one observer of every write), greyscale or emphasis change | All three are register writes, which catch the PPU up first, so a colour is never stale for a pixel; one table read instead of a palette RAM read, a mask and an OR per pixel (plan 30, decision 4) | — |
 | 86 | 2026-11-23 | The board tells its one `PpuBus::Nametables` every mirroring it selects (`nametables=`, `mirroring_changed`), through the base's private `mirroring=` | A board selects a mirroring at power-up or on a register write, which catches the PPU up first, so the nametables are never stale for a fetch; no Hash lookup per nametable access (plan 30, decision 3) | — |
 | 87 | 2026-11-23 | The attribute fetch takes its address and the factor that brings its quadrant to bits 7-6 from two load-time tables of 4096 entries indexed by v's low 12 bits | About 14% of a visible line: the address arithmetic and the shift by the quadrant, a method call under YJIT (plan 30, decision 8) | — |
+| 88 | 2026-11-23 | `Ppu::SpriteLine` flags each group of 8 columns where an opaque sprite pixel lies (`occupied_tiles`, 32 flags in one array for the life of the line, emptied by `clear`, set by `place`), and a whole tile the flags leave clear composes the background alone | Most tiles hold no sprite pixel; the flags are exact for the whole line, filled on the line before. An array, not an Integer mask: the renderer keeps a reference to it as to the entries, and testing an Integer's bit would be a shift by a varying amount (plan 31, decision 1) | — |
+| 89 | 2026-11-23 | A visible line's sprite slot whose 8 dots a range covers runs as one sequence (`RenderSchedule::WHOLE_SLOT`): its first dot's own steps only where it has more than the slot's (257), then `SpriteRenderer#run_slot`, which shares the dot clock, resets OAMADDR once, makes the two fetches on their dots and loads | `SpriteRenderer#run_steps` was about 11% of a frame, called on every dot 257-320 only to reset OAMADDR; nothing within a range changes OAMADDR, so one reset is exact. The pre-render line keeps the per-dot path (plan 31, decisions 2 and 3) | — |
+| 90 | 2026-11-23 | The next line's two tiles (dots 321 and 329 of both rendering lines) run as one sequence when a range covers their 8 dots (`RenderSchedule::WHOLE_NEXT_LINE_TILE`): a whole tile without its pixels; lines with no step are still walked dot by dot | Dots 321-340 of a visible line went from about 3.1 to 1.6 µs; skipping the lines with no step measured about 0.3% of a frame, below the noise (plan 31, decision 5) | — |
+| 91 | 2026-11-23 | `Ppu::Renderer` is past RuboCop's class length on purpose (`Metrics/ClassLength` disabled on the class) | The background's pixel, its registers and the sequences of 8 dots stay inline in one object, where YJIT calls them through self (plan 25); the user chose this over extracting the shift registers (plan 31) | — |

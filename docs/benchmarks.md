@@ -24,6 +24,54 @@ zero). Each configuration and variant runs in a process of its own.
 
 ## Findings
 
+### Plan 31: the sprites and the horizontal blank (2026-11-23)
+
+The same frame workload, with the same digests in every configuration and run: f0903fbc59bf (frame), 10369a5b40df
+(audio).
+
+| Configuration | Plan 30's final | Plan 31's final | Change |
+|---|---|---|---|
+| interpreter | 14.5 fps (68.8 ms) | 17.2 fps (58.3 ms) | -15% per frame |
+| yjit | 46.6 fps (21.4 ms) | 61.5 fps (16.3 ms) | -24% per frame |
+| zjit | 39.5 fps (25.3 ms) | 44.5 fps (22.5 ms) | -11% per frame |
+
+**YJIT runs Super Mario Bros. 3 at 102% of real time.** Whether the window's audio is free of crackles at that margin
+is checked by playing it (plan 31, acceptance criteria).
+
+**Measured.** Prototypes over 8061014, A/B interleaved against a worktree of it: whole frames (median of 5 runs of 60
+after the 1200 warm-up frames) and `Renderer#run_dots` over a visible line's dots 1-340, or only the dots a step
+touches (a throwaway script). The machine drifted by a few percent between rounds, so each step took 3-8 rounds.
+
+| Step (cumulative) | Frame | Visible line 1-340 | Kept |
+|---|---|---|---|
+| Base (8061014) | ~21.5 ms | ~64 µs | — |
+| Sprite-free whole tiles (`SpriteLine#occupied_tiles`) | ~-2% | ~-3% | yes |
+| + whole sprite slots, the first dot through `run_dot` | ~17.5 ms | ~49 µs | yes |
+| + a slot's first dot skipped when it only resets OAMADDR (all but 257) | ~-3% | ~-3% | yes |
+| + the next line's two tiles whole (dots 321-340: 3.1 → 1.6 µs) | ~-2% | — | yes |
+| Lines with no step returning at once (3 µs → 0.05 µs a line, about 20 lines a frame) | ~-0.3% | — | no |
+| Built test first, the plan's final tree | 16.3-16.5 ms (-24%) | ~43 µs (-33%) | — |
+
+**Findings.**
+
+- `SpriteRenderer#run_steps` was about 11% of a frame on its own: it ran on every dot 257-320, 64 times a line, only
+  because OAMADDR is reset on each. A whole slot calls the sprite renderer once and resets OAMADDR once; it is now
+  about 1%.
+- A sprite-free tile saves the sprite line's read and comparison per pixel: small (about 2%), since a call per pixel
+  was already gone (plan 30).
+- The lines with no step cost about 3 µs each to walk dot by dot, about 0.06 ms a frame: not worth a branch.
+
+**The rest, under YJIT**, from vernier's top methods (200 frames, self time):
+
+| Component | Share |
+|---|---|
+| Background fetches (`Mappers::Base#ppu_read`, `Renderer#fetch_tile`, the fetcher, `PpuBus`, `Mmc3#ppu_read`, nametables) | ~27% |
+| Pixel (`Renderer#run_tile`, `PixelComposer#draw_background_tile` and `#draw_tile`, the window, the per-dot pixels) | ~18% |
+| The loops (`Renderer#run_dots`, `#run_dot`, `#run_whole_sequence`, `Console#run_frame`) | ~16% |
+| CPU and CPU bus | ~9% |
+| Sprites (the evaluation, `run_steps`, `run_slot`, `SpriteLine#place`) | ~4% |
+| APU and audio | ~3% |
+
 ### Plan 30: the background pipeline per tile (2026-11-23)
 
 The same frame workload, with the same digests in every configuration and run: f0903fbc59bf (frame), 10369a5b40df
@@ -709,3 +757,13 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) C
 | interpreter | 14.5 | 68.8 | 24% | 2.0% | f0903fbc59bf | 10369a5b40df |
 | yjit | 46.6 | 21.4 | 78% | 2.0% | f0903fbc59bf | 10369a5b40df |
 | zjit | 39.5 | 25.3 | 66% | 2.0% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-23 — Final (plan 31) — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 17.2 | 58.3 | 29% | 3.3% | f0903fbc59bf | 10369a5b40df |
+| yjit | 61.5 | 16.3 | 102% | 2.4% | f0903fbc59bf | 10369a5b40df |
+| zjit | 44.5 | 22.5 | 74% | 2.9% | f0903fbc59bf | 10369a5b40df |
