@@ -10,12 +10,10 @@ module Ruby
       # tile on screen, before the dot's pixel; the registers shift left one bit after it. The pixel goes to x = dot − 1
       # of the scanline (plan 13, decision 5): the background's is the 4 bits at bit 15 − fine X, transparent when its
       # pattern value is 0; each layer shows from its first visible column on (LayerVisibility, PPUMASK bits 1-4); the
-      # sprites' comes from the sprite renderer's line entries. Where only one layer is opaque its entry is drawn, a
-      # sprite's without SpriteLine's priority and sprite 0 marks; only where both are does the priority multiplexer
-      # decide, checking the sprite 0 hit (https://www.nesdev.org/wiki/PPU_sprite_priority). The sprite steps go to the
-      # sprite renderer. The Ppu tells it the background's PPUCTRL settings and the PPUMASK settings; it passes each to
-      # the part that uses it. The pixel is composed here, with the registers as instance variables and the sprite line
-      # read as an array, rather than through one object per stage: a method call costs about 5 ns under YJIT, and the
+      # sprites' comes from the sprite renderer's line entries; the pixel composer draws the two (plan 30, decision 6).
+      # The sprite steps go to the sprite renderer. The Ppu tells it the background's PPUCTRL settings and the PPUMASK
+      # settings; it passes each to the part that uses it. The background's pixel is taken here, with the registers as
+      # instance variables, rather than through one object per stage: a method call costs about 5 ns under YJIT, and the
       # stages cost about a third of a frame (plan 25).
       #
       # Ranges (plan 28): `run_dots` runs a range of a scanline's dots, the dot clock standing on the first one. A tile
@@ -23,6 +21,7 @@ module Ruby
       # decision 6), other dots one at a time; the clock is moved to each dot's count before its fetches, which the
       # board's A12 watch reads (decision 5). Hot path: one `run_dots` per range, one step lookup per dot or tile.
       class Renderer
+        WIDTH = Picture::WIDTH
         FIRST_PIXEL_BIT = 15
         TILE_ON_SCREEN_MASK = 0xFF00
         SHIFT_REGISTER_MASK = Bits::WORD_MASK
@@ -35,13 +34,38 @@ module Ruby
         PATTERN_HIGH_SHIFT = 1
         # A pixel whose pattern value (bits 1-0) is 0 is transparent (https://www.nesdev.org/wiki/PPU_palettes).
         TRANSPARENT = 0
-        SPRITE_PALETTE_ENTRY_MASK = SpriteLine::PALETTE_ENTRY_MASK
         # A whole tile's last dot, from its first, and the dots of its fetches (RenderSchedule::TILE_STEPS).
         TILE_LAST_DOT = RenderSchedule::TILE_DOTS - 1
         NAMETABLE_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_NAMETABLE)
         ATTRIBUTE_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_ATTRIBUTE)
         PATTERN_LOW_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_PATTERN_LOW)
         PATTERN_HIGH_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_PATTERN_HIGH)
+
+        # A whole tile's pixels (plan 30, decisions 2, 6 and 7). After the tile's reload, its pixel i (0-7) is bit 15 −
+        # fine X − i of each register: the byte (register × 2^fine X) >> 8, bit 7 the leftmost pixel. A load-time table
+        # per register spreads that byte one bit per nibble, in the register's place in the 4-bit pixel, pixel i in
+        # bits 31 − 4i to 28 − 4i: the tile is the OR of the four, 8 pixels in 32 bits. Fine X picks a factor instead of
+        # being a shift amount, because YJIT compiles a shift by a varying amount as a method call.
+        TILE_PIXELS = RenderSchedule::TILE_DOTS
+        PIXEL_BITS = 4
+        WINDOW_SHIFT = 8
+        WINDOW_MASK = Bits::BYTE_MASK
+        FINE_X_FACTORS = Array.new(TILE_PIXELS) { 1 << it }.freeze # glossary: shift-left
+        LEFTMOST_PIXEL_BIT = TILE_PIXELS - 1
+
+        # The byte's bits spread over the nibbles of a tile, each at `place` within its nibble.
+        def self.spread(byte, place)
+          (0...TILE_PIXELS).sum do |column|
+            nibble_shift = ((LEFTMOST_PIXEL_BIT - column) * PIXEL_BITS) + place
+            Bits.bit_at(byte, LEFTMOST_PIXEL_BIT - column) << nibble_shift # glossary: shift-left
+          end
+        end
+        private_class_method :spread
+
+        PATTERN_LOW_PIXELS = Array.new(WINDOW_MASK + 1) { spread(it, 0) }.freeze
+        PATTERN_HIGH_PIXELS = Array.new(WINDOW_MASK + 1) { spread(it, PATTERN_HIGH_SHIFT) }.freeze
+        PALETTE_LOW_PIXELS = Array.new(WINDOW_MASK + 1) { spread(it, PALETTE_LOW_SHIFT) }.freeze
+        PALETTE_HIGH_PIXELS = Array.new(WINDOW_MASK + 1) { spread(it, PALETTE_HIGH_SHIFT) }.freeze
 
         # One optional keyword per part, so specs can stand in for each.
         # rubocop:disable-next Metrics/ParameterLists
@@ -53,11 +77,11 @@ module Ruby
           @picture = picture
           @sprite_renderer = sprite_renderer
           @sprite_entries = sprite_renderer.line_entries
-          @multiplexer = multiplexer
           @schedule = schedule
           @background_visibility = background_visibility
           @sprite_visibility = sprite_visibility
           @clock = clock
+          @composer = PixelComposer.new(picture:, sprite_entries: @sprite_entries, multiplexer:)
           @pattern_low = 0
           @pattern_high = 0
           @attribute_low = 0
@@ -79,9 +103,10 @@ module Ruby
           @picture.emphasis = flags
         end
 
-        # The PPU entered the post-render scanline: the frame drawn becomes the frame buffer (plan 16, decision 1).
+        # The PPU entered the post-render scanline: the frame drawn becomes the frame buffer (plan 16, decision 1), and
+        # the next frame is drawn into the picture's other buffer.
         def complete_picture
-          @picture.complete_frame
+          @composer.complete_picture
         end
 
         def background_enabled=(enabled)
@@ -133,40 +158,56 @@ module Ruby
           @sprite_renderer.run_steps(steps, scanline, dot)
         end
 
-        # The 8 dots of a visible line's tile from its first, `dot`, whose count is `elapsed_dots`: each draws its pixel
-        # at x = dot - 1 and shifts, and the tile's fetches (the clock on each one's dot), coarse X and Y follow
-        # RenderSchedule's steps for them, the same as dot by dot; the reload and Y come from the line. Unrolled, without a step lookup per dot: about 15% of a frame (plan 28, decision 6).
-        # rubocop:disable-next Metrics/AbcSize, Metrics/MethodLength
+        # The 8 dots of a visible line's tile from its first, `dot`, whose count is `elapsed_dots`: its 8 pixels at
+        # x = dot − 1 onwards from the window under fine X, then the 8 shifts at once, since nothing reloads within the
+        # tile; the tile's fetches (the clock on each one's dot), coarse X and Y follow RenderSchedule's steps for them,
+        # the same as dot by dot; the reload and Y come from the line. A layer's first visible column is 0, 8 or 256, so
+        # each layer shows in the whole tile or in none of it (plan 30, decision 6). Unrolled, without a step lookup or
+        # a call per dot (plan 28, decision 6).
+        # rubocop:disable-next Metrics/AbcSize
         def run_tile(line, scanline, dot, elapsed_dots)
           reload if (line[dot] & RenderSchedule::RELOAD) != 0 # glossary: flag-set
           x_position = dot - 1
-          draw(scanline, x_position)
-          shift
+          pixels = x_position < @background_visibility.first_visible_column ? TRANSPARENT : background_window
+          if x_position < @sprite_visibility.first_visible_column
+            @composer.draw_background_tile(pixels, (scanline * WIDTH) + x_position)
+          else
+            @composer.draw_tile(pixels, x_position, (scanline * WIDTH) + x_position)
+          end
+          shift_tile
           @clock.elapsed_dots = elapsed_dots + NAMETABLE_DOT
           @fetcher.fetch_nametable_byte
-          draw(scanline, x_position + 1)
-          shift
-          draw(scanline, x_position + 2)
-          shift
           @clock.elapsed_dots = elapsed_dots + ATTRIBUTE_DOT
           @fetcher.fetch_attribute
-          draw(scanline, x_position + 3)
-          shift
-          draw(scanline, x_position + 4)
-          shift
           @clock.elapsed_dots = elapsed_dots + PATTERN_LOW_DOT
           @fetcher.fetch_pattern_low
-          draw(scanline, x_position + 5)
-          shift
-          draw(scanline, x_position + 6)
-          shift
           @clock.elapsed_dots = elapsed_dots + PATTERN_HIGH_DOT
           @fetcher.fetch_pattern_high
-          draw(scanline, x_position + 7)
-          shift
           @scroll_registers.increment_coarse_x
           last_steps = line[dot + TILE_LAST_DOT]
           @scroll_registers.increment_y if (last_steps & RenderSchedule::INCREMENT_Y) != 0 # glossary: flag-set
+        end
+
+        # The tile's 8 background pixels of 4 bits, transparent ones 0: the palette bits only where the pattern is
+        # opaque.
+        # rubocop:disable-next Metrics/AbcSize
+        def background_window
+          factor = FINE_X_FACTORS[@scroll_registers.fine_x]
+          pattern_low = ((@pattern_low * factor) >> WINDOW_SHIFT) & WINDOW_MASK # glossary: bit-field
+          pattern_high = ((@pattern_high * factor) >> WINDOW_SHIFT) & WINDOW_MASK # glossary: bit-field
+          opaque = pattern_low | pattern_high # glossary: bitwise-or
+          palette_low = ((@attribute_low * factor) >> WINDOW_SHIFT) & opaque # glossary: bit-field, bitwise-and
+          palette_high = ((@attribute_high * factor) >> WINDOW_SHIFT) & opaque # glossary: bit-field, bitwise-and
+          patterns = PATTERN_LOW_PIXELS[pattern_low] | PATTERN_HIGH_PIXELS[pattern_high] # glossary: bitwise-or
+          patterns | PALETTE_LOW_PIXELS[palette_low] | PALETTE_HIGH_PIXELS[palette_high] # glossary: bitwise-or
+        end
+
+        # The 8 shifts of a whole tile at once (plan 30, decision 2).
+        def shift_tile
+          @pattern_low = (@pattern_low << TILE_PIXELS) & SHIFT_REGISTER_MASK # glossary: shift-left, low-bits
+          @pattern_high = (@pattern_high << TILE_PIXELS) & SHIFT_REGISTER_MASK # glossary: shift-left, low-bits
+          @attribute_low = (@attribute_low << TILE_PIXELS) & SHIFT_REGISTER_MASK # glossary: shift-left, low-bits
+          @attribute_high = (@attribute_high << TILE_PIXELS) & SHIFT_REGISTER_MASK # glossary: shift-left, low-bits
         end
 
         def output_pixel(steps, scanline, dot)
@@ -195,9 +236,8 @@ module Ruby
           @attribute_high = (@attribute_high << 1) & SHIFT_REGISTER_MASK # glossary: shift-left, low-bits
         end
 
-        # The background's 4 bits under fine X (0 when transparent or hidden), the sprite line's entry at x (0 when
-        # hidden), then the entry drawn: one opaque layer as it is, a sprite without its marks; both go to the priority
-        # multiplexer. One method, no call per stage: each call costs about 5 ns per visible dot (plan 25).
+        # The background's 4 bits under fine X (0 when transparent or hidden) and the sprite line's entry at x (0 when
+        # hidden), handed to the pixel composer.
         # rubocop:disable-next Metrics/AbcSize
         def draw(scanline, x_position)
           bit = FIRST_PIXEL_BIT - @scroll_registers.fine_x
@@ -211,12 +251,7 @@ module Ruby
               palette_high | palette_low | pattern # glossary: bitwise-or
             end
           sprite = x_position < @sprite_visibility.first_visible_column ? TRANSPARENT : @sprite_entries[x_position]
-          entry =
-            if sprite == TRANSPARENT then background
-            elsif background == TRANSPARENT then sprite & SPRITE_PALETTE_ENTRY_MASK # glossary: low-bits
-            else @multiplexer.palette_entry(x_position, background, sprite)
-            end
-          @picture.draw(x_position, scanline, entry)
+          @composer.draw_pixel(background, sprite, x_position, scanline)
         end
 
         def fetch(steps)

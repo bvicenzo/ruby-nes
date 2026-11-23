@@ -20,6 +20,7 @@ require 'ruby/nes'
 require_relative 'support/cartridges'
 require_relative 'support/flat_bus'
 require_relative 'support/frame_region'
+require_relative 'support/palette_entry_picture'
 require_relative 'support/frontend_libraries'
 require_relative 'support/hex_dump'
 # After hex_dump: the blargg programs are written as hex dumps.
