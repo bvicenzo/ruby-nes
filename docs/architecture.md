@@ -114,6 +114,7 @@ device interface above plus:
 | `ppu_address(address)` | the PPU left `address` on its bus without reading or writing: v after a PPUADDR write or a PPUDATA access, outside rendering only, a deliberate divergence from the MMC3 page's "regardless of whether PPU is/is not rendering" (plan 21, decisions 1 and 10); only MMC3 watches it |
 | `cpu=` | takes the CPU: MMC1's clock (its `cycles`, plan 20 decision 1) and MMC3's IRQ line (`assert_irq`/`release_irq`) |
 | `ppu=` | takes the PPU: MMC3's A12 filter reads `Ppu#elapsed_dots` (plan 21, decision 2) |
+| `earliest_irq_cycle(cycle)` | the earliest CPU cycle the PPU's fetches could make the board assert its IRQ, the PPU standing on `cycle`: `Mappers::Base::NEVER` (`Float::INFINITY`) by default, MMC3's from its counter (plan 28, decision 3); `PpuBus` hands it to the PPU's `sync_cycle` |
 | `register_sync=` | takes `Console::PpuRegisterSync`, whose `catch_up` brings the PPU to the instruction's access cycle before every register write (plan 21, decision 6) |
 
 `Console` wires the last three on every board. The IRQ is not a method of the board any more: a board with one
@@ -249,13 +250,23 @@ the PPU answers from its own latch.
 
 ### Rendering
 
-On every dot `Ppu#catch_up` runs `Ppu::Renderer#run_dot` after the frame timing advances (plans 13 and 14). The
-renderer asks `Ppu::RenderSchedule` for the dot's steps, a set of flags from constant tables per kind of scanline
-(visible, pre-render, forced blank, idle), and runs them as one pipeline (plan 25, decision 7):
+`Ppu#catch_up` runs the dots as ranges within a scanline (plan 28, decision 4). Each range starts on the dot the frame
+timing just entered, with its events, and ends on the frame timing's last quiet dot (`FrameTiming#last_quiet_dot`) or
+the catch-up's target. `Ppu::Renderer#run_dots(scanline, first_dot, last_dot)` runs it. The renderer takes the
+scanline's steps from `Ppu::RenderSchedule#line`, one frozen array of flags per kind of scanline (visible,
+pre-render, forced blank, idle, blank), and runs each dot's steps as one pipeline (plan 25, decision 7):
 `Ppu::BackgroundFetcher` makes the nametable, attribute and pattern fetches from v, the renderer's own shift registers
 hold the two tiles in flight and give the 4-bit pixel under fine X, `Ppu::ScrollRegisters` increments and copies v, and
 `Ppu::Picture` looks a palette entry up in palette RAM (read directly, not through `PpuBus`) and stores it in the frame
-buffer, with greyscale and the forced blank's backdrop override. The pixel of dot 1-256 goes to x = dot − 1.
+buffer, with greyscale and the forced blank's backdrop override. The pixel of dot 1-256 goes to x = dot − 1. A tile of
+a visible line whose 8 dots the range covers (`RenderSchedule::WHOLE_TILE` on its first dot) runs as one unrolled
+sequence: the reload, 8 pixels each followed by its shift, the four fetches, coarse X, and Y on dot 256. The other
+dots run one at a time (plan 28, decision 6).
+
+The dot clock (`Ppu::DotClock`) holds the PPU's elapsed dots, which MMC3's A12 watch reads through
+`Ppu#elapsed_dots`. The Ppu ticks it into each range and sets it to the range's last dot. The renderer sets it to
+each dot's count before that dot's fetches, so the board sees the dot of every fetch inside a range (plan 28,
+decision 5).
 
 Sprites (plan 14): the renderer hands the sprite steps to `Ppu::SpriteRenderer`. At dot 257 of each visible line it
 clears `Ppu::SpriteLine` and `Ppu::SpriteEvaluation` selects the next line's sprites from OAM into `Ppu::SecondaryOam`
@@ -354,7 +365,8 @@ flag toggles every frame either way.
    catches the PPU up to the start of the instruction's last cycle, `cycles - 1`: every non-read-modify-write
    instruction makes its data access on its last cycle ([6502_cpu.txt](https://www.nesdev.org/6502_cpu.txt)).
    Read-modify-write instructions on PPU registers, whose accesses span their last three cycles, are approximated.
-3. After the step, `Console#step` catches the PPU up to the end of the instruction, `cycles * 3` dots.
+3. After the step, `Console#step` catches the PPU up to the end of the instruction, `cycles * 3` dots. `Console#run_frame`
+   does so only from the PPU's sync cycle on (step 7).
 4. The PPU tells the CPU each change of /NMI with the first CPU cycle whose φ2 sample sees it: the edge detector
    "polls the status of the NMI line during φ2 of each CPU cycle" ([CPU interrupts](https://www.nesdev.org/wiki/CPU_interrupts)),
    which falls before a cycle's last dot, so a change on that dot counts for the next cycle (`(dot + 1) / 3`,
@@ -370,12 +382,28 @@ flag toggles every frame either way.
    `Console#step` calls it after the PPU, and an APU register access first catches it up through the access cycle
    (`Cpu#access_cycle`, `cycles - 1`), the APU taking the CPU as its clock.
 
+7. **Sync deadline** (plan 28, decisions 1-3). Between register accesses the PPU reaches the CPU only through /NMI,
+   the end of the frame and the board's IRQ. `Ppu#sync_cycle` is the first CPU cycle at whose end the PPU must be
+   caught up for the CPU to see them on time. It is the earlier of two cycles:
+   - the cycle of the frame timing's next event, `(elapsed dots + FrameTiming#dots_to_next_event) / 3`, where the
+     event is VBlank's start or end, or the next frame's first dot with the odd frame's skipped dot;
+   - the board's `earliest_irq_cycle`. For MMC3 it is `cycle + (clocks to the IRQ − 1) × 3`, because counted A12 rises
+     are at least 3 M2 cycles apart.
+
+   An event on dot D changes /NMI on cycle (D + 1) / 3, which a step polls only if it starts after it, so D / 3 needs
+   no margin. `run_frame` catches the PPU up to a step's end when the step reached that cycle, or when a register
+   access within the step brought the PPU into the next frame. The cycle is memoised and cleared by every catch-up,
+   register access and reset: every write that could move it is preceded by a catch-up. `Console#step` keeps catching
+   up after every step, so the tracer reads the PPU's position after each instruction. The APU keeps its catch-up
+   after every step: the DMC steals CPU cycles.
+
 **Relation to the [Catch-up](https://www.nesdev.org/wiki/Catch-up) page.** The page's recipe is to find the next
 time one component could affect another (for example the CPU writing to a PPU register), run the least predictable
 component (the CPU) up to that time, then run the others up to it. The PPU registers are such sync points now; the
 mapper registers are too since plan 21 (decision 6): the base asks `PpuRegisterSync#catch_up` before handing a write
 to `$8000-$FFFF` to its board, so a bank switch or an MMC3 IRQ acknowledge lands on its dot. The APU registers are
-since plan 22.
+since plan 22. Plan 28 adds the recipe's other half: the CPU runs ahead of the PPU up to the next cycle the PPU could
+affect it on (step 7).
 
 ### Interrupt timing
 
@@ -400,10 +428,11 @@ taken once.
 reached it early and a read saw stale state; `ppu_vbl_nmi/04-nmi_control` ("Immediate occurence should be after NEXT
 instruction") cannot pass that way, since `STA $2000` writes on its last cycle, after the CPU polled.
 
-**Cost.** One `catch_up` call per PPU register access and one per step; the PPU advances one dot per call of
-`Ppu::FrameTiming#advance`. Under YJIT the CPU benchmark (nestest, CPU only) did not move. Plan 25 measured whole
-frames: the loop around each dot is about a quarter of a Super Mario Bros. 3 frame, the floor plan 28's ranges of dots
-are for ([benchmarks](benchmarks.md#plan-25-whole-frames-2026-11-22)).
+**Cost.** One `catch_up` call per PPU register access, and in `run_frame` a few per frame: three with rendering
+disabled and no board IRQ. Each call runs ranges of dots, one per scanline or less. Plan 25 measured the loop around
+each dot at about a quarter of a Super Mario Bros. 3 frame. Plan 28's deadline, ranges and whole tiles took that frame
+from 44.5 to 35.9 ms under YJIT (interleaved A/B), with identical frame and audio digests
+([benchmarks](benchmarks.md#plan-28-ranges-of-dots-2026-11-22)).
 
 **Upgrade path:** tick on every bus access — advance the PPU and APU on every CPU read and write. Exact, with the
 most calls.
@@ -429,7 +458,7 @@ most calls.
 | `lib/ruby/nes/ppu_bus.rb` | `Ruby::Nes::PpuBus` | PPU address decoding |
 | `lib/ruby/nes/ppu_bus/` | `Ruby::Nes::PpuBus::Nametables`, `::PaletteRam` | VRAM through the mirroring, palette RAM |
 | `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder, the PPU's I/O latch, the catch-up to a CPU cycle, reset and the writes it ignores; the PPUCTRL and PPUMASK settings told to the renderer |
-| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::LayerVisibility`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
+| `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::DotClock`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::LayerVisibility`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the elapsed dots, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
 | `lib/ruby/nes/apu.rb` | `Ruby::Nes::Apu` | the APU's register decoder (a channel table), `$4015`, the catch-up to a CPU cycle, the mixed output, power-up and reset |
 | `lib/ruby/nes/apu/` | `Ruby::Nes::Apu::Pulse`, `::Triangle`, `::Noise`, `::Dmc`, `::Timer`, `::DutySequencer`, `::Envelope`, `::Sweep`, `::LengthCounter`, `::LinearCounter`, `::TriangleSequencer`, `::NoiseShiftRegister`, `::FrameCounter`, `::InterruptFlag`, `::Mixer` | the five channels and their units, the frame counter, the interrupt flags of the frame counter and the DMC, and the mixer (plans 22 and 23) |
 | `lib/ruby/nes/apu/dmc/` | `Ruby::Nes::Apu::Dmc::Sample`, `::MemoryReader`, `::OutputUnit` | the DMC's address and bytes-remaining counters, its sample buffer filled by DMA, and its output level (plan 23) |
@@ -606,15 +635,15 @@ presentation, in a frontend).
 | 19 | 2026-11-18 | YJIT is the project's default JIT | Plan 10: fastest with every variant measured, 16.4 emulated MHz (915% of real time) on nestest against 9.0 for ZJIT and 3.7 without a JIT ([benchmarks](benchmarks.md#findings)) | Plan 25 (whole frames): kept, YJIT 23.4 fps against 15.4 for ZJIT |
 | 20 | 2026-11-18 | OAM DMA is `CpuBus::OamDma`, owned by `CpuBus`, which routes `$4014` writes to it; the stall comes back through `CpuBus#take_stall_cycles(halt_cycle)`, added by `Cpu#step` after every step; even CPU cycles are get cycles | The DMA's collaborators are the bus's own (CPU reads, `$2004` writes), so no circular wiring, and the `apu_registers:` and `controller_ports:` slots (decision 35) stay for the APU and the controllers; DMC DMA (plan 23) reports through the same channel. The query per step measured about −8% under YJIT on nestest | Amended by 64 (plan 23: the DMC pushes through `Cpu#halt`); the OAM push model left by plan 25 (decision 9) |
 | 21 | 2026-11-18 | The PPU's I/O latch is modelled without decay; `Ppu#cpu_read` ignores the CPU data bus | Write-only registers and PPUSTATUS's bits 4-0 answer it; decay needs time (Known gaps). Plan 12 kept it without decay (decision 9) | A later PPU pass |
-| 22 | 2026-11-18 | `PpuBus::Nametables` asks the mapper's `mirroring` on every access and maps it through a constant table; 4 KiB of VRAM support four-screen | MMC1, MMC3 and AxROM change the mirroring at runtime; four-screen costs one table row | Plan 28 (the fetch path, about 19% of a frame in plan 25) |
-| 23 | 2026-11-19 | Clock model: register-access catch-up. `Cpu#step` charges the base cycles before running the instruction; `Console::PpuRegisterSync` catches the PPU up to `cycles - 1` before every `$2000-$3FFF` access, and `Console#step` to `cycles` after the step | `ppu_vbl_nmi/04-nmi_control` cannot pass with instruction-level catch-up; one call per register access and one per step | Mapper registers synchronised since plan 21 (decision 53); plan 22 (APU registers); plan 28 (ranges of dots between the sync points) |
+| 22 | 2026-11-18 | `PpuBus::Nametables` asks the mapper's `mirroring` on every access and maps it through a constant table; 4 KiB of VRAM support four-screen | MMC1, MMC3 and AxROM change the mirroring at runtime; four-screen costs one table row | A later performance plan (the fetch path, about 19% of a frame in plan 25, untouched by plan 28) |
+| 23 | 2026-11-19 | Clock model: register-access catch-up. `Cpu#step` charges the base cycles before running the instruction; `Console::PpuRegisterSync` catches the PPU up to `cycles - 1` before every `$2000-$3FFF` access, and `Console#step` to `cycles` after the step | `ppu_vbl_nmi/04-nmi_control` cannot pass with instruction-level catch-up; one call per register access and one per step | Mapper registers synchronised since plan 21 (decision 53); plan 22 (APU registers); `run_frame` catches up only from the PPU's sync cycle on since plan 28 (decision 74) |
 | 24 | 2026-11-19 | The NMI edge carries the first CPU cycle whose φ2 sample sees it (`Cpu#nmi_line_changed(asserted, cycle)`, the PPU stamping `(dot + 1) / 3`); a release within that same cycle cancels it; `InterruptLines#acknowledge(cycle)` takes it only when it came before the previous instruction's last cycle | The edge detector "polls the status of the NMI line during φ2 of each CPU cycle", and "the status of the interrupt lines at the end of the second-to-last cycle" is what the poll sees. The φ2 point is calibrated with `ppu_vbl_nmi` 05-08, which pass only with it (not with the change counted on its own dot's cycle, nor two dots ahead) | — |
 | 25 | 2026-11-19 | IRQ sources combine as a wired-OR push: each asserts and releases its own bit on a shared line, replacing the mappers' `irq?` | The hardware's open-collector line; no query per instruction (a similar per-step query cost about 8% under YJIT) | Implemented by decision 51 (plan 21) |
 | 26 | 2026-11-19 | The indexed addressing modes make their dummy read (`_for_read` resolvers on a page cross, the plain ones always) | `instr_misc/03-dummy_reads` checks them through `$2002`'s side effect; about 2% under YJIT on nestest ([benchmarks](benchmarks.md)) | Kept by plan 25 |
 | 27 | 2026-11-19 | Power-up is `Console.new`: the CPU's and the PPU's reset, then the PPU catches up the reset's 7 cycles; `Ppu.new` accepts writes at once, `Ppu#reset` opens the window of ignored writes until VBlank ends | nestest.log's `PPU:  0, 21` at `CYC:7`; specs of single PPU registers stay simple | — |
 | 28 | 2026-11-19 | Test ROM runs are examples tagged `slow: true`, run only with `SLOW=1`; CI runs them in a job of its own under YJIT on every push and pull request, and `implement-plan` phase 5 runs `SLOW=1 bundle exec rake` for CPU, PPU, console and mapper plans | Each ROM runs seconds of emulated time; the default suite stays fast | — |
 | 29 | 2026-11-19 | `LAX #imm` ORs $FF into A (A and X get the operand), not "No More Secrets"' $EE | blargg's `instr_test-v5/03-immediate`, whose checksum comes from the console, passes only with $FF | — |
-| 30 | 2026-11-19 | The background is rendered per dot: `Ppu::BackgroundSchedule` maps each dot to step flags from constant tables, `Ppu::BackgroundRenderer` runs them on the fetcher, shifters, scroll registers, visibility and picture | Mid-scanline register writes (SMB3's status bar) land on the right dot; tables, not nested conditions, carry the NESdev timing (plan 13, decision 1) | Composition folded in by 73 (plan 25); plan 28 (ranges of dots per call) |
+| 30 | 2026-11-19 | The background is rendered per dot: `Ppu::BackgroundSchedule` maps each dot to step flags from constant tables, `Ppu::BackgroundRenderer` runs them on the fetcher, shifters, scroll registers, visibility and picture | Mid-scanline register writes (SMB3's status bar) land on the right dot; tables, not nested conditions, carry the NESdev timing (plan 13, decision 1) | Composition folded in by 73 (plan 25); ranges of dots and whole tiles since plan 28 (decisions 75 and 76) |
 | 31 | 2026-11-19 | A PPUDATA access during rendering increments coarse X and Y instead of adding 1 or 32; `Ppu::DataPort` asks `FrameTiming#rendering_in_progress?` on each access | "During rendering [...] triggering a coarse X increment and a Y increment simultaneously" ([PPU scrolling](https://www.nesdev.org/wiki/PPU_scrolling)); the frame timing knows the scanline and the rendering flags (plan 13, decision 7) | — |
 | 32 | 2026-11-19 | Sprites are evaluated once per visible scanline at dot 257 and composed through a 256-entry line buffer filled front to back at the sprite fetches (dots 261 + 8k and 263 + 8k); the overflow search follows the hardware's diagonal scan | OAMDATA writes are ignored during rendering, so OAM cannot change mid-evaluation; one lookup per pixel; NESdev's "buffer" model of priority; the fetches on their dots feed MMC3's A12 (plan 14, decisions 1-3 and 6) | A later PPU pass (overflow timing, Known gaps) |
 | 33 | 2026-11-19 | `BackgroundSchedule`, `BackgroundRenderer` and `BackgroundVisibility` became `RenderSchedule`, `Renderer` and `LayerVisibility`; the sprite steps go to `SpriteRenderer`, the sprite pattern address is a strategy per sprite size, and sprite 0 hit is its own `SpriteZeroHit` | One visibility rule serves both layers; each unit decides one thing (plan 14, decision 7) | — |
@@ -638,7 +667,7 @@ presentation, in a frontend).
 | 51 | 2026-11-21 | IRQ sources combine as a wired-OR: `Cpu#assert_irq(source)` / `Cpu#release_irq(source)`, one bit per source in `Cpu::InterruptLines` (`MAPPER_IRQ` first); the boards' `irq?` goes away | Implements decision 25 with its first source, MMC3; plans 22 and 23 add the APU's bits (plan 21, decision 5) | Plan 22 (polling point) |
 | 52 | 2026-11-21 | The base shows PRG through four 8 KiB windows and CHR through eight 1 KiB windows, kept by `Mappers::BankWindows`; a board selects a bank of any whole number of windows by address and size | MMC3's granularity, every other board's banks a whole number of windows; headless frames of an NROM ROM about 3% slower under YJIT and ZJIT, within the run-to-run variation ([benchmarks](benchmarks.md); plan 21, decision 8) | Kept by plan 25 |
 | 53 | 2026-11-21 | The base catches the PPU up (`PpuRegisterSync#catch_up`, `cpu.cycles - 1`) before every write to `$8000-$FFFF` | Mid-frame bank switches and MMC3 IRQ acknowledges land on their dot; only on the write path, which is rare (plan 21, decision 6) | — |
-| 54 | 2026-11-21 | MMC3's counter is clocked from A12 as seen in every address that reaches the board: pattern fetches, PPUDATA accesses and v left on the bus by PPUADDR writes and PPUDATA increments outside rendering (`ppu_address`); the filter counts M2 cycles as `Ppu#elapsed_dots / 3` (the board gets the PPU through `ppu=`) | "no matter what caused it", and mmc3_test_2 clocks through `$2006` and `$2007`; during rendering v's bit 12 is fine Y and the board sees every fetch, so v is not shown then, against the page's "regardless of whether PPU is/is not rendering" (plan 21, decision 10). The watch costs within noise under YJIT and 3-5% under ZJIT on SMB3 frames ([benchmarks](benchmarks.md); plan 21, decisions 1 and 2) | Plan 28 (each fetch's dot inside a range; the dot-260 shortcut is the fallback) |
+| 54 | 2026-11-21 | MMC3's counter is clocked from A12 as seen in every address that reaches the board: pattern fetches, PPUDATA accesses and v left on the bus by PPUADDR writes and PPUDATA increments outside rendering (`ppu_address`); the filter counts M2 cycles as `Ppu#elapsed_dots / 3` (the board gets the PPU through `ppu=`) | "no matter what caused it", and mmc3_test_2 clocks through `$2006` and `$2007`; during rendering v's bit 12 is fine Y and the board sees every fetch, so v is not shown then, against the page's "regardless of whether PPU is/is not rendering" (plan 21, decision 10). The watch costs within noise under YJIT and 3-5% under ZJIT on SMB3 frames ([benchmarks](benchmarks.md); plan 21, decisions 1 and 2) | Each fetch's dot inside a range comes from the dot clock since plan 28 (decision 75) |
 | 55 | 2026-11-21 | MMC3 follows the Sharp MMC3B/C "new" IRQ behaviour (an IRQ on every clock while the latch is 0), ignores `$A001` and keeps 8 KiB of PRG RAM always enabled | Mapper 4 submapper 0; 5-MMC3 passes, 6-MMC3_alt (the old behaviour) fails as expected; "Many emulators choose not to implement them [...] to avoid an incompatibility with the MMC6" (plan 21, decisions 3 and 4) | NES 2.0 submappers |
 | 56 | 2026-11-21 | A header asking for four-screen VRAM makes the base's mirroring `:four_screen`; MMC3 keeps it, boards that control their mirroring (AxROM, MMC1) set theirs over it | iNES flags 6 bit 3 is board-independent; MMC3's `$A000` "has no effect" then; no four-screen AxROM or MMC1 board is known (plan 21, decision 7) | — |
 | 57 | 2026-11-21 | The IRQ line carries cycle stamps: `Cpu#assert_irq(source, cycle)` and `#release_irq(source, cycle)`, `Cpu::IrqLine` keeping when it fell and rose; `Cpu::InterruptLines` arbitrates it with `Cpu::NmiDetector` and polls both at the same point, with the exceptions of Interrupt timing (`CLI`/`SEI`/`PLP`, taken branches, DMA stalls, interrupt sequences, hijacking through the console's register sync) | The frame IRQ makes `cpu_interrupts_v2` runnable, and every one of its five singles passes only with these; three units instead of one arbiter whose specification had grown past 30 leaves (plan 22, decisions 1 and 9) | Left by plan 25 (decision 9) |
@@ -655,6 +684,9 @@ presentation, in a frontend).
 | 68 | 2026-11-22 | Audio is mono signed 16-bit PCM at 48 kHz (`Audio::SAMPLE_RATE`), made in the core only when a frontend plays or keeps it | The macOS output device's own rate, so miniaudio does not resample again; without a listener the APU mixes nothing (`@resampler&.add(output)` skips evaluating `output`), as mixing every cycle cost about 9% (plan 24, decisions 1 and 6) | Left by plan 25 (decision 9: the APU and audio are about 14% of a frame) |
 | 69 | 2026-11-22 | A box resampler with an exact integer phase, no dynamic rate control | With the audio as the window's master clock there is no drift to correct; band-limited synthesis only if the quality calls for it (plan 24, decision 4) | — |
 | 70 | 2026-11-22 | The output filters are a first-order high-pass at 90 Hz and a first-order low-pass at 14 kHz, in the discrete RC form at the output rate | The APU Mixer page's list (no 440 Hz high-pass); the RC form costs one multiply per filter (plan 24, decision 5; Known gaps: low-pass filter near Nyquist) | — |
-| 71 | 2026-11-22 | With audio the window is paced by it (`Frontends::AudioPacing`); an underrun is a gap of silence; paused, it queues silence | raylib zero-fills a sub-buffer that runs dry; muting while slow or slowing the pitch would add state for a speed plan 25 is to reach (plan 24, decisions 2 and 7) | Plan 28 (crackle-free at full speed) |
+| 71 | 2026-11-22 | With audio the window is paced by it (`Frontends::AudioPacing`); an underrun is a gap of silence; paused, it queues silence | raylib zero-fills a sub-buffer that runs dry; muting while slow or slowing the pitch would add state for a speed plan 25 is to reach (plan 24, decisions 2 and 7) | When a configuration reaches full speed (the crackle-free check plan 28 could not run) |
 | 72 | 2026-11-22 | Flag tests on hot paths are inline, `(value & FLAG) != 0 # glossary: flag-set` (and `flag-clear`); `anybits?`/`allbits?`/`nobits?` stay mandatory off them; `Style/BitwisePredicate` is disabled for the directories of per-dot, per-cycle and per-instruction code (`apu`, `cpu`, `input`, `mappers`, `ppu`), where load-time code (tables, board building) still uses the predicates | Under YJIT and ZJIT `anybits?` is a C call and the operator compiles inline: about 9 ns more per test, and converting every hot-path flag test took a Super Mario Bros. 3 frame from 70.9 to 54.5 ms under YJIT (-23%; plan 25, decision 1, benchmarks.md) | — |
-| 73 | 2026-11-22 | The renderer is a per-dot pipeline: it owns the background shift registers (`BackgroundShifters` folded in) and both layers' visibility, composes each pixel itself from the sprite line's entries, asks the priority multiplexer only where both layers are opaque, and the picture reads palette RAM without `PpuBus` | The per-dot chain of objects cost about a third of a Super Mario Bros. 3 frame in calls (vernier); still one `run_dot` per dot, so `@dots` is right at every fetch MMC3's A12 watch reads (plan 25, decision 7) | Plan 28 (ranges of dots per call between the sync points) |
+| 73 | 2026-11-22 | The renderer is a per-dot pipeline: it owns the background shift registers (`BackgroundShifters` folded in) and both layers' visibility, composes each pixel itself from the sprite line's entries, asks the priority multiplexer only where both layers are opaque, and the picture reads palette RAM without `PpuBus` | The per-dot chain of objects cost about a third of a Super Mario Bros. 3 frame in calls (vernier); still one `run_dot` per dot, so `@dots` is right at every fetch MMC3's A12 watch reads (plan 25, decision 7) | Ranges of dots and whole tiles since plan 28 (decisions 75 and 76) |
+| 74 | 2026-11-22 | `Console#run_frame` catches the PPU up to a step's end only from `Ppu#sync_cycle` on: the earlier of its frame timing's next event (VBlank start or end, the next frame) divided by 3 and the board's `earliest_irq_cycle` (MMC3: `cycle + (clocks to the IRQ − 1) × 3`), memoised until a catch-up, register access or reset; `Console#step` still catches up after every step | With a catch-up after every instruction each covered 6-21 dots, too few for ranges to pay; between register accesses the PPU reaches the CPU only through /NMI, the frame's end and the board's IRQ, all predictable with a bound that never comes late, so the output is exact (identical digests). The tracer reads the PPU after each `step` (plan 28, decisions 1-3) | The APU's catch-up after every step, if it costs enough to defer (the DMC steals CPU cycles) |
+| 75 | 2026-11-22 | `Ppu#catch_up` runs ranges within a scanline up to `FrameTiming#last_quiet_dot` (dot 0 on scanlines 241 and 261, the skipped dot on an odd frame's pre-render line with rendering, 340 otherwise) through `Renderer#run_dots`; `Ppu::DotClock`, shared with the renderer, holds the elapsed dots, which the renderer sets before each dot's fetches | The loop lives where the dot count and the frame timing are; a shared clock keeps the board's contract (`Ppu#elapsed_dots` at each fetch) instead of a dot on every PPU bus read (plan 28, decisions 4 and 5) | — |
+| 76 | 2026-11-22 | A tile of a visible line whose 8 dots a range covers runs as one unrolled sequence (`RenderSchedule::WHOLE_TILE`), the other dots one at a time | About 15% of a Super Mario Bros. 3 frame under YJIT; the same tile as a `while` loop with the pixel inline and a `case` for the fetches was measured slower than the per-dot path (plan 28, decision 6) | — |

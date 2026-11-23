@@ -24,6 +24,54 @@ zero). Each configuration and variant runs in a process of its own.
 
 ## Findings
 
+### Plan 28: ranges of dots (2026-11-22)
+
+The same frame workload as plan 25, with the same digests in every configuration and run: f0903fbc59bf (frame),
+10369a5b40df (audio).
+
+| Configuration | Plan 25's final (370614b) | Plan 28's final | Change |
+|---|---|---|---|
+| interpreter | 5.2 fps (192.1 ms) | 7.0 fps (142.3 ms) | -26% per frame |
+| yjit | 23.4 fps (42.7 ms) | 27.9 fps (35.8 ms) | -16% per frame |
+| zjit | 15.4 fps (65.1 ms) | 19.4 fps (51.6 ms) | -21% per frame |
+
+Measured against the previous final in another session. Interleaved in one session against a worktree of 370614b,
+YJIT reads 44.5 against 35.9 ms (-19%).
+
+**Why ranges alone did not pay.** `Console#step` caught the PPU up after every instruction, so each `catch_up` covered
+6-21 dots. A prototype running those as ranges gained nothing, and a whole tile was rarely inside one.
+
+**What was kept.** Throwaway prototypes, A/B interleaved, each kept step with identical digests:
+
+1. The sync deadline (architecture decision 74): `run_frame` catches the PPU up only from its sync cycle on, three
+   times a frame with rendering disabled. About -7%.
+2. Ranges within a scanline (decision 75), with the dot clock the renderer moves for the board's A12 watch. About
+   -7%.
+3. Whole tiles unrolled (decision 76). About -15%.
+
+**Not kept:** a whole tile as a `while` loop with the pixel inline and a `case` for the fetches. It measured about 48
+ms against 40 for the per-dot path it replaced, though it calls fewer methods: YJIT runs the straight-line sequence
+of calls faster.
+
+**YJIT stays the default** (27.9 against 19.4 fps under ZJIT).
+
+**The gap: 35.8 ms per frame under YJIT against 16.6 ms**, about 19 ms. Per component, from vernier (200 frames,
+every method grouped by a pattern on its name):
+
+| Component | Share | ms per frame |
+|---|---|---|
+| Pixel composition (`Renderer#run_tile` and `#draw`, the shift registers, `Picture#draw`, palette RAM, the multiplexer) | ~29% | ~10 |
+| APU and audio (catch-up per cycle, channel outputs, mixer, resampler) | ~21% | ~7.5 |
+| Background fetches and v updates (fetcher, `PpuBus`, nametables, mapper, MMC3's A12 watch) | ~17% | ~6 |
+| The loops (`Console#run_frame`, `Ppu#catch_up`, `Renderer#run_dots` and `#run_dot`, the frame timing) | ~13% | ~4.5 |
+| Sprite steps (`SpriteRenderer#run_steps` on dots 257-320, evaluation) | ~9% | ~3.5 |
+| CPU and CPU bus | ~8% | ~3 |
+
+The loops went from about 11 to about 4.5 ms. No single component closes the rest. The pixel is the largest: one
+`draw` and one `Picture#draw` per pixel, 61 440 a frame. The APU's catch-up after every step is next: it runs every
+CPU cycle with the channels' timers, and deferring it needs deadlines of its own for the DMC's stolen cycles and the
+frame IRQ.
+
 ### Plan 25: whole frames (2026-11-22)
 
 The frame workload (`rake bench:frames`, `bench/frame.rb`): Super Mario Bros. 3 from power-up, played by the console
@@ -60,7 +108,7 @@ The frontend is not in this workload (headless, no RGB conversion): in the windo
 measured at about 2.8 ms per frame, and the present.
 
 The loop around each dot alone is about two thirds of the budget: no change inside a dot reaches 60 fps, which is why
-the next step, plan 28, runs ranges of dots per call between the sync points.
+the next step, plan 28, runs ranges of dots per call between the sync points (see above).
 
 **`rake bench:cpu` no longer measures the CPU alone.** It reads 4.3 MHz under YJIT on 818529a and on plan 25's tree
 alike, against 16.4 at the end of plan 10: since plan 22, nestest's writes to `$4015` and `$4017` catch the APU up,
@@ -500,3 +548,32 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) C
 | zjit | memory_io_buffer | 2.81 | 157% | 0.2% | -5.2% |
 | zjit | bits_helpers | 2.86 | 160% | 0.1% | -3.5% |
 | zjit | interrupt_poll_inline | 3.28 | 183% | 0.2% | +10.7% |
+
+### 2026-11-22 — Plan 28: the sync deadline, ranges of dots and whole tiles (A/B against 370614b)
+
+Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60, YJIT, `bench/frame.rb` run in turn
+on a worktree of 370614b and on the working tree, three rounds:
+
+| Round | 370614b | Plan 28 |
+|---|---|---|
+| 1 | 42.5 ms | 36.1 ms |
+| 2 | 44.6 ms | 35.9 ms |
+| 3 | 44.5 ms | 35.7 ms |
+
+Every run's digests were f0903fbc59bf (frame) and 10369a5b40df (audio). The prototypes that chose the design
+(monkeypatches over 370614b, one session, YJIT, about 46 ms for the base) measured:
+
+- sync deadline: ~43 ms;
+- + ranges: ~40 ms;
+- + whole tiles unrolled: ~34 ms;
+- whole tiles as an inline loop instead: ~48 ms.
+
+### 2026-11-22 — Final (plan 28) — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 7.0 | 142.3 | 12% | 2.4% | f0903fbc59bf | 10369a5b40df |
+| yjit | 27.9 | 35.8 | 46% | 1.7% | f0903fbc59bf | 10369a5b40df |
+| zjit | 19.4 | 51.6 | 32% | 1.1% | f0903fbc59bf | 10369a5b40df |
