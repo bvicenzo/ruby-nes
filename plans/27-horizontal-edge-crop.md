@@ -1,5 +1,8 @@
 # 27 — Horizontal edge crop
 
+**Status:** won't do (2026-11-23). The left-edge strip and the scrolling artifacts it would hide are what the real
+console shows too (Super Mario Bros. 3 on hardware has the same edges), so the option is not worth the effort.
+
 **Depends on:** 18
 
 ## Goal
