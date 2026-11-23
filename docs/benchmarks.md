@@ -24,6 +24,58 @@ zero). Each configuration and variant runs in a process of its own.
 
 ## Findings
 
+### Plan 29: the APU's sync deadline and runs (2026-11-23)
+
+The same frame workload, with the same digests in every configuration and run: f0903fbc59bf (frame), 10369a5b40df
+(audio).
+
+| Configuration | Plan 28's final | Plan 29's final | Change |
+|---|---|---|---|
+| interpreter | 7.0 fps (142.3 ms) | 10.2 fps (97.7 ms) | -31% per frame |
+| yjit | 27.9 fps (35.8 ms) | 34.1 fps (29.3 ms) | -18% per frame |
+| zjit | 19.4 fps (51.6 ms) | 30.3 fps (33.0 ms) | -36% per frame |
+
+**Before starting** (throwaway instrumentation, 200 frames after the warm-up, YJIT): the APU and audio were about 20%
+of the frame, and about half of it was the mix computed every cycle (`Pulse#output`, `Apu#output`, `Mixer.mix`,
+`Sweep#muting?`, ...). The mix changed about 247 times a frame. Runs ending at every sequencer clock would have been
+2-3 cycles long: the noise played at its fastest period (a clock every 4 CPU cycles) and ended about 3 370 runs a
+frame, the DMC about 550, yet the noise could sound on 4.3% of the cycles and the DMC had a sample on 31%.
+
+**Steps**, interleaved under YJIT against a worktree of 3c41340 (plan 28's tree, about 35-36 ms in these sessions),
+every variant with identical digests:
+
+| Variant | ms per frame | Kept |
+|---|---|---|
+| Sync deadline, the catch-up loop holding the cycle's body | ~37.7 (+3%) | no: see below |
+| Sync deadline, the cycle's body in `Apu#run_cycle` | ~36.4 (neutral) | yes, as the base of the runs |
+| + runs that end at every clock (prototype) | ~31.5 | yes |
+| + muted channels do not end runs (prototype) | ~28.4 | yes |
+| The plan's final tree | ~28.6 (-19%) | — |
+
+**A YJIT finding.** The deadline alone took catch-ups from about 9 900 a frame to about 31, yet the frame got slower.
+A microbenchmark of `Apu#catch_up` over the same 29 780 cycles, without audio, took 2.2 ms in catch-ups of 3 cycles and
+4.2 ms in catch-ups of 3 000; the interpreter took about 16-17 ms either way. With the cycle's body moved into a method
+the loop calls, both took about 2.3-2.5 ms. The emulator's catch-up loops call a method per step since (architecture
+decision 82). The cause inside YJIT was not investigated.
+
+**Not kept:** an integer `Apu::NEVER` was tried first as the cause of the slowdown above (an Integer compared with
+`Float::INFINITY` on every step); it was not, but the runs need it anyway (decision 81). An integer accumulator in the
+resampler was not tried: it changes the float sum's rounding, so it belongs to the fast mode (decision 77).
+
+**The gap: 29.3 ms per frame under YJIT against 16.6 ms**, about 12.7 ms. Per component, from vernier's top methods
+(200 frames, self time):
+
+| Component | Share |
+|---|---|
+| Pixel composition (`Renderer#run_tile` and `#draw`, `Picture#draw`, the shifts, palette RAM) | ~36% |
+| Background fetches (fetcher, `PpuBus`, nametables, mapper, MMC3) | ~22% |
+| The loops (`Renderer#run_dots` and `#run_dot`, `Console#run_frame`, `Ppu#catch_up`) | ~15% |
+| Sprite steps (`SpriteRenderer#run_steps`, evaluation) | ~10% |
+| CPU and CPU bus | ~7% |
+| APU and audio (the resampler's per-cycle additions, the runs) | ~2% |
+
+The APU is out of the way; plans 30 and 31 (the background pipeline, the sprites and dots 257-340) hold the rest.
+
 ### Plan 28: ranges of dots (2026-11-22)
 
 The same frame workload as plan 25, with the same digests in every configuration and run: f0903fbc59bf (frame),
@@ -577,3 +629,13 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) C
 | interpreter | 7.0 | 142.3 | 12% | 2.4% | f0903fbc59bf | 10369a5b40df |
 | yjit | 27.9 | 35.8 | 46% | 1.7% | f0903fbc59bf | 10369a5b40df |
 | zjit | 19.4 | 51.6 | 32% | 1.1% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-23 — Final (plan 29) — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 10.2 | 97.7 | 17% | 1.4% | f0903fbc59bf | 10369a5b40df |
+| yjit | 34.1 | 29.3 | 57% | 2.6% | f0903fbc59bf | 10369a5b40df |
+| zjit | 30.3 | 33.0 | 50% | 1.7% | f0903fbc59bf | 10369a5b40df |
