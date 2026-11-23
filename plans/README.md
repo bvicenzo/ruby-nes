@@ -57,8 +57,17 @@ Conventions (see also `CLAUDE.md`):
 | 26 | [Spinel AOT experiment](26-spinel-experiment.md) | 10 (minimum), 25 (full) | todo |
 | 27 | [Horizontal edge crop](27-horizontal-edge-crop.md) | 18 | todo |
 | 28 | [PPU dot ranges](28-ppu-dot-ranges.md) | 25 | done |
+| 29 | [APU sync deadline and runs of cycles](29-apu-sync-deadline-and-runs.md) | 28 | todo |
+| 30 | [Background pipeline per tile](30-background-pipeline-per-tile.md) | 28 | todo |
+| 31 | [Sprites and the horizontal blank](31-sprites-and-horizontal-blank.md) | 30 | todo |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
+
+Plans 29-31 go after the gap M7 left (27.9 fps under YJIT after plan 28), each exact: the `rake bench:frames` digests
+stay unchanged. They grouped plan 28's per-component profile by what changes together: the APU, the background's
+pixel, fetch and loop, the sprites and dots 257-340. Each starts by profiling again, and the series stops at the plan
+that reaches 60 fps with crackle-free audio. Accuracy shortcuts enter only as an optional fast mode, with the exact
+model as the default (architecture decision 77).
 
 ## Backlog (not planned)
 
