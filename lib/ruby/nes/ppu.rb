@@ -86,7 +86,7 @@ module Ruby
       def initialize(bus:, nmi_input: nil, scroll_registers: ScrollRegisters.new, oam: Oam.new,
                      frame_timing: FrameTiming.new(events: self), vertical_blank: VerticalBlank.new(nmi_output: self),
                      sprite_status: SpriteStatus.new, clock: DotClock.new,
-                     sprite_renderer: SpriteRenderer.build(bus:, oam:, status: sprite_status),
+                     sprite_renderer: SpriteRenderer.build(bus:, oam:, status: sprite_status, clock:),
                      renderer: Renderer.new(
                        scroll_registers:,
                        fetcher: BackgroundFetcher.new(bus:, scroll_registers:),

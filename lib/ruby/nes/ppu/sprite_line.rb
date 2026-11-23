@@ -13,10 +13,14 @@ module Ruby
       # pattern value, "Palette (4 to 7)" being attribute bits 1-0 (https://www.nesdev.org/wiki/PPU_OAM,
       # https://www.nesdev.org/wiki/PPU_palettes), plus BEHIND_BACKGROUND_FLAG from attribute bit 5 and
       # SPRITE_ZERO_FLAG; 0 is a column no sprite covers. Columns past 255 are "past the right edge of the screen, thus
-      # invisible". Hot path: filled at the sprite fetches, read by the renderer once per pixel.
+      # invisible". It also flags each group of 8 columns, a tile of the screen, where an opaque sprite pixel lies, so the
+      # renderer composes a tile with none from the background alone (plan 31, decision 1). Hot path: filled at the
+      # sprite fetches, read by the renderer once per pixel and once per whole tile.
       class SpriteLine
         WIDTH = Picture::WIDTH
         SPRITE_WIDTH = 8
+        TILE_WIDTH = 8
+        TILES = WIDTH / TILE_WIDTH
         EMPTY = 0
         # Sprite palette entries are $10-$1F ("Background/Sprite select").
         SPRITE_PALETTES = 0x10
@@ -38,12 +42,17 @@ module Ruby
         # `clear` empties in place, so the renderer keeps a reference to it (plan 25, decision 7).
         attr_reader :entries
 
+        # The 32 flags, group g being columns 8g to 8g + 7: one array for the life of the line, like the entries.
+        attr_reader :occupied_tiles
+
         def initialize
           @entries = Array.new(WIDTH, EMPTY)
+          @occupied_tiles = Array.new(TILES, false)
         end
 
         def clear
           @entries.fill(EMPTY)
+          @occupied_tiles.fill(false)
         end
 
         # Puts a sprite's row from column x, keeping the pixels of the sprites placed before it.
@@ -73,6 +82,7 @@ module Ruby
 
         def put(column, entry)
           @entries[column] = entry if @entries[column] == EMPTY
+          @occupied_tiles[column / TILE_WIDTH] = true
         end
       end
     end

@@ -96,6 +96,10 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
     it 'empties every column' do
       expect { line.clear }.to change { line.entries[100] }.from(0x51).to(0x00)
     end
+
+    it 'clears every occupied tile' do
+      expect { line.clear }.to change(line, :occupied_tiles).to(Array.new(32, false))
+    end
   end
 
   # The renderer keeps a reference to the entries across scanlines (plan 25, decision 7).
@@ -127,6 +131,69 @@ RSpec.describe Ruby::Nes::Ppu::SpriteLine do
 
       it 'stays the same array' do
         expect { line.clear }.not_to(change { line.entries.object_id })
+      end
+    end
+  end
+
+  # One flag per group of 8 columns, group g being columns 8g to 8g + 7, set where an opaque sprite pixel lies: the
+  # renderer composes a whole tile with no sprite pixel from the background alone, and keeps a reference to the flags
+  # across scanlines (plan 31, decision 1).
+  describe '#occupied_tiles' do
+    subject(:line) { described_class.new }
+
+    context 'when nothing was placed' do
+      it 'is 32 clear flags' do
+        expect(line.occupied_tiles).to eq(Array.new(32, false))
+      end
+    end
+
+    context 'when a sprite was placed' do
+      context 'and its row is transparent' do
+        before { line.place(100, 0b0000_0000, 0b0000_0000, 0x00, false) }
+
+        it 'marks no group' do
+          expect(line.occupied_tiles).to eq(Array.new(32, false))
+        end
+      end
+
+      context 'and its opaque pixels lie in both groups it covers' do
+        before { line.place(100, 0b1000_0001, 0b0000_0000, 0x00, false) }
+
+        it 'marks both groups' do
+          expect(line.occupied_tiles).to eq(Array.new(12, false) + [true, true] + Array.new(18, false))
+        end
+      end
+
+      context 'and its opaque pixels lie in only one of the groups it covers' do
+        before { line.place(100, 0b1000_0000, 0b0000_0000, 0x00, false) }
+
+        it 'marks only that group' do
+          expect(line.occupied_tiles).to eq(Array.new(12, false) + [true] + Array.new(19, false))
+        end
+      end
+
+      context 'and it runs past the right edge' do
+        before { line.place(252, 0b1111_1111, 0b0000_0000, 0x00, false) }
+
+        it 'marks only the last group, keeping 32 flags' do
+          expect(line.occupied_tiles).to eq(Array.new(31, false) + [true])
+        end
+      end
+
+      context 'and it is flipped horizontally' do
+        before { line.place(100, 0b1000_0000, 0b0000_0000, 0x40, false) }
+
+        it 'marks the groups of the mirrored pixels' do
+          expect(line.occupied_tiles).to eq(Array.new(13, false) + [true] + Array.new(18, false))
+        end
+      end
+    end
+
+    context 'when the line is cleared' do
+      before { line.place(100, 0b1000_0000, 0b0000_0000, 0x00, false) }
+
+      it 'stays the same array' do
+        expect { line.clear }.not_to(change { line.occupied_tiles.object_id })
       end
     end
   end

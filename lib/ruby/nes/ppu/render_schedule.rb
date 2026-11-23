@@ -21,7 +21,9 @@ module Ruby
       # is set to 0 during each of ticks 257–320" (https://www.nesdev.org/wiki/PPU_registers). With rendering disabled,
       # visible and pre-render lines still clear the sprite line at 257: nothing is fetched, and an output unit shows
       # its row only on the line after its fetch (a derivation, https://www.nesdev.org/wiki/PPU_OAM).
-      # Within a dot, the steps run in flag order. Hot path: one line per range of dots, from constant tables.
+      # Within a dot, the steps run in flag order. Ranges that cover 8 dots run them as one sequence: a visible line's
+      # tiles (WHOLE_TILE) and sprite slots (WHOLE_SLOT), and the next line's two tiles on both rendering lines
+      # (WHOLE_NEXT_LINE_TILE). Hot path: one line per range of dots, from constant tables.
       class RenderSchedule
         RELOAD = 0x001
         PIXEL = 0x002
@@ -45,6 +47,14 @@ module Ruby
         # the reload before the first and the Y increment of the last differ), so a range that covers them can run them
         # as one sequence (plan 28, decision 6).
         WHOLE_TILE = 0x40000
+        # The first dot of a sprite slot a visible line loads: a range that covers its 8 dots runs its fetches and load
+        # as one sequence (plan 31, decisions 2 and 3).
+        WHOLE_SLOT = 0x80000
+        # The first dot of one of the next line's two tiles (321 and 329): its 8 dots shift and fetch the same way, so a
+        # range that covers them runs them as one sequence, a whole tile without its pixels (plan 31, decision 5).
+        WHOLE_NEXT_LINE_TILE = 0x100000
+        # The flags that start a sequence of 8 dots.
+        WHOLE_STEPS = WHOLE_TILE | WHOLE_SLOT | WHOLE_NEXT_LINE_TILE
         # The steps the sprite renderer runs.
         SPRITE_STEPS =
           CLEAR_SPRITE_LINE |
@@ -55,15 +65,20 @@ module Ruby
           LOAD_SPRITE
 
         DOTS_PER_SCANLINE = FrameTiming::DOTS_PER_SCANLINE
+        # A tile and a sprite slot both take 8 dots ("8 cycles per sprite", https://www.nesdev.org/wiki/PPU_rendering):
+        # the length of every sequence a WHOLE_STEPS flag starts, whose other 7 dots hold only the steps the renderer's
+        # sequence makes (plan 31, review).
+        SEQUENCE_DOTS = 8
         # The dots of a tile, and its fetches by the dot's place in it (the first dot of each 2-dot access); the
         # tile's last dot increments coarse X.
-        TILE_DOTS = 8
+        TILE_DOTS = SEQUENCE_DOTS
         TILE_STEPS = [
           FETCH_NAMETABLE, 0, FETCH_ATTRIBUTE, 0, FETCH_PATTERN_LOW, 0, FETCH_PATTERN_HIGH, INCREMENT_COARSE_X
         ].freeze
         PIXEL_DOTS = (1..256)
         WHOLE_TILE_DOTS = PIXEL_DOTS.step(TILE_DOTS)
         NEXT_LINE_TILE_DOTS = (321..336)
+        WHOLE_NEXT_LINE_TILE_DOTS = NEXT_LINE_TILE_DOTS.step(TILE_DOTS)
         # The reloads after the next line's two tiles, the last one past 336.
         RELOAD_DOTS = [*(9..257).step(TILE_DOTS), 329, 337].freeze
         INCREMENT_Y_DOT = 256
@@ -72,7 +87,8 @@ module Ruby
         # The sprite fetches: 8 sprites of 8 dots from 257, the low and high pattern fetches being their third and fourth
         # 2-dot accesses; OAMADDR is 0 through all of them.
         SPRITE_FETCH_DOTS = (257..320)
-        SPRITE_DOTS = 8
+        SPRITE_DOTS = SEQUENCE_DOTS
+        WHOLE_SLOT_DOTS = SPRITE_FETCH_DOTS.step(SPRITE_DOTS)
         SPRITE_DOT_STEPS = [0, 0, 0, 0, FETCH_SPRITE_LOW, 0, FETCH_SPRITE_HIGH, 0].freeze
         SPRITE_EVALUATION_DOT = 257
 
@@ -84,6 +100,7 @@ module Ruby
             steps = rendering_steps(dot) | (PIXEL_DOTS.cover?(dot) ? PIXEL : 0) # glossary: bitwise-or
             steps |= EVALUATE_SPRITES if dot == SPRITE_EVALUATION_DOT # glossary: bitwise-or
             steps |= WHOLE_TILE if WHOLE_TILE_DOTS.include?(dot) # glossary: bitwise-or
+            steps |= WHOLE_SLOT if WHOLE_SLOT_DOTS.include?(dot) # glossary: bitwise-or
             steps |= LOAD_SPRITE if steps.anybits?(FETCH_SPRITE_HIGH) # glossary: bitwise-or
             steps
           end
@@ -105,6 +122,7 @@ module Ruby
             steps |= SHIFT | TILE_STEPS[(dot - 1) % TILE_DOTS] if tile_dot?(dot) # glossary: bitwise-or
             steps |= INCREMENT_Y if dot == INCREMENT_Y_DOT # glossary: bitwise-or
             steps |= COPY_HORIZONTAL if dot == COPY_HORIZONTAL_DOT # glossary: bitwise-or
+            steps |= WHOLE_NEXT_LINE_TILE if WHOLE_NEXT_LINE_TILE_DOTS.include?(dot) # glossary: bitwise-or
             steps | sprite_steps(dot) # glossary: bitwise-or
           end
 

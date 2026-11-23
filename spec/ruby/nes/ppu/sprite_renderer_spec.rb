@@ -13,7 +13,7 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
     let(:status) { instance_double(Ruby::Nes::Ppu::SpriteStatus) }
 
     it 'assembles parts that share the 8×8 address: a sprite fetched from the table PPUCTRL selects shows at its X' do
-      sprite_renderer = described_class.build(bus:, oam:, status:)
+      sprite_renderer = described_class.build(bus:, oam:, status:, clock: Ruby::Nes::Ppu::DotClock.new)
       sprite_renderer.pattern_table = 0x1000
       sprite_renderer.run_steps(Ruby::Nes::Ppu::RenderSchedule::EVALUATE_SPRITES, 100, 257)
       sprite_renderer.run_steps(Ruby::Nes::Ppu::RenderSchedule::FETCH_SPRITE_LOW, 100, 261)
@@ -24,10 +24,17 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
       )
       expect(sprite_renderer.line_entries[0x40]).to eq(0x51)
     end
+
+    it 'hands the parts the clock it is given: a whole slot moves it to its fetches' do
+      clock = Ruby::Nes::Ppu::DotClock.new
+      sprite_renderer = described_class.build(bus:, oam:, status:, clock:)
+      sprite_renderer.run_slot(100, 257, 1_000)
+      expect(clock.elapsed_dots).to eq(1_006)
+    end
   end
 
   describe '#run_steps' do
-    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:) }
+    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:, clock: Ruby::Nes::Ppu::DotClock.new) }
 
     let(:oam) { Ruby::Nes::Ppu::Oam.new(address: 0x40) }
     let(:evaluation) { instance_double(Ruby::Nes::Ppu::SpriteEvaluation, evaluate: nil) }
@@ -102,8 +109,49 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
     end
   end
 
+  # A slot whose 8 dots a range covers, from its first dot, whose count is the given elapsed dots: OAMADDR is reset
+  # once, as nothing within a range can change it (plan 31, decision 3), and the slot's fetches are made on their
+  # dots, the third and fourth 2-dot accesses (https://www.nesdev.org/wiki/PPU_rendering), the clock on each one's
+  # count for the board's A12 watch.
+  describe '#run_slot' do
+    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:, clock:) }
+
+    let(:oam) { Ruby::Nes::Ppu::Oam.new(address: 0x40) }
+    let(:evaluation) { instance_double(Ruby::Nes::Ppu::SpriteEvaluation) }
+    let(:fetcher) do
+      instance_double(Ruby::Nes::Ppu::SpriteFetcher, fetch_pattern_low: 0, fetch_pattern_high: 0, load_sprite: nil)
+    end
+    let(:line) { instance_double(Ruby::Nes::Ppu::SpriteLine) }
+    let(:clock) { instance_double(Ruby::Nes::Ppu::DotClock, :elapsed_dots= => nil) }
+
+    context 'when it is the first slot' do
+      before { sprite_renderer.run_slot(100, 257, 1_000) }
+
+      it 'sets OAMADDR to 0' do
+        expect(oam.address).to eq(0)
+      end
+
+      it "fetches the slot's two bytes, the clock on each one's dot, then loads the slot", :aggregate_failures do
+        expect(clock).to have_received(:elapsed_dots=).with(1_004).ordered
+        expect(fetcher).to have_received(:fetch_pattern_low).with(0, 100).ordered
+        expect(clock).to have_received(:elapsed_dots=).with(1_006).ordered
+        expect(fetcher).to have_received(:fetch_pattern_high).ordered
+        expect(fetcher).to have_received(:load_sprite).with(0).ordered
+      end
+    end
+
+    context 'when it is the eighth slot' do
+      before { sprite_renderer.run_slot(100, 313, 1_056) }
+
+      it 'fetches and loads the eighth slot', :aggregate_failures do
+        expect(fetcher).to have_received(:fetch_pattern_low).with(7, 100)
+        expect(fetcher).to have_received(:load_sprite).with(7)
+      end
+    end
+  end
+
   describe '#line_entries' do
-    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:) }
+    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:, clock: Ruby::Nes::Ppu::DotClock.new) }
 
     let(:oam) { Ruby::Nes::Ppu::Oam.new }
     let(:evaluation) { instance_double(Ruby::Nes::Ppu::SpriteEvaluation) }
@@ -116,9 +164,25 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
     end
   end
 
+  describe '#occupied_tiles' do
+    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:, clock: Ruby::Nes::Ppu::DotClock.new) }
+
+    let(:oam) { Ruby::Nes::Ppu::Oam.new }
+    let(:evaluation) { instance_double(Ruby::Nes::Ppu::SpriteEvaluation) }
+    let(:fetcher) { instance_double(Ruby::Nes::Ppu::SpriteFetcher) }
+    let(:line) { instance_double(Ruby::Nes::Ppu::SpriteLine, occupied_tiles:) }
+    let(:occupied_tiles) { Array.new(32, false) }
+
+    it "is its line's occupied tiles" do
+      expect(sprite_renderer.occupied_tiles).to be(occupied_tiles)
+    end
+  end
+
   describe '#tall_sprites=' do
     subject(:sprite_renderer) do
-      described_class.new(oam:, evaluation:, fetcher:, line:, eight_by_eight:, eight_by_sixteen:)
+      described_class.new(
+        oam:, evaluation:, fetcher:, line:, eight_by_eight:, eight_by_sixteen:, clock: Ruby::Nes::Ppu::DotClock.new
+      )
     end
 
     let(:oam) { Ruby::Nes::Ppu::Oam.new }
@@ -146,7 +210,9 @@ RSpec.describe Ruby::Nes::Ppu::SpriteRenderer do
   end
 
   describe '#pattern_table=' do
-    subject(:sprite_renderer) { described_class.new(oam:, evaluation:, fetcher:, line:, eight_by_eight:) }
+    subject(:sprite_renderer) do
+      described_class.new(oam:, evaluation:, fetcher:, line:, eight_by_eight:, clock: Ruby::Nes::Ppu::DotClock.new)
+    end
 
     let(:oam) { Ruby::Nes::Ppu::Oam.new }
     let(:evaluation) { instance_double(Ruby::Nes::Ppu::SpriteEvaluation) }

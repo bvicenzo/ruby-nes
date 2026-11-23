@@ -36,7 +36,13 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     end
     let(:picture) { PaletteEntryPicture.build }
     let(:sprite_line) { Ruby::Nes::Ppu::SpriteLine.new }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: sprite_line.entries) }
+    let(:sprite_renderer) do
+      instance_double(
+        Ruby::Nes::Ppu::SpriteRenderer,
+        line_entries: sprite_line.entries,
+        occupied_tiles: sprite_line.occupied_tiles
+      )
+    end
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer, palette_entry: 0x15) }
 
     context 'when the range has no step' do
@@ -754,6 +760,33 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
         end
       end
 
+      # The line's entries hold a pixel at column 2 (palette 7, pattern 01: entry $1D) its flags leave clear: the
+      # renderer trusts the flags, which SpriteLine keeps with the entries (plan 31, decision 1).
+      context 'and the sprite line flags no sprite pixel in the tile' do
+        let(:background_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
+        let(:sprite_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
+
+        before do
+          allow(schedule).to receive(:line).and_return(
+            ScheduleLines.build(321 => Ruby::Nes::Ppu::RenderSchedule::RELOAD, 322..329 => Ruby::Nes::Ppu::RenderSchedule::SHIFT),
+            Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE
+          )
+          allow(clock).to receive(:elapsed_dots).and_return(5_000, 1_000)
+          allow(fetcher).to receive_messages(pattern_low: 0xFF, pattern_high: 0x00, palette: 0b01)
+          allow(sprite_line).to receive(:entries).and_return([0x00, 0x00, 0x1D] + Array.new(253, 0x00))
+          renderer.run_dots(99, 321, 329)
+          renderer.run_dots(100, 1, 8)
+        end
+
+        it 'draws the background alone, even where the entries hold a sprite pixel' do
+          expect(PaletteEntryPicture.entries(picture, row: 100, columns: 0..7)).to eq([0x05] * 8)
+        end
+
+        it 'never asks the priority multiplexer' do
+          expect(multiplexer).not_to have_received(:palette_entry)
+        end
+      end
+
       context 'and both layers are opaque at a pixel' do
         let(:background_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
         let(:sprite_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
@@ -848,6 +881,144 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
         expect(scroll_registers).not_to have_received(:increment_coarse_x)
       end
     end
+
+    # A visible line's sprite slot runs whole when the range reaches its last dot: the dot's own steps only where it has
+    # more than the slot's (257), then the sprite renderer runs the slot (plan 31, decisions 2 and 3).
+    context 'when the range covers a whole slot' do
+      subject(:renderer) do
+        described_class.new(scroll_registers:, fetcher:, picture:, sprite_renderer:, multiplexer:, schedule:, clock:)
+      end
+
+      let(:schedule) do
+        instance_double(Ruby::Nes::Ppu::RenderSchedule, line: Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE)
+      end
+      let(:clock) { instance_double(Ruby::Nes::Ppu::DotClock, elapsed_dots: 1_000, :elapsed_dots= => nil) }
+
+      context "and its first dot has steps besides the slot's" do
+        before do
+          allow(sprite_renderer).to receive_messages(run_steps: nil, run_slot: nil)
+          allow(fetcher).to receive_messages(pattern_low: 0x00, pattern_high: 0x00, palette: 0b00)
+          renderer.run_dots(100, 257, 264)
+        end
+
+        it 'runs them, then tells the sprite renderer to run the slot from its dot and count', :aggregate_failures do
+          expect(scroll_registers).to have_received(:copy_horizontal_position).ordered
+          expect(sprite_renderer).to have_received(:run_steps)
+            .with(Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE[257], 100, 257)
+            .ordered
+          expect(sprite_renderer).to have_received(:run_slot).with(100, 257, 1_000).ordered
+        end
+      end
+
+      context "and its first dot has only the slot's steps" do
+        before do
+          allow(sprite_renderer).to receive_messages(run_steps: nil, run_slot: nil)
+          renderer.run_dots(100, 265, 272)
+        end
+
+        it 'tells the sprite renderer to run the slot from its dot and count' do
+          expect(sprite_renderer).to have_received(:run_slot).with(100, 265, 1_000)
+        end
+
+        it 'runs none of its dots one at a time' do
+          expect(sprite_renderer).not_to have_received(:run_steps)
+        end
+      end
+    end
+
+    context 'when the range ends inside a slot' do
+      subject(:renderer) do
+        described_class.new(scroll_registers:, fetcher:, picture:, sprite_renderer:, multiplexer:, schedule:)
+      end
+
+      let(:schedule) do
+        instance_double(Ruby::Nes::Ppu::RenderSchedule, line: Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE)
+      end
+
+      before do
+        allow(sprite_renderer).to receive_messages(run_steps: nil, run_slot: nil)
+        renderer.run_dots(100, 265, 271)
+      end
+
+      it 'runs the dots it reaches one at a time', :aggregate_failures do
+        expect(sprite_renderer).to have_received(:run_steps).exactly(7).times
+        expect(sprite_renderer).not_to have_received(:run_slot)
+      end
+    end
+
+    # The next line's two tiles run whole when the range reaches their last dot: the reload where the dot has one, the
+    # 8 shifts at once, the four fetches on their dots and coarse X, as a whole tile without its pixels (plan 31,
+    # decision 5).
+    context 'when the range covers a whole next-line tile' do
+      subject(:renderer) do
+        described_class.new(
+          scroll_registers:,
+          fetcher:,
+          picture:,
+          sprite_renderer:,
+          multiplexer:,
+          schedule:,
+          background_visibility:,
+          sprite_visibility:,
+          clock:
+        )
+      end
+
+      let(:schedule) do
+        instance_double(Ruby::Nes::Ppu::RenderSchedule, line: Ruby::Nes::Ppu::RenderSchedule::VISIBLE_LINE)
+      end
+      let(:background_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
+      let(:sprite_visibility) { Ruby::Nes::Ppu::LayerVisibility.new(enabled: true, left_columns_shown: true) }
+      let(:clock) { instance_double(Ruby::Nes::Ppu::DotClock, elapsed_dots: 1_000, :elapsed_dots= => nil) }
+
+      context 'and it is the first, which does not reload' do
+        before { renderer.run_dots(99, 321, 328) }
+
+        it 'fetches its four bytes, the clock on the dot of each', :aggregate_failures do
+          expect(clock).to have_received(:elapsed_dots=).with(1_000).ordered
+          expect(fetcher).to have_received(:fetch_nametable_byte).ordered
+          expect(clock).to have_received(:elapsed_dots=).with(1_002).ordered
+          expect(fetcher).to have_received(:fetch_attribute).ordered
+          expect(clock).to have_received(:elapsed_dots=).with(1_004).ordered
+          expect(fetcher).to have_received(:fetch_pattern_low).ordered
+          expect(clock).to have_received(:elapsed_dots=).with(1_006).ordered
+          expect(fetcher).to have_received(:fetch_pattern_high).ordered
+        end
+
+        it 'increments coarse X once' do
+          expect(scroll_registers).to have_received(:increment_coarse_x).once
+        end
+      end
+
+      # Line 100 shows the tiles A and B its line before loaded with dots 321-337 whole; line 101 the same tiles
+      # loaded by the same dots in ranges that never cover a whole tile. Dot 9 reloads tile C on both; fine X 5 mixes
+      # each tile on screen with the next.
+      context 'and it is the second, which reloads' do
+        before do
+          allow(scroll_registers).to receive(:fine_x).and_return(5)
+          allow(fetcher).to receive(:pattern_low).and_return(0b1100_1010, 0b1011_0001, 0b0101_0101) # A, B, C
+          allow(fetcher).to receive(:pattern_high).and_return(0b0110_0011, 0b0001_1110, 0b1110_0000)
+          allow(fetcher).to receive(:palette).and_return(0b10, 0b11, 0b01)
+          renderer.run_dots(99, 321, 337)
+          renderer.run_dots(100, 1, 7)
+          renderer.run_dots(100, 8, 16)
+          allow(fetcher).to receive(:pattern_low).and_return(0b1100_1010, 0b1011_0001, 0b0101_0101)
+          allow(fetcher).to receive(:pattern_high).and_return(0b0110_0011, 0b0001_1110, 0b1110_0000)
+          allow(fetcher).to receive(:palette).and_return(0b10, 0b11, 0b01)
+          renderer.run_dots(100, 321, 324)
+          renderer.run_dots(100, 325, 332)
+          renderer.run_dots(100, 333, 337)
+          renderer.run_dots(101, 1, 7)
+          renderer.run_dots(101, 8, 16)
+        end
+
+        it 'leaves the shifters as its dots one at a time do', :aggregate_failures do
+          loaded_dot_by_dot = PaletteEntryPicture.entries(picture, row: 101, columns: 0..15)
+          expect(PaletteEntryPicture.entries(picture, row: 100, columns: 0..15)).to eq(loaded_dot_by_dot)
+          expect(loaded_dot_by_dot).not_to include(nil)
+        end
+      end
+    end
   end
 
   describe '#pattern_table=' do
@@ -856,7 +1027,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher, :pattern_table= => nil) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: []) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
 
     it 'tells the fetcher' do
@@ -871,7 +1042,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: [], :greyscale= => nil) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
 
     it 'tells the picture' do
@@ -886,7 +1057,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: [], :emphasis= => nil) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
 
     it 'tells the picture' do
@@ -903,7 +1074,13 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters, fine_x: 0) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { PaletteEntryPicture.build }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: Array.new(256, 0)) }
+    let(:sprite_renderer) do
+      instance_double(
+        Ruby::Nes::Ppu::SpriteRenderer,
+        line_entries: Array.new(256, 0),
+        occupied_tiles: Array.new(32, false)
+      )
+    end
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
     let(:schedule) do
       instance_double(
@@ -935,7 +1112,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: []) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
     let(:background_visibility) { instance_double(Ruby::Nes::Ppu::LayerVisibility, :enabled= => nil) }
 
@@ -953,7 +1130,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: []) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
     let(:background_visibility) { instance_double(Ruby::Nes::Ppu::LayerVisibility, :left_columns_shown= => nil) }
 
@@ -971,7 +1148,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: []) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
     let(:sprite_visibility) { instance_double(Ruby::Nes::Ppu::LayerVisibility, :enabled= => nil) }
 
@@ -989,7 +1166,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: []) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
     let(:sprite_visibility) { instance_double(Ruby::Nes::Ppu::LayerVisibility, :left_columns_shown= => nil) }
 
@@ -1007,7 +1184,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: []) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
     let(:schedule) { instance_double(Ruby::Nes::Ppu::RenderSchedule, :rendering_enabled= => nil) }
 
@@ -1023,7 +1200,7 @@ RSpec.describe Ruby::Nes::Ppu::Renderer do
     let(:scroll_registers) { instance_double(Ruby::Nes::Ppu::ScrollRegisters) }
     let(:fetcher) { instance_double(Ruby::Nes::Ppu::BackgroundFetcher) }
     let(:picture) { instance_double(Ruby::Nes::Ppu::Picture, drawn_frame: [], colours: [], frame_buffer: [0x0F] * 4) }
-    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: []) }
+    let(:sprite_renderer) { instance_double(Ruby::Nes::Ppu::SpriteRenderer, line_entries: [], occupied_tiles: []) }
     let(:multiplexer) { instance_double(Ruby::Nes::Ppu::PriorityMultiplexer) }
 
     it "is the picture's" do

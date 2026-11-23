@@ -185,13 +185,17 @@ RSpec.describe Ruby::Nes::Ppu::RenderSchedule do
         end
 
         context 'and the dot is 257' do
-          it 'reloads, copies the horizontal position, clears the sprite line, evaluates and resets OAMADDR' do
+          it(
+            'reloads, copies the horizontal position, clears the sprite line, evaluates, resets OAMADDR and starts ' \
+            'a whole slot'
+          ) do
             expect(schedule.line(239)[257]).to eq(
               described_class::RELOAD |
               described_class::COPY_HORIZONTAL |
               described_class::CLEAR_SPRITE_LINE |
               described_class::EVALUATE_SPRITES |
-              described_class::RESET_OAM_ADDRESS
+              described_class::RESET_OAM_ADDRESS |
+              described_class::WHOLE_SLOT
             )
           end
         end
@@ -221,6 +225,29 @@ RSpec.describe Ruby::Nes::Ppu::RenderSchedule do
           end
         end
 
+        context 'and the dot is 265, the first of the second sprite' do
+          it 'resets OAMADDR and starts a whole slot' do
+            expect(schedule.line(239)[265]).to eq(described_class::RESET_OAM_ADDRESS | described_class::WHOLE_SLOT)
+          end
+        end
+
+        # The renderer runs a whole slot as its first dot's steps, then the slot's fetches and load only (plan 31).
+        context 'and the dots are the 7 after the first of a slot, 266 to 272' do
+          it "reset OAMADDR, the fifth fetching the sprite's low byte, the seventh its high byte and loading it" do
+            expect(schedule.line(239)[266..272]).to eq(
+              [
+                described_class::RESET_OAM_ADDRESS,
+                described_class::RESET_OAM_ADDRESS,
+                described_class::RESET_OAM_ADDRESS,
+                described_class::RESET_OAM_ADDRESS | described_class::FETCH_SPRITE_LOW,
+                described_class::RESET_OAM_ADDRESS,
+                described_class::RESET_OAM_ADDRESS | described_class::FETCH_SPRITE_HIGH | described_class::LOAD_SPRITE,
+                described_class::RESET_OAM_ADDRESS
+              ]
+            )
+          end
+        end
+
         context 'and the dot is 279, the high pattern fetch of the third sprite' do
           it "fetches the sprite's high pattern byte, loads the sprite and resets OAMADDR" do
             expect(schedule.line(239)[279]).to eq(
@@ -243,9 +270,15 @@ RSpec.describe Ruby::Nes::Ppu::RenderSchedule do
           end
         end
 
-        context 'and the dot is 305' do
-          it 'resets OAMADDR' do
-            expect(schedule.line(239)[305]).to eq(described_class::RESET_OAM_ADDRESS)
+        context 'and the dot is 305, the first of the seventh sprite' do
+          it 'resets OAMADDR and starts a whole slot' do
+            expect(schedule.line(239)[305]).to eq(described_class::RESET_OAM_ADDRESS | described_class::WHOLE_SLOT)
+          end
+        end
+
+        context 'and the dot is 313, the first of the eighth sprite' do
+          it 'resets OAMADDR and starts a whole slot' do
+            expect(schedule.line(239)[313]).to eq(described_class::RESET_OAM_ADDRESS | described_class::WHOLE_SLOT)
           end
         end
 
@@ -275,8 +308,30 @@ RSpec.describe Ruby::Nes::Ppu::RenderSchedule do
         end
 
         context "and the dot is 321, the first of the next line's first tile" do
-          it 'shifts and fetches the nametable byte' do
-            expect(schedule.line(239)[321]).to eq(described_class::SHIFT | described_class::FETCH_NAMETABLE)
+          it 'shifts, fetches the nametable byte and starts a whole next-line tile' do
+            expect(schedule.line(239)[321]).to eq(
+              described_class::SHIFT |
+              described_class::FETCH_NAMETABLE |
+              described_class::WHOLE_NEXT_LINE_TILE
+            )
+          end
+        end
+
+        # The renderer runs a whole next-line tile as its first dot's reload, the shifts, the fetches and coarse X only
+        # (plan 31).
+        context "and the dots are the 7 after the first of the next line's first tile, 322 to 328" do
+          it 'shift, the third fetching the attribute byte, the fifth the low and the seventh the high pattern byte' do
+            expect(schedule.line(239)[322..328]).to eq(
+              [
+                described_class::SHIFT,
+                described_class::SHIFT | described_class::FETCH_ATTRIBUTE,
+                described_class::SHIFT,
+                described_class::SHIFT | described_class::FETCH_PATTERN_LOW,
+                described_class::SHIFT,
+                described_class::SHIFT | described_class::FETCH_PATTERN_HIGH,
+                described_class::SHIFT | described_class::INCREMENT_COARSE_X
+              ]
+            )
           end
         end
 
@@ -287,11 +342,12 @@ RSpec.describe Ruby::Nes::Ppu::RenderSchedule do
         end
 
         context "and the dot is 329, the first of the next line's second tile" do
-          it 'reloads the shifters, shifts and fetches the nametable byte' do
+          it 'reloads the shifters, shifts, fetches the nametable byte and starts a whole next-line tile' do
             expect(schedule.line(239)[329]).to eq(
               described_class::RELOAD |
               described_class::SHIFT |
-              described_class::FETCH_NAMETABLE
+              described_class::FETCH_NAMETABLE |
+              described_class::WHOLE_NEXT_LINE_TILE
             )
           end
         end
@@ -407,6 +463,12 @@ RSpec.describe Ruby::Nes::Ppu::RenderSchedule do
           end
         end
 
+        context 'and the dot is 265, the first of the second sprite' do
+          it 'resets OAMADDR' do
+            expect(schedule.line(261)[265]).to eq(described_class::RESET_OAM_ADDRESS)
+          end
+        end
+
         context 'and the dot is 261, the low pattern fetch of the first sprite' do
           it "fetches the sprite's low pattern byte and resets OAMADDR" do
             expect(schedule.line(261)[261]).to eq(
@@ -477,8 +539,30 @@ RSpec.describe Ruby::Nes::Ppu::RenderSchedule do
         end
 
         context "and the dot is 321, the first of the next line's first tile" do
-          it 'shifts and fetches the nametable byte' do
-            expect(schedule.line(261)[321]).to eq(described_class::SHIFT | described_class::FETCH_NAMETABLE)
+          it 'shifts, fetches the nametable byte and starts a whole next-line tile' do
+            expect(schedule.line(261)[321]).to eq(
+              described_class::SHIFT |
+              described_class::FETCH_NAMETABLE |
+              described_class::WHOLE_NEXT_LINE_TILE
+            )
+          end
+        end
+
+        # The renderer runs a whole next-line tile as its first dot's reload, the shifts, the fetches and coarse X only
+        # (plan 31).
+        context "and the dots are the 7 after the first of the next line's first tile, 322 to 328" do
+          it 'shift, the third fetching the attribute byte, the fifth the low and the seventh the high pattern byte' do
+            expect(schedule.line(261)[322..328]).to eq(
+              [
+                described_class::SHIFT,
+                described_class::SHIFT | described_class::FETCH_ATTRIBUTE,
+                described_class::SHIFT,
+                described_class::SHIFT | described_class::FETCH_PATTERN_LOW,
+                described_class::SHIFT,
+                described_class::SHIFT | described_class::FETCH_PATTERN_HIGH,
+                described_class::SHIFT | described_class::INCREMENT_COARSE_X
+              ]
+            )
           end
         end
 
@@ -489,11 +573,12 @@ RSpec.describe Ruby::Nes::Ppu::RenderSchedule do
         end
 
         context "and the dot is 329, the first of the next line's second tile" do
-          it 'reloads the shifters, shifts and fetches the nametable byte' do
+          it 'reloads the shifters, shifts, fetches the nametable byte and starts a whole next-line tile' do
             expect(schedule.line(261)[329]).to eq(
               described_class::RELOAD |
               described_class::SHIFT |
-              described_class::FETCH_NAMETABLE
+              described_class::FETCH_NAMETABLE |
+              described_class::WHOLE_NEXT_LINE_TILE
             )
           end
         end

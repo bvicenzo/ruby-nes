@@ -18,9 +18,14 @@ module Ruby
       #
       # Ranges (plan 28): `run_dots` runs a range of a scanline's dots, the dot clock standing on the first one. A tile
       # of a visible line whose 8 dots the range covers runs as one unrolled sequence (RenderSchedule::WHOLE_TILE,
-      # decision 6), other dots one at a time; the clock is moved to each dot's count before its fetches, which the
-      # board's A12 watch reads (decision 5). Hot path: one `run_dots` per range, one step lookup per dot or tile.
-      class Renderer
+      # decision 6), and so do a visible line's sprite slots and the next line's two tiles (WHOLE_SLOT and
+      # WHOLE_NEXT_LINE_TILE, plan 31); other dots run one at a time. The clock is moved to each dot's count before its
+      # fetches, which the board's A12 watch reads (decision 5). Hot path: one `run_dots` per range, one step lookup
+      # per dot or sequence.
+      #
+      # Past RuboCop's class length on purpose (plan 31): the background's pixel, its registers and the sequences of 8
+      # dots stay inline in one object, where YJIT calls them through self (plan 25).
+      class Renderer # rubocop:disable Metrics/ClassLength
         WIDTH = Picture::WIDTH
         FIRST_PIXEL_BIT = 15
         TILE_ON_SCREEN_MASK = 0xFF00
@@ -36,6 +41,8 @@ module Ruby
         TRANSPARENT = 0
         # A whole tile's last dot, from its first, and the dots of its fetches (RenderSchedule::TILE_STEPS).
         TILE_LAST_DOT = RenderSchedule::TILE_DOTS - 1
+        # The last dot of a sequence a WHOLE_STEPS flag starts, from its first.
+        SEQUENCE_LAST_DOT = RenderSchedule::SEQUENCE_DOTS - 1
         NAMETABLE_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_NAMETABLE)
         ATTRIBUTE_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_ATTRIBUTE)
         PATTERN_LOW_DOT = RenderSchedule::TILE_STEPS.index(RenderSchedule::FETCH_PATTERN_LOW)
@@ -52,6 +59,10 @@ module Ruby
         WINDOW_MASK = Bits::BYTE_MASK
         FINE_X_FACTORS = Array.new(TILE_PIXELS) { 1 << it }.freeze # glossary: shift-left
         LEFTMOST_PIXEL_BIT = TILE_PIXELS - 1
+        # A slot's first dot with nothing to run but the slot itself: every one but 257's (plan 31, decision 3).
+        SLOT_ONLY_STEPS = RenderSchedule::WHOLE_SLOT | RenderSchedule::RESET_OAM_ADDRESS # glossary: bitwise-or
+        # The columns of each of the sprite line's occupied tile flags.
+        OCCUPIED_TILE_WIDTH = SpriteLine::TILE_WIDTH
 
         # The byte's bits spread over the nibbles of a tile, each at `place` within its nibble.
         def self.spread(byte, place)
@@ -77,6 +88,7 @@ module Ruby
           @picture = picture
           @sprite_renderer = sprite_renderer
           @sprite_entries = sprite_renderer.line_entries
+          @occupied_tiles = sprite_renderer.occupied_tiles
           @schedule = schedule
           @background_visibility = background_visibility
           @sprite_visibility = sprite_visibility
@@ -136,9 +148,9 @@ module Ruby
           dot = first_dot
           while dot <= last_dot
             steps = line[dot]
-            if (steps & RenderSchedule::WHOLE_TILE) != 0 && dot + TILE_LAST_DOT <= last_dot # glossary: flag-set
-              run_tile(line, scanline, dot, line_elapsed_dots + dot)
-              dot += RenderSchedule::TILE_DOTS
+            if (steps & RenderSchedule::WHOLE_STEPS) != 0 && dot + SEQUENCE_LAST_DOT <= last_dot # glossary: flag-set
+              run_whole_sequence(line, steps, scanline, dot, line_elapsed_dots + dot)
+              dot += RenderSchedule::SEQUENCE_DOTS
             else
               run_dot(steps, scanline, dot, line_elapsed_dots + dot) unless steps.zero?
               dot += 1
@@ -158,23 +170,52 @@ module Ruby
           @sprite_renderer.run_steps(steps, scanline, dot)
         end
 
+        # The 8 dots from `dot`, whose count is `elapsed_dots`, as one sequence: a tile, a sprite slot (its dot's own
+        # steps first where it has more than the slot's) or one of the next line's tiles.
+        def run_whole_sequence(line, steps, scanline, dot, elapsed_dots)
+          if (steps & RenderSchedule::WHOLE_TILE) != 0 # glossary: flag-set
+            run_tile(line, scanline, dot, elapsed_dots)
+          elsif (steps & RenderSchedule::WHOLE_SLOT) != 0 # glossary: flag-set
+            run_dot(steps, scanline, dot, elapsed_dots) if steps != SLOT_ONLY_STEPS
+            @sprite_renderer.run_slot(scanline, dot, elapsed_dots)
+          else
+            run_next_line_tile(steps, elapsed_dots)
+          end
+        end
+
         # The 8 dots of a visible line's tile from its first, `dot`, whose count is `elapsed_dots`: its 8 pixels at
         # x = dot − 1 onwards from the window under fine X, then the 8 shifts at once, since nothing reloads within the
         # tile; the tile's fetches (the clock on each one's dot), coarse X and Y follow RenderSchedule's steps for them,
         # the same as dot by dot; the reload and Y come from the line. A layer's first visible column is 0, 8 or 256, so
-        # each layer shows in the whole tile or in none of it (plan 30, decision 6). Unrolled, without a step lookup or
-        # a call per dot (plan 28, decision 6).
+        # each layer shows in the whole tile or in none of it (plan 30, decision 6); a tile the sprite line flags clear
+        # holds no sprite pixel, so it is the background alone too (plan 31, decision 1). Unrolled, without a step
+        # lookup or a call per dot (plan 28, decision 6).
         # rubocop:disable-next Metrics/AbcSize
         def run_tile(line, scanline, dot, elapsed_dots)
           reload if (line[dot] & RenderSchedule::RELOAD) != 0 # glossary: flag-set
           x_position = dot - 1
           pixels = x_position < @background_visibility.first_visible_column ? TRANSPARENT : background_window
-          if x_position < @sprite_visibility.first_visible_column
+          if x_position < @sprite_visibility.first_visible_column || !@occupied_tiles[x_position / OCCUPIED_TILE_WIDTH]
             @composer.draw_background_tile(pixels, (scanline * WIDTH) + x_position)
           else
             @composer.draw_tile(pixels, x_position, (scanline * WIDTH) + x_position)
           end
           shift_tile
+          fetch_tile(elapsed_dots)
+          last_steps = line[dot + TILE_LAST_DOT]
+          @scroll_registers.increment_y if (last_steps & RenderSchedule::INCREMENT_Y) != 0 # glossary: flag-set
+        end
+
+        # One of the next line's two tiles, from its first dot (plan 31, decision 5): the reload where the dot has one,
+        # the 8 shifts at once, the fetches and coarse X, as a whole tile without its pixels.
+        def run_next_line_tile(steps, elapsed_dots)
+          reload if (steps & RenderSchedule::RELOAD) != 0 # glossary: flag-set
+          shift_tile
+          fetch_tile(elapsed_dots)
+        end
+
+        # A whole tile's four fetches, the clock on each one's dot, then coarse X on its last dot.
+        def fetch_tile(elapsed_dots)
           @clock.elapsed_dots = elapsed_dots + NAMETABLE_DOT
           @fetcher.fetch_nametable_byte
           @clock.elapsed_dots = elapsed_dots + ATTRIBUTE_DOT
@@ -184,8 +225,6 @@ module Ruby
           @clock.elapsed_dots = elapsed_dots + PATTERN_HIGH_DOT
           @fetcher.fetch_pattern_high
           @scroll_registers.increment_coarse_x
-          last_steps = line[dot + TILE_LAST_DOT]
-          @scroll_registers.increment_y if (last_steps & RenderSchedule::INCREMENT_Y) != 0 # glossary: flag-set
         end
 
         # The tile's 8 background pixels of 4 bits, transparent ones 0: the palette bits only where the pattern is
