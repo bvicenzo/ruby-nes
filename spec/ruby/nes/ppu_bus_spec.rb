@@ -7,7 +7,7 @@ RSpec.describe Ruby::Nes::PpuBus do
     subject(:bus) { described_class.new(mapper:) }
 
     context 'when the address is in the pattern tables' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
       context 'and it is $0000' do
         before { allow(mapper).to receive(:ppu_read).with(0x0000).and_return(0x5A) }
@@ -27,7 +27,7 @@ RSpec.describe Ruby::Nes::PpuBus do
     end
 
     context 'when the address is in the nametables' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
       context 'and it is $2000' do
         before { bus.write(0x2400, 0x11) }
@@ -47,7 +47,7 @@ RSpec.describe Ruby::Nes::PpuBus do
     end
 
     context 'when the address is in palette RAM' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
       context 'and it is $3F00' do
         before { bus.write(0x3F10, 0x0F) }
@@ -71,7 +71,7 @@ RSpec.describe Ruby::Nes::PpuBus do
     subject(:bus) { described_class.new(mapper:) }
 
     context 'when the address is in the pattern tables' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, ppu_write: nil) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, ppu_write: nil, mirroring: :horizontal, :nametables= => nil) }
 
       context 'and it is $0000' do
         before { bus.write(0x0000, 0x5A) }
@@ -91,7 +91,7 @@ RSpec.describe Ruby::Nes::PpuBus do
     end
 
     context 'when the address is in the nametables' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, ppu_write: nil) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, ppu_write: nil, :nametables= => nil) }
 
       context 'and it is $2000' do
         before { bus.write(0x2000, 0x11) }
@@ -112,7 +112,7 @@ RSpec.describe Ruby::Nes::PpuBus do
     end
 
     context 'when the address is in palette RAM' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
       context 'and it is $3F00' do
         before { bus.write(0x3F00, 0x0F) }
@@ -135,7 +135,7 @@ RSpec.describe Ruby::Nes::PpuBus do
   describe '#place_address' do
     subject(:bus) { described_class.new(mapper:) }
 
-    let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, ppu_address: nil, mirroring: :horizontal) }
+    let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, ppu_address: nil, mirroring: :horizontal, :nametables= => nil) }
 
     before { bus.place_address(0x1000) }
 
@@ -147,7 +147,7 @@ RSpec.describe Ruby::Nes::PpuBus do
   describe '#earliest_irq_cycle' do
     subject(:bus) { described_class.new(mapper:) }
 
-    let(:mapper) { instance_double(Ruby::Nes::Mappers::Mmc3, earliest_irq_cycle: 640, mirroring: :horizontal) }
+    let(:mapper) { instance_double(Ruby::Nes::Mappers::Mmc3, earliest_irq_cycle: 640, mirroring: :horizontal, :nametables= => nil) }
 
     it "answers the board's earliest IRQ cycle" do
       expect(bus.earliest_irq_cycle(600)).to eq(640)
@@ -158,7 +158,7 @@ RSpec.describe Ruby::Nes::PpuBus do
   describe '#palette_ram' do
     subject(:bus) { described_class.new(mapper:) }
 
-    let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal) }
+    let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
     before { bus.write(0x3F0D, 0x2C) }
 

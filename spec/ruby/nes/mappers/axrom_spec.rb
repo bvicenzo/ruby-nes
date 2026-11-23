@@ -77,6 +77,20 @@ RSpec.describe Ruby::Nes::Mappers::Axrom do
         expect(axrom.mirroring).to eq(:single_screen_upper)
       end
     end
+
+    # The nametables start on the lower screen, where $2005 is written; bit 4 then shows the upper one.
+    context 'when its nametables were given' do
+      let!(:nametables) { Ruby::Nes::PpuBus::Nametables.new(mapper: axrom) }
+
+      before do
+        nametables.write(0x2005, 0x11)
+        axrom.cpu_write(0x8000, 0x10)
+      end
+
+      it 'tells them the screen selected' do
+        expect(nametables.read(0x2005)).to eq(0x00)
+      end
+    end
   end
 
   describe '#cpu_write' do

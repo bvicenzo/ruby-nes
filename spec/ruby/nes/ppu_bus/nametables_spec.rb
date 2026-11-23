@@ -4,13 +4,23 @@
 # horizontal shares $2000 with $2400 and $2800 with $2C00 ("connect PPU A11 to CIRAM A10"); vertical shares $2000 with
 # $2800 and $2400 with $2C00 ("connect PPU A10 to CIRAM A10"); single-screen puts "lower bank or upper bank" in all four;
 # four-screen gives "4 unique nametables". "$3000-3EFF is usually a mirror of the 2kB region from $2000-2EFF"
-# (https://www.nesdev.org/wiki/PPU_memory_map).
+# (https://www.nesdev.org/wiki/PPU_memory_map). The board tells the nametables its mirroring whenever it changes, once
+# they gave themselves to it (plan 30, decision 3).
 RSpec.describe Ruby::Nes::PpuBus::Nametables do
+  describe '.new' do
+    let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
+
+    it 'gives itself to the board, which tells it its mirroring from then on' do
+      nametables = described_class.new(mapper:)
+      expect(mapper).to have_received(:nametables=).with(nametables)
+    end
+  end
+
   describe '#read' do
     subject(:nametables) { described_class.new(mapper:) }
 
     context 'when nothing was written' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
       it 'returns 0' do
         expect(nametables.read(0x2123)).to eq(0x00)
@@ -18,7 +28,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     end
 
     context 'when the mirroring is horizontal' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
       before do
         nametables.write(0x2005, 0x11)
@@ -36,7 +46,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     end
 
     context 'when the mirroring is vertical' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :vertical) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :vertical, :nametables= => nil) }
 
       before do
         nametables.write(0x2005, 0x11)
@@ -54,7 +64,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     end
 
     context 'when the mirroring is single-screen lower' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :single_screen_lower) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :single_screen_lower, :nametables= => nil) }
 
       before { nametables.write(0x2C05, 0x33) }
 
@@ -66,7 +76,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     end
 
     context 'when the mirroring is single-screen upper' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :single_screen_upper) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :single_screen_upper, :nametables= => nil) }
 
       before { nametables.write(0x2005, 0x44) }
 
@@ -78,7 +88,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     end
 
     context 'when the mirroring is four-screen' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :four_screen) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :four_screen, :nametables= => nil) }
 
       before do
         nametables.write(0x2005, 0x11)
@@ -95,15 +105,14 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
       end
     end
 
-    context 'when the mirroring changes between accesses' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom) }
+    context 'when the board changes the mirroring between accesses' do
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
       context 'and it goes from horizontal to single-screen lower' do
         before do
-          allow(mapper).to receive(:mirroring).and_return(:horizontal)
           nametables.write(0x2005, 0x11)
           nametables.write(0x2805, 0x22)
-          allow(mapper).to receive(:mirroring).and_return(:single_screen_lower)
+          nametables.mirroring_changed(:single_screen_lower)
         end
 
         it 'reads the page horizontal mirroring gave $2000' do
@@ -113,10 +122,9 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
 
       context 'and it goes from horizontal to single-screen upper' do
         before do
-          allow(mapper).to receive(:mirroring).and_return(:horizontal)
           nametables.write(0x2005, 0x11)
           nametables.write(0x2805, 0x22)
-          allow(mapper).to receive(:mirroring).and_return(:single_screen_upper)
+          nametables.mirroring_changed(:single_screen_upper)
         end
 
         it 'reads the page horizontal mirroring gave $2800' do
@@ -126,7 +134,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     end
 
     context 'when the address is in $3000-$3EFF' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :four_screen) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :four_screen, :nametables= => nil) }
 
       context 'and it is $3000' do
         before { nametables.write(0x2000, 0x55) }
@@ -150,7 +158,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     subject(:nametables) { described_class.new(mapper:) }
 
     context 'when the mirroring is horizontal' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :horizontal, :nametables= => nil) }
 
       before do
         nametables.write(0x2405, 0x11)
@@ -164,7 +172,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     end
 
     context 'when the mirroring is vertical' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :vertical) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :vertical, :nametables= => nil) }
 
       before do
         nametables.write(0x2805, 0x11)
@@ -178,7 +186,7 @@ RSpec.describe Ruby::Nes::PpuBus::Nametables do
     end
 
     context 'when the address is in $3000-$3EFF' do
-      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :four_screen) }
+      let(:mapper) { instance_double(Ruby::Nes::Mappers::Nrom, mirroring: :four_screen, :nametables= => nil) }
 
       context 'and it is $3000' do
         before { nametables.write(0x3000, 0x55) }

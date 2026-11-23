@@ -18,7 +18,10 @@ module Ruby
       # decision 7), until a board that controls its mirroring (AxROM, MMC1) sets its own; MMC3 keeps it. Every board is
       # handed the CPU (`cpu=`: MMC1's clock, MMC3's IRQ line), the PPU (`ppu=`: MMC3's A12 clock) and the register sync
       # that catches the PPU up before a register write (`register_sync=`; plan 20 decision 1, plan 21 decisions 2 and
-      # 6).
+      # 6). The PPU bus's nametables give themselves to the board (`nametables=`), which tells them every mirroring it
+      # selects (`mirroring_changed`), instead of being asked on every nametable access (plan 30, decision 3); a board
+      # selects one through the private `mirroring=`, at power-up or on a register write, which catches the PPU up
+      # first. One nametables per board: a later `nametables=` replaces them.
       class Base
         PRG_RAM_START = 0x6000
         PRG_ROM_START = 0x8000
@@ -56,6 +59,8 @@ module Ruby
         # The CPU, the board's clock (MMC1, plan 20 decision 1); the PPU, A12's clock (MMC3, plan 21 decision 2); the
         # Console::PpuRegisterSync that catches the PPU up before a register write (plan 21, decision 6).
         attr_writer :cpu, :ppu, :register_sync
+        # The PPU bus's nametables, told `mirroring_changed(mirroring)` whenever the board selects one.
+        attr_writer :nametables
 
         def initialize(cartridge, prg_ram: false)
           @prg_rom = cartridge.prg_rom
@@ -78,9 +83,7 @@ module Ruby
           )
           @chr_window_offsets = @chr_windows.offsets
           @mirroring = cartridge.header.alternative_nametables? ? :four_screen : cartridge.header.mirroring
-          @cpu = nil
-          @ppu = nil
-          @register_sync = nil
+          leave_unconnected
           show_power_up_banks
         end
 
@@ -133,6 +136,20 @@ module Ruby
         end
 
         private
+
+        # The CPU, the PPU, the register sync and the nametables are handed over once the console and the PPU bus exist.
+        def leave_unconnected
+          @cpu = nil
+          @ppu = nil
+          @register_sync = nil
+          @nametables = nil
+        end
+
+        # Selects a nametable arrangement and tells the nametables.
+        def mirroring=(mirroring)
+          @mirroring = mirroring
+          @nametables&.mirroring_changed(mirroring)
+        end
 
         # A board without registers ignores writes to $8000-$FFFF.
         def write_register(_address, _value); end

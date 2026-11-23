@@ -84,7 +84,7 @@ module Ruby
         # Turns the four registers into the mirroring, the windows and the PRG RAM switch.
         def select_banks
           control = @registers[CONTROL]
-          @mirroring = MIRRORINGS[Bits.low_bits(control, ARRANGEMENT_MASK)]
+          self.mirroring = MIRRORINGS[Bits.low_bits(control, ARRANGEMENT_MASK)]
           select_prg_banks(Bits.bit_field(control, mask: PRG_MODE_MASK, shift: PRG_MODE_SHIFT))
           select_chr_banks((control & TWO_CHR_BANKS_FLAG) != 0) # glossary: flag-set
           enable_prg_ram((@registers[PRG_BANK] & PRG_RAM_OFF_FLAG) == 0) # glossary: flag-clear

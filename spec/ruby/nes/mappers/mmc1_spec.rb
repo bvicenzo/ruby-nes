@@ -64,6 +64,21 @@ RSpec.describe Ruby::Nes::Mappers::Mmc1 do
         expect(mmc1.mirroring).to eq(:vertical)
       end
     end
+
+    # The nametables start on the lower single screen, where $2005 is written; arrangement 2 then makes them vertical.
+    context 'when its nametables were given' do
+      let!(:nametables) { Ruby::Nes::PpuBus::Nametables.new(mapper: mmc1) }
+
+      before do
+        nametables.write(0x2005, 0x11)
+        programmer.load(0x8000, 0b0_1110)
+      end
+
+      it 'tells them the arrangement selected', :aggregate_failures do
+        expect(nametables.read(0x2805)).to eq(0x11)
+        expect(nametables.read(0x2405)).to eq(0x00)
+      end
+    end
   end
 
   describe '#cpu_read' do

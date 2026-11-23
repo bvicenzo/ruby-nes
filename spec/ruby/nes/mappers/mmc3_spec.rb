@@ -331,6 +331,22 @@ RSpec.describe Ruby::Nes::Mappers::Mmc3 do
         end
       end
 
+      # The nametables start horizontal, $2005 shared with $2405; $A000 bit 0 clear then makes them vertical.
+      context 'and its nametables were given' do
+        subject(:board) { described_class.new(Cartridges.build(mapper_number: 4, mirroring: :horizontal)) }
+
+        let!(:nametables) { Ruby::Nes::PpuBus::Nametables.new(mapper: board) }
+
+        before do
+          nametables.write(0x2005, 0x11)
+          board.cpu_write(0xA000, 0xFE)
+        end
+
+        it 'tells them the arrangement selected' do
+          expect(nametables.read(0x2405)).to eq(0x00)
+        end
+      end
+
       context 'and $A000 bit 0 is set' do
         subject(:board) { described_class.new(Cartridges.build(mapper_number: 4, mirroring: :vertical)) }
 

@@ -151,7 +151,7 @@ module Ruby
         def select_mirroring(value)
           return if @four_screen
 
-          @mirroring = MIRRORINGS[Bits.low_bits(value, MIRRORING_FLAG)]
+          self.mirroring = MIRRORINGS[Bits.low_bits(value, MIRRORING_FLAG)]
         end
 
         def select_banks

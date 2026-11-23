@@ -30,6 +30,28 @@ module Ruby
         QUADRANT_ROW_SHIFT = 4
         QUADRANT_ROW_MASK = 0x04
         PALETTE_MASK = 0x03
+        # Load-time tables by v's low 12 bits, the ones the attribute depends on (plan 30, decision 8): the attribute
+        # address, and the factor that brings the quadrant's two bits to bits 7-6, so a constant shift takes them, since
+        # YJIT compiles a shift by a varying amount as a method call. Built once at load time; the tags name each bit
+        # operation as on the hot paths, as RenderSchedule's tables do.
+        PALETTE_TOP_SHIFT = 6
+
+        def self.attribute_address(tile_offset)
+          nametable = tile_offset & ATTRIBUTE_NAMETABLE_MASK # glossary: bitwise-and
+          row = (tile_offset >> ATTRIBUTE_ROW_SHIFT) & ATTRIBUTE_ROW_MASK # glossary: bit-field
+          column = (tile_offset >> ATTRIBUTE_COLUMN_SHIFT) & ATTRIBUTE_COLUMN_MASK # glossary: bit-field
+          ATTRIBUTE_ADDRESS_BASE | nametable | row | column # glossary: bitwise-or
+        end
+
+        def self.quadrant_factor(tile_offset)
+          quadrant_row = (tile_offset >> QUADRANT_ROW_SHIFT) & QUADRANT_ROW_MASK # glossary: bit-field
+          quadrant_column = tile_offset & QUADRANT_COLUMN_MASK # glossary: bitwise-and
+          1 << (PALETTE_TOP_SHIFT - (quadrant_row | quadrant_column)) # glossary: shift-left, bitwise-or
+        end
+        private_class_method :attribute_address, :quadrant_factor
+
+        ATTRIBUTE_ADDRESSES = Array.new(TILE_ADDRESS_MASK + 1) { attribute_address(it) }.freeze
+        QUADRANT_FACTORS = Array.new(TILE_ADDRESS_MASK + 1) { quadrant_factor(it) }.freeze
         # A tile is 16 bytes, plane 0 then plane 1 ("P: Bit plane"); fine Y picks the row.
         TILE_SIZE_SHIFT = 4
         HIGH_PLANE_OFFSET = 8
@@ -54,14 +76,10 @@ module Ruby
         end
 
         def fetch_attribute
-          vram_address = @scroll_registers.vram_address
-          nametable = vram_address & ATTRIBUTE_NAMETABLE_MASK # glossary: bitwise-and
-          row = (vram_address >> ATTRIBUTE_ROW_SHIFT) & ATTRIBUTE_ROW_MASK # glossary: bit-field
-          column = (vram_address >> ATTRIBUTE_COLUMN_SHIFT) & ATTRIBUTE_COLUMN_MASK # glossary: bit-field
-          attribute = @bus.read(ATTRIBUTE_ADDRESS_BASE | nametable | row | column) # glossary: bitwise-or
-          quadrant_row = (vram_address >> QUADRANT_ROW_SHIFT) & QUADRANT_ROW_MASK # glossary: bit-field
-          quadrant_column = vram_address & QUADRANT_COLUMN_MASK # glossary: bitwise-and
-          @palette = (attribute >> (quadrant_row | quadrant_column)) & PALETTE_MASK # glossary: bitwise-or, bit-field
+          tile_offset = @scroll_registers.vram_address & TILE_ADDRESS_MASK # glossary: low-bits
+          attribute = @bus.read(ATTRIBUTE_ADDRESSES[tile_offset])
+          quadrant_on_top = attribute * QUADRANT_FACTORS[tile_offset]
+          @palette = (quadrant_on_top >> PALETTE_TOP_SHIFT) & PALETTE_MASK # glossary: bit-field
         end
 
         def fetch_pattern_low
