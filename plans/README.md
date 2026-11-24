@@ -23,6 +23,8 @@ Conventions (see also `CLAUDE.md`):
 | M6 — Sound | 24 | SMB3 plays with audio |
 | M7 — Fast enough | 25 | full speed (60 fps) or a documented gap, per JIT |
 | M8 — AOT experiment | 26 | Spinel findings documented |
+| M9 — Progress kept | 35 | battery saves and save states survive closing the window |
+| M10 — Console-like | 38 | ROM list, gamepad and on-screen settings: no terminal or YAML needed to play |
 
 ## Index
 
@@ -62,6 +64,11 @@ Conventions (see also `CLAUDE.md`):
 | 31 | [Sprites and the horizontal blank](31-sprites-and-horizontal-blank.md) | 30 | done |
 | 32 | [Window presentation](32-window-presentation.md) | 31 | done |
 | 33 | [Super Pitfall's emulation cost](33-super-pitfall-emulation-cost.md) | 32 | done |
+| 34 | [Battery-backed saves](34-battery-backed-saves.md) | 20, 21 | todo |
+| 35 | [Save states](35-save-states.md) | 34 | todo |
+| 36 | [Gamepad input](36-gamepad-input.md) | 18 | todo |
+| 37 | [ROM browser](37-rom-browser.md) | 35, 36 | todo |
+| 38 | [On-screen settings and pause menu](38-on-screen-settings.md) | 36, 37 | todo |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
 
@@ -83,14 +90,21 @@ Super Mario Bros. 3 headless at 95 fps out of the box, 179 fps with RBS type see
 The window does not run under Spinel yet (bugs in Spinel), so there is no playable `bin/ruby-nes`; YJIT stays the
 runtime (`docs/spinel.md`).
 
+Plans 34-38 turn the emulator into something to play with, as a console is. First the progress is kept: battery
+saves (34), then save states (35), which Marshal can write whole (a probe restored SMB3's console to the same
+digests). Then the couch: the USB gamepad (36, which only needs plan 18 and can be pulled forward), a ROM list with
+previews (37), and the controls and a pause menu on screen (38). Each plan's open decisions carry a recommendation
+and are settled when it starts.
+
 ## Backlog (not planned)
 
-- Battery-backed PRG RAM persistence (SMB3 has none; Zelda/Final Fantasy need it).
-- Save states.
 - A playable `bin/ruby-nes` compiled by Spinel: the window, once Spinel's bugs listed in `docs/spinel.md` are fixed
   (plan 26, decision 8).
 - A TV-like border in the backdrop colour around the picture (plan 27, decision 3; plan 27 itself won't be done),
   which needs the backdrop colour of every frame from the PPU.
+- Artwork for the ROM list downloaded from libretro-thumbnails (plan 37, open decision 2, option (c)).
+- Video and audio settings on screen: scale, aspect, overscan, volume (plan 38, out of scope).
+- Rewind (plan 35, out of scope).
 - MMC5, MMC2/MMC4, NES 2.0 extended fields beyond detection.
 - PAL timing.
 - Ractors — discarded: CPU, PPU and APU are coupled at cycle granularity, so message passing would cost more than it
