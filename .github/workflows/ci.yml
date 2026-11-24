@@ -11,6 +11,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Writes the coverage badge to the `badges` branch (below).
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -33,6 +36,38 @@ jobs:
 
       - name: Tests and lint
         run: bundle exec rake
+        env:
+          COVERAGE: '1'
+
+      # The README's coverage badge: the fast suite's branch coverage, drawn here as an SVG and force-pushed as the only
+      # commit of the `badges` branch, so no outside service has to read the repository.
+      - name: Publish the coverage badge
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          badge_directory=$(mktemp -d)
+          ruby -rjson -e '
+            percent = JSON.parse(File.read("coverage/.last_run.json")).dig("result", "branch").floor(1)
+            colour = if percent >= 95 then "#4c1" elsif percent >= 90 then "#97ca00" elsif percent >= 80 then "#dfb317"
+                     else "#e05d44" end
+            value = format("%g%%", percent)
+            puts <<~SVG
+              <svg xmlns="http://www.w3.org/2000/svg" width="108" height="20" role="img" aria-label="coverage: #{value}">
+              <title>coverage: #{value}</title>
+              <linearGradient id="shine" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+              <clipPath id="round"><rect width="108" height="20" rx="3" fill="#fff"/></clipPath>
+              <g clip-path="url(#round)"><rect width="61" height="20" fill="#555"/><rect x="61" width="47" height="20" fill="#{colour}"/><rect width="108" height="20" fill="url(#shine)"/></g>
+              <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11"><text x="30.5" y="14">coverage</text><text x="84.5" y="14">#{value}</text></g>
+              </svg>
+            SVG
+          ' > "$badge_directory/coverage.svg"
+          cd "$badge_directory"
+          git init --quiet --initial-branch=badges
+          git add coverage.svg
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit --quiet --message='Coverage badge'
+          git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
 
   # blargg's test ROMs run for seconds each, so the suite skips them unless SLOW=1; this job always runs them, under
   # YJIT (plan 12, decision 6).
