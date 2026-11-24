@@ -95,7 +95,9 @@ kept in names because they are what the libraries and protocols call them.
 
 | Term | Stands for | Meaning | Reference |
 |---|---|---|---|
+| AOT | Ahead-Of-Time (compiler) | A compiler that turns the whole program into machine code before it runs, as Spinel does (plan 26, `docs/spinel.md`), as opposed to a JIT. | [Spinel](https://github.com/matz/spinel) |
 | Box filter | — | The resampler's average: each output sample is the mean of the input levels of its period (`Audio::Resampler`, plan 24). | [Moving average](https://en.wikipedia.org/wiki/Moving_average) |
+| CRuby | — (the C implementation of Ruby) | The reference Ruby interpreter, whose `RUBY_ENGINE` is `"ruby"`; YJIT and ZJIT are its JITs. `CpuBenchmark::Configuration::CRUBY` names its engine, so a binary Spinel compiled reports its own (plan 26). | [Ruby](https://www.ruby-lang.org/) |
 | CRC | Cyclic Redundancy Check | The 32-bit checksum that closes every PNG chunk, computed over its type and data (`Zlib.crc32`). | [PNG](https://www.w3.org/TR/png-3/) |
 | DC | Direct Current | A constant offset in a signal; the NES's high-pass filter removes the mixer's (`Audio::HighPassFilter`). | [DC bias](https://en.wikipedia.org/wiki/DC_bias) |
 | FFI | Foreign Function Interface | Calling a C library from Ruby without a compiled extension: the `ffi` gem declares each function's signature and calls it at run time. The windowed backend's gem, `raylib-bindings`, is an FFI binding (plan 17). | [Ruby-FFI](https://github.com/ffi/ffi) |
@@ -109,6 +111,7 @@ kept in names because they are what the libraries and protocols call them.
 | Nyquist frequency | — | Half the sample rate (24 kHz at 48 kHz), the highest frequency samples can carry; discrete filters drift from their analogue models near it. | [Nyquist frequency](https://en.wikipedia.org/wiki/Nyquist_frequency) |
 | PCM | Pulse-Code Modulation | Sound as a series of sample values; here signed 16-bit integers, 48 000 per second (`Audio::SAMPLE_RATE`). | [WAVE format](https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html) |
 | PNG | Portable Network Graphics | The image format of the headless frontend's screenshots (`Frontends::Png`): a signature, then chunks (IHDR, IDAT, IEND), the pixels compressed with zlib. | [PNG](https://www.w3.org/TR/png-3/) |
+| RBS | Ruby Signature | Ruby's language for type signatures, in `.rbs` files beside the code. `spinel/sig/nes.rbs` seeds Spinel's type inference with the buses' and devices' integer signatures (plan 26, decision 7); CRuby never reads it. | [RBS](https://github.com/ruby/rbs) |
 | RC | Resistor-Capacitor | The circuit of a first-order filter; its time constant RC = 1 / (2π × cut-off) sets the filter's coefficient (`Audio.time_constant`). | [Low-pass filter](https://en.wikipedia.org/wiki/Low-pass_filter#Discrete-time_realization) |
 | RGB | Red, Green, Blue | A colour as its three 8-bit intensities; `Frontends::Palette` turns each pixel into 3 such bytes. | [PPU palettes](https://www.nesdev.org/wiki/PPU_palettes) |
 | RIFF | Resource Interchange File Format | The chunked container a WAV file is: a `RIFF` chunk holding the `WAVE` ID, then the `fmt ` and `data` chunks. | [WAVE format](https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html) |

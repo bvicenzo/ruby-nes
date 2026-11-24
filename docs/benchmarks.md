@@ -891,3 +891,60 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) C
 | interpreter | 18.5 | 54.0 | 31% | 3.3% | f0903fbc59bf | 10369a5b40df |
 | yjit | 66.8 | 15.0 | 111% | 1.0% | f0903fbc59bf | 10369a5b40df |
 | zjit | 48.4 | 20.6 | 81% | 3.0% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-24 — Plan 26: CPU on CRuby and Spinel (nestest, 10 M cycles, 2 warm-up and 5 measured runs)
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Variant | Emulated MHz | % of real time | Spread | Change from baseline |
+|---|---|---|---|---|---|
+| interpreter | baseline | 1.92 | 107% | 0.1% | — |
+| yjit | baseline | 10.99 | 614% | 2.6% | — |
+| zjit | baseline | 5.67 | 317% | 0.5% | — |
+| spinel | baseline | 8.42 | 471% | 0.8% | — |
+| spinel + RBS | baseline | 16.69 | 932% | 0.3% | — |
+| spinel + RBS, wrap | baseline | 17.60 | 983% | 0.3% | — |
+
+### 2026-11-24 — Plan 26: frames on CRuby and Spinel — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 18.0 | 55.4 | 30% | 3.5% | f0903fbc59bf | 10369a5b40df |
+| yjit | 65.0 | 15.4 | 108% | 1.3% | f0903fbc59bf | 10369a5b40df |
+| zjit | 42.7 | 23.4 | 71% | 9.0% | f0903fbc59bf | 10369a5b40df |
+| spinel | 95.3 | 10.5 | 159% | 1.8% | f0903fbc59bf | 10369a5b40df |
+| spinel + RBS | 160.9 | 6.2 | 268% | 3.1% | f0903fbc59bf | 10369a5b40df |
+| spinel + RBS, wrap | 178.7 | 5.6 | 297% | 4.4% | f0903fbc59bf | 10369a5b40df |
+
+The two tables below are a second run of `rake bench:spinel`, after the review's fixes, with `RUBYOPT=--yjit` in the
+environment on purpose: the task now clears it, and the interpreter rows stay without a JIT. The machine was busy
+during its frames (the interpreter's runs spread 64%, YJIT's frame rate fell from 65.0 to 57.7), so docs/spinel.md
+quotes the run above; the ratios between Spinel's builds hold in both.
+
+### 2026-11-24 — Plan 26: CPU on CRuby and Spinel (nestest, 10 M cycles, 2 warm-up and 5 measured runs)
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +YJIT +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Variant | Emulated MHz | % of real time | Spread | Change from baseline |
+|---|---|---|---|---|---|
+| interpreter | baseline | 1.96 | 109% | 1.3% | — |
+| yjit | baseline | 10.73 | 599% | 2.4% | — |
+| zjit | baseline | 5.62 | 314% | 5.2% | — |
+| spinel | baseline | 8.39 | 469% | 3.3% | — |
+| spinel + RBS | baseline | 16.22 | 906% | 9.0% | — |
+| spinel + RBS, wrap | baseline | 16.69 | 933% | 1.1% | — |
+
+### 2026-11-24 — Plan 26: frames on CRuby and Spinel — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +YJIT +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 11.4 | 87.6 | 19% | 64.2% | f0903fbc59bf | 10369a5b40df |
+| yjit | 57.7 | 17.3 | 96% | 3.7% | f0903fbc59bf | 10369a5b40df |
+| zjit | 39.1 | 25.6 | 65% | 6.9% | f0903fbc59bf | 10369a5b40df |
+| spinel | 94.0 | 10.6 | 156% | 6.2% | f0903fbc59bf | 10369a5b40df |
+| spinel + RBS | 166.4 | 6.0 | 277% | 2.1% | f0903fbc59bf | 10369a5b40df |
+| spinel + RBS, wrap | 174.0 | 5.7 | 289% | 3.9% | f0903fbc59bf | 10369a5b40df |
