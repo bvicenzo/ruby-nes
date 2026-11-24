@@ -3,7 +3,7 @@
 module Ruby
   module Nes
     class CommandLine
-      # The JIT the emulator runs under (plan 18, decisions 1 and 8), enabled at runtime: on Ruby 4.0.9 both
+      # The JIT the emulator runs under (plan 18, decisions 1 and 8), enabled at runtime: on Ruby 4.0 both
       # `RubyVM::YJIT.enable` and `RubyVM::ZJIT.enable` work without a command-line flag. Ruby runs one JIT at a time
       # and cannot turn one off, so a JIT already running (from RUBYOPT or a flag) that differs from the one asked is
       # an error: the run never silently differs from what was asked. Off the hot path: once per run.

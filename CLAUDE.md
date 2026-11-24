@@ -1,6 +1,6 @@
 # ruby-nes
 
-A Nintendo Entertainment System emulator in pure Ruby 4.0.9. It is a study project: the goal is to learn the NES
+A Nintendo Entertainment System emulator in pure Ruby 4.0.10. It is a study project: the goal is to learn the NES
 hardware and to exercise modern Ruby (YJIT, ZJIT, Ractor-free single-threaded design, and an AOT experiment with
 matz/spinel) — not to ship a product. The reference target is Super Mario Bros. 3 (mapper 4 / MMC3).
 

@@ -3,7 +3,7 @@
 <p align="center">
   <a href="../../actions/workflows/ci.yml"><img src="../../actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="../../actions/workflows/ci.yml"><img src="../../raw/badges/coverage.svg" alt="Branch coverage"></a>
-  <img src="https://img.shields.io/badge/ruby-4.0.9-CC342D?logo=ruby&logoColor=white" alt="Ruby 4.0.9">
+  <img src="https://img.shields.io/badge/ruby-4.0.10-CC342D?logo=ruby&logoColor=white" alt="Ruby 4.0.10">
   <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later">
 </p>
 
@@ -108,15 +108,15 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh  # or anywhere, w
 rustc --version                                                  # 1.85 or newer
 ```
 
-### 2. Ruby 4.0.9
+### 2. Ruby 4.0.10
 
 The version is pinned in `mise.toml`. With [mise](https://mise.jdx.dev):
 
 ```bash
-mise install    # builds Ruby 4.0.9
+mise install    # builds Ruby 4.0.10
 ```
 
-Any other Ruby version manager works too, as long as it builds 4.0.9. Then check that the JITs are there:
+Any other Ruby version manager works too, as long as it builds 4.0.10. Then check that the JITs are there:
 
 ```bash
 ruby --yjit -v   # the description must include +YJIT
@@ -124,7 +124,7 @@ ruby --zjit -v   # and this one +ZJIT
 ```
 
 If a JIT is missing, Ruby was built before Rust was installed: install Rust, then build Ruby again
-(`mise uninstall ruby@4.0.9 && mise install`).
+(`mise uninstall ruby@4.0.10 && mise install`).
 
 ### 3. The gems, including the window's
 

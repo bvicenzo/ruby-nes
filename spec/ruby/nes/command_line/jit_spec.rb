@@ -3,7 +3,7 @@
 require 'ruby/nes/command_line'
 
 # The JIT the command line runs the emulator under (plan 18, decisions 1 and 8): `--jit=none|yjit|zjit`, enabled at
-# runtime, which Ruby 4.0.9 allows for both YJIT and ZJIT. Ruby runs one JIT at a time and cannot turn one off, so a
+# runtime, which Ruby 4.0 allows for both YJIT and ZJIT. Ruby runs one JIT at a time and cannot turn one off, so a
 # JIT already running (from RUBYOPT or a flag) that differs from the one asked is an error, never a silent change. The
 # compilers are injected: here doubles with the interface of RubyVM::YJIT, which RubyVM::ZJIT shares (a Ruby built
 # without ZJIT has no RubyVM::ZJIT to verify against).

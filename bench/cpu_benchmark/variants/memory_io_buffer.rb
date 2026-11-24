@@ -3,7 +3,7 @@
 # Variant for decision 2 of docs/architecture.md: memory as an IO::Buffer read with `get_value(:U8, offset)` and
 # written with `set_value(:U8, offset, value)`, instead of an Array of Integer. Covers what the CPU touches on
 # nestest: the CpuBus's internal RAM and the board's PRG ROM and PRG RAM (Mappers::Base since plan 19). The arrays are
-# converted once, when the console is built. IO::Buffer is experimental on Ruby 4.0.9; its warning (on standard error)
+# converted once, when the console is built. IO::Buffer is experimental on Ruby 4.0; its warning (on standard error)
 # is silenced to keep the run's output clean.
 Warning[:experimental] = false
 
