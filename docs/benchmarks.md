@@ -826,3 +826,68 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) C
 | interpreter | 17.8 | 56.1 | 30% | 2.0% | f0903fbc59bf | 10369a5b40df |
 | yjit | 64.7 | 15.5 | 108% | 1.4% | f0903fbc59bf | 10369a5b40df |
 | zjit | 46.6 | 21.5 | 77% | 2.7% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-23 — Plan 33: Super Pitfall's emulation cost
+
+Super Pitfall (the user's dump, UxROM) played at 48-53 fps in the window where Super Mario Bros. 3 plays at 60. Work a
+frame, counted under YJIT over 600 frames after 900 of warm-up (Super Pitfall from
+`spec/fixtures/super_pitfall_first_screens.yml`: Start at 200, Right from 600):
+
+| A frame | Super Mario Bros. 3 | Super Pitfall |
+|---|---|---|
+| CPU steps | 9 383 | 9 413 |
+| Whole PPU tiles | 7 288 | 4 682 |
+| Forced blank dots | 1 619 | 23 968 |
+| APU cycles run one by one | 304 | 4 358 (29 780 at the peaks) |
+
+Frame by frame, the black screens (whole frames in forced blank) took about 15.0 ms, less than play, so forced blank
+was left alone. In play the median was 15-17 ms with peaks of 28-37 ms, each a frame whose 29 780 APU cycles all ran
+one by one: the sound effects play the triangle at period 0 (a clock every cycle, the way games silence it) and the
+noise at its shortest period (a clock every 4 cycles, 7 445 a frame), and each clock cut the APU's run. The CHR RAM
+read path is the same code as CHR ROM's (`PpuBus#read` showed more in the profile only because YJIT inlines the
+monomorphic mapper), and the CPU and PPU did no more work than in Super Mario Bros. 3.
+
+Prototypes, frames 721-1080 of Super Pitfall in play (ms a frame; digests 0c8f391ad522 / 6759c1e3dbdd unchanged in
+every one, and Super Mario Bros. 3's too):
+
+| Version | Mean | Median | p90 | Max |
+|---|---|---|---|---|
+| Before | 17.8-18.0 | 15.6-15.8 | 26.8-27.2 | 31-37 |
+| A: the triangle goes clock by clock between the other units' changes | 16.2-16.4 | 16.0 | 18.7-19.0 | 26-29 |
+| A + a 32-level pattern in the resampler at period 0 | 15.7 | 15.4 | 17.6 | 27 |
+| B: the triangle and the noise go clock by clock between the slow units' changes | 16.1 | 15.4 | 19.6 | 22.4 |
+
+**B built** (`Apu::FastChannels`, architecture decisions 94-96), the same session as its baseline (the machine faster
+than in the prototypes' session):
+
+| Frames | Before | After |
+|---|---|---|
+| Super Pitfall 721-1080 (play), mean / median / p90 / max | 16.7 / 14.5 / 25.2 / 28.3-29.7 | 14.4 / 14.2 / 16.6 / 17.9 |
+| Super Mario Bros. 3 1201-1500 (world 1-1), mean / max | 15.0 / 18.2 | 14.9 / 18.9 |
+
+`ruby --yjit bench/frame.rb --rom "roms/Super Pitfall (USA).nes" --input spec/fixtures/super_pitfall_first_screens.yml
+--warm-up-frames 720 --frames 360 --runs 1`: 17.7-18.0 ms before, 14.4 ms after, digests 0c8f391ad522 / 6759c1e3dbdd
+both times. Super Pitfall's mean in play is now below Super Mario Bros. 3's, and its worst frame under 18 ms.
+
+The window's frame by part, Super Pitfall frames 721-1080 in a hidden raylib window under YJIT (no pacing, no audio
+device), the same session for both (the machine slower than in the headless runs above, its display just woken):
+
+| Part | Before | After |
+|---|---|---|
+| Emulation (`Console#run_frame`) | 18.2-18.5 ms | 15.6-15.7 ms |
+| `present` | 0.8-1.0 ms | 1.0 ms |
+| Whole frame, mean / p90 / max | 19.2 / 28.0 / 34-40 ms (52 fps) | 16.6-16.7 / 18.8-19.0 / 28-30 ms (59.8-60.4 fps) |
+
+The 52 fps before match the 48-53 fps seen in play. After, the window's mean frame stands at the 16.7 ms of real time:
+what remains is the emulation's ordinary cost, the same as Super Mario Bros. 3's, and a few isolated frames of 28-30 ms
+(10% of the frames are above 19 ms).
+
+### 2026-11-23 — Final (plan 33) — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +PRISM [x86_64-darwin24]; Intel(R) Core(TM) i5-8257U CPU @ 1.40GHz
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| interpreter | 18.5 | 54.0 | 31% | 3.3% | f0903fbc59bf | 10369a5b40df |
+| yjit | 66.8 | 15.0 | 111% | 1.0% | f0903fbc59bf | 10369a5b40df |
+| zjit | 48.4 | 20.6 | 81% | 3.0% | f0903fbc59bf | 10369a5b40df |

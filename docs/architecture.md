@@ -191,10 +191,11 @@ disables the channels, clears both interrupt flags, writes `$4017`'s last value 
 ([CPU power up state](https://www.nesdev.org/wiki/CPU_power_up_state)).
 
 **Runs of quiet cycles** (plan 29). `Apu#catch_up` does not run every cycle one by one: the cycles before the next one
-on which a unit changes are quiet, and every unit skips them at once. Each unit tells how far it is quiet:
-`FrameCounter#quiet_cycles` (until its next step or a pending `$4017` write takes effect), and each channel's
-`quiet_ticks`, the ticks before its timer's next clock that can change its output (`Timer#ticks_before_next_clock`,
-or `#ticks_before_clock` for the DMC's output cycle).
+on which a slow unit changes are quiet, and the slow units skip them at once, the triangle and the noise going through
+them clock by clock (below, plan 33). Each unit tells how far it is quiet: `FrameCounter#quiet_cycles` (until its next
+step or a pending `$4017` write takes effect), and each channel's `quiet_ticks`, the ticks before its timer's next
+clock that can change its output (`Timer#ticks_before_next_clock`, or `#ticks_before_clock` for the DMC's output
+cycle); the pulses' and the DMC's bound the run, the triangle's and the noise's give their first clock within it.
 A muted channel answers `Apu::NEVER`: a pulse with its length counter at 0, its sweep muting it or a volume of 0, the
 noise with its length counter at 0 or a volume of 0, the triangle with a counter at 0; their output cannot change
 until a frame counter step or a register write, which end runs anyway. The DMC is quiet until its timer's next clock
@@ -202,8 +203,21 @@ while it plays a byte, until the clock that starts its next output cycle while i
 silent with an empty buffer and no sample. The pulse, noise and DMC timers tick on get cycles, so their ticks become CPU
 cycles through `Apu::GetCycles`. A skip (`skip(ticks)`, `Timer#skip`) leaves each unit as that many ticks would,
 clocking its sequencer on each reload; a stopped triangle's timer moves its counter without a call per clock
-(`Timer#skip_without_clocking`), since its period is often 0, a clock every cycle. The cycle with a change runs as before. With audio on, the mix is computed at
-the start of each catch-up and after each cycle with a change, and stands for the run after it.
+(`Timer#skip_without_clocking`), since its period is often 0, a clock every cycle. The cycle with a change runs as
+before, its mix handed to the resampler on its own.
+
+**Slow and fast units** (plan 33). Only the slow units bound the runs: the frame counter, the two pulses (a period
+below 8 mutes a pulse, [APU Sweep](https://www.nesdev.org/wiki/APU_Sweep)) and the DMC. The triangle, whose timer is
+clocked every CPU cycle down to a period of 0 (games silence it that way, a clock every cycle), and the noise, down to
+4 CPU cycles a clock, would cut runs down to 1-4 cycles: in Super Pitfall's sound effects they made the APU run all
+29 780 cycles of a frame one by one. Within a run, `Apu::FastChannels` takes them clock by clock instead: the first
+clock from `quiet_ticks` (a stopped triangle or a silent noise skip the run as before), the next ones every
+`ticks_per_clock` (`Timer#ticks_per_clock`, in get cycles for the noise), each one stepping its channel (`step`) in
+cycle order, a clock on the run's end left to the next run, and each timer moved through the run without clocking
+afterwards (`skip_without_clocking`). With audio on, the APU hands it the pulses' and the DMC's outputs, which stand
+still through the run, and it hands the resampler the run in parts, the mix anew from each clock's cycle on: the parts
+cycle by cycle would give, so the samples are unchanged. `Audio::Resampler#add_run` takes parts of any length, one
+cycle going straight to `#add`.
 
 ### Audio
 
@@ -508,7 +522,7 @@ most calls.
 | `lib/ruby/nes/ppu.rb` | `Ruby::Nes::Ppu` | the register decoder, the PPU's I/O latch, the catch-up to a CPU cycle, reset and the writes it ignores; the PPUCTRL and PPUMASK settings told to the renderer |
 | `lib/ruby/nes/ppu/` | `Ruby::Nes::Ppu::ScrollRegisters`, `::Oam`, `::DataPort`, `::FrameTiming`, `::DotClock`, `::VerticalBlank`, `::Renderer`, `::RenderSchedule`, `::BackgroundFetcher`, `::LayerVisibility`, `::PixelComposer`, `::Picture`, `::SpriteRenderer`, `::SpriteEvaluation`, `::SpriteRows`, `::OverflowSearch`, `::SecondaryOam`, `::SpriteFetcher`, `::SpritePatternAddress` (`::EightByEight`, `::EightBySixteen`), `::SpriteLine`, `::PriorityMultiplexer`, `::SpriteZeroHit`, `::SpriteStatus` | v/t/x/w, OAM and OAMADDR, PPUDATA, the dot/scanline/frame counters with the odd-frame skip and the `$2002` read race, the elapsed dots, the VBlank flag and /NMI output; the background and sprite pipelines and the frame buffer (see Rendering) |
 | `lib/ruby/nes/apu.rb` | `Ruby::Nes::Apu` | the APU's register decoder (a channel table), `$4015`, the catch-up to a CPU cycle, the mixed output, power-up and reset |
-| `lib/ruby/nes/apu/` | `Ruby::Nes::Apu::Pulse`, `::Triangle`, `::Noise`, `::Dmc`, `::Timer`, `::DutySequencer`, `::Envelope`, `::Sweep`, `::LengthCounter`, `::LinearCounter`, `::TriangleSequencer`, `::NoiseShiftRegister`, `::FrameCounter`, `::InterruptFlag`, `::Mixer`, `::GetCycles` | the five channels and their units, the frame counter, the interrupt flags of the frame counter and the DMC, the mixer (plans 22 and 23), and the get cycles the runs count in (plan 29) |
+| `lib/ruby/nes/apu/` | `Ruby::Nes::Apu::Pulse`, `::Triangle`, `::Noise`, `::Dmc`, `::Timer`, `::DutySequencer`, `::Envelope`, `::Sweep`, `::LengthCounter`, `::LinearCounter`, `::TriangleSequencer`, `::NoiseShiftRegister`, `::FrameCounter`, `::InterruptFlag`, `::Mixer`, `::GetCycles`, `::FastChannels` | the five channels and their units, the frame counter, the interrupt flags of the frame counter and the DMC, the mixer (plans 22 and 23), the get cycles the runs count in (plan 29), and the triangle and the noise clock by clock through a run (plan 33) |
 | `lib/ruby/nes/apu/dmc/` | `Ruby::Nes::Apu::Dmc::Sample`, `::MemoryReader`, `::OutputUnit` | the DMC's address and bytes-remaining counters, its sample buffer filled by DMA, and its output level (plan 23) |
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller`, `::ControllerPorts` | a standard controller; the device answering `$4016`/`$4017` |
 | `lib/ruby/nes/audio.rb` | `Ruby::Nes::Audio` | the sample rate and the RC time constant (plan 24) |
@@ -770,3 +784,6 @@ presentation, in a frontend).
 | 91 | 2026-11-23 | `Ppu::Renderer` is past RuboCop's class length on purpose (`Metrics/ClassLength` disabled on the class) | The background's pixel, its registers and the sequences of 8 dots stay inline in one object, where YJIT calls them through self (plan 25); the user chose this over extracting the shift registers (plan 31) | — |
 | 92 | 2026-11-23 | The window looks each pixel's colour up on the GPU: `Frontends::RaylibPicture` uploads the frame buffer's values (`FFI::Pointer#put_array_of_uint16`, no allocation) into a grey-and-alpha texture and a fragment shader reads the colour from a 512×1 palette texture; no CPU path is kept | `Frontends::Palette.rgb` took about 2.9 ms a frame and allocated a frame's worth of strings (31 GC runs per 1200 frames); `present` went from about 3.2 to 0.8 ms and the GC runs to 2. `pack('S<*')` costs as much as the lookup, and the best CPU lookup would leave about 1.8 ms (plan 32, decision 1) | — |
 | 93 | 2026-11-23 | A palette shader that does not compile or link raises `Frontends::RaylibPicture::ShaderError` when the window opens, with raylib's log saying why, and `ruby-nes` reports it as an error, not a backtrace (`CommandLine::RaylibWindow`) | raylib-bindings ships OpenGL 3.3 builds; a fallback to the RGB path would keep two paths and two specs. raylib replaces a shader that compiles but does not link with its default one, which `IsShaderValid` accepts, so the picture also checks the id against the default shader's (plan 32, decision 2 and review) | — |
+| 94 | 2026-11-23 | Only the slow units bound `Apu#catch_up`'s runs (the frame counter, the pulses, the DMC); the triangle and the noise go through each run clock by clock in `Apu::FastChannels`, handed the slow channels' outputs once per run, and hand the resampler the run in parts | Super Pitfall's sound effects play the triangle at period 0 and the noise at 4 cycles, which cut runs to every cycle: those frames took 25-37 ms against about 15. In play the mean fell from 16.7 to 14.4 ms and the worst frame from 28-30 to 18, digests unchanged (plan 33, decision 1) | — |
+| 95 | 2026-11-23 | `Apu::FastChannels` is a collaborator, not private methods of `Apu` | With the run inside, `#catch_up`'s spec tree came to 27 leaves, 6 levels deep, for three jobs; keeping one unit is worth it only for performance, and the split costs one call per run, not per clock (plan 33, decision 1) | — |
+| 96 | 2026-11-23 | `Audio::Resampler#add_run` takes parts of any length: 0 cycles add nothing, 1 goes straight to `#add` | The fast channels hand thousands of one-cycle parts a frame; the length is decided in one place, and `#add` makes the same float additions (plan 33, decision 2) | — |
