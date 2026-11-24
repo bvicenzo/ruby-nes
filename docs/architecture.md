@@ -534,9 +534,13 @@ most calls.
 | `spec/support/test_roms.rb`, `spec/support/test_roms/` | `TestRoms`, `TestRoms::Manifest`, `::Fetcher`… | test ROM harness (plan 02): test tooling, not shipped in the gem |
 | `spec/support/blargg.rb`, `spec/support/blargg/` | `Blargg`, `Blargg::Report`, `::LegacyReport`, `::ScreenReport`, `::Runner`, `::Programs` | blargg's "Output at $6000" protocol, the 2005 ROMs' result at `$F8` (plan 14), the older shell's result line on screen (plan 19), and a runner that presses reset when asked (plan 12): test tooling, also used by `rake blargg:run`; specs in `spec/blargg/`, the real ROMs tagged `slow: true` |
 | `spec/support/nestest.rb`, `spec/support/nestest/` | `Nestest`, `Nestest::Log`, `::Runner`, `::Divergence` | nestest in automation mode compared with its reference trace (plan 08): test tooling, also used by `rake nestest:diff` |
-| `bench/cpu.rb`, `bench/cpu_benchmark.rb`, `bench/cpu_benchmark/` | `CpuBenchmark`, `CpuBenchmark::Workload`, `::Session`, `::Report`… | the CPU benchmark (plan 10): nestest looped under no JIT, YJIT or ZJIT, run by `rake bench:cpu` and `rake bench:variants`; specs in `spec/cpu_benchmark/` |
+| `bench/cpu.rb`, `bench/cpu_benchmark.rb`, `bench/cpu_benchmark/` | `CpuBenchmark`, `CpuBenchmark::Workload`, `::Session`, `::Measurement`, `::Report`… | the CPU benchmark (plan 10): nestest looped under no JIT, YJIT or ZJIT, run by `rake bench:cpu` and `rake bench:variants`; specs in `spec/cpu_benchmark/` |
 | `bench/frontends.rb`, `bench/frontend_benchmark.rb`, `bench/frontend_benchmark/` | `FrontendBenchmark`, `FrontendBenchmark::Probe`, `::Summary`, `::SquareWave`, `::Backends`, `::Unpaced`, `::Options`, `::CommandLine` | the windowed backend benchmark (plan 17): a ROM in a backend, each present and frame timed, a test tone pushed; run by `rake bench:frontends`; specs in `spec/frontend_benchmark/` |
 | `bench/cpu_benchmark/variants/` | — | hot-path experiments that reopen core classes, each loaded only inside a benchmark process of its own (plan 10, decision 3) |
+| `bench/frame.rb`, `bench/frame_benchmark.rb`, `bench/frame_benchmark/` | `FrameBenchmark`, `FrameBenchmark::Workload`, `::Session`, `::Measurement`, `::Report`… | the frame benchmark (plan 25): Super Mario Bros. 3 with audio under no JIT, YJIT or ZJIT, run by `rake bench:frames`; specs in `spec/frame_benchmark/` |
+| `spinel/cpu.rb`, `spinel/frames.rb` | — | the CPU and the frame benchmarks as plain programs that both CRuby and the Spinel AOT compiler run, with no `OptionParser` (plan 26); measured by `rake bench:spinel`; specs in `spec/spinel/` |
+| `spinel/sig/` | — | RBS type seeds Spinel reads with `--rbs`, never CRuby (plan 26, decision 7) |
+| `rakelib/spinel.rake` | — | `rake spinel:fetch`: the pinned Spinel release, built under `tmp/spinel` (plan 26) |
 
 Rules:
 

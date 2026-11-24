@@ -30,3 +30,8 @@ Style/BitwisePredicate:
     - 'lib/ruby/nes/mappers/**/*'
     - 'lib/ruby/nes/ppu.rb'
     - 'lib/ruby/nes/ppu/**/*'
+
+# spinel/ holds plain Ruby programs for the Spinel experiment (plan 26), not classes: their specs describe the program.
+RSpec/DescribeClass:
+  Exclude:
+    - 'spec/spinel/**/*'

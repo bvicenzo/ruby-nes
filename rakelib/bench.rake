@@ -46,6 +46,16 @@ namespace :bench do
     )
   end
 
+  # The frame benchmark's workload, from its options' sizes (FrameBenchmark::Options or its DEFAULTS).
+  frame_workload_description = ->(sizes) do
+    format(
+      'Super Mario Bros. 3, world 1-1 with audio, %<warm_up>d warm-up frames and %<runs>d runs of %<frames>d',
+      warm_up: sizes[:warm_up_frames],
+      runs: sizes[:measured_runs],
+      frames: sizes[:frames_per_run]
+    )
+  end
+
   desc 'Measure the CPU on nestest under no JIT, YJIT and ZJIT; append the table to docs/benchmarks.md'
   task :cpu do
     require_relative '../bench/cpu_benchmark'
@@ -81,13 +91,7 @@ namespace :bench do
       JSON.parse(output, symbolize_names: true)
     end
 
-    workload = format(
-      'Super Mario Bros. 3, world 1-1 with audio, %<warm_up>d warm-up frames and %<runs>d runs of %<frames>d',
-      warm_up: options.warm_up_frames,
-      runs: options.measured_runs,
-      frames: options.frames_per_run
-    )
-    title = [arguments[:title] || 'Frames', workload].join(' — ')
+    title = [arguments[:title] || 'Frames', frame_workload_description.call(options.to_h)].join(' — ')
     append_report.call(FrameBenchmark::Report, title:, measurements:)
   end
 
@@ -110,6 +114,87 @@ namespace :bench do
     FileUtils.mkdir_p(File.dirname(path))
     result = Vernier.profile(out: path) { workload.run(frames:) }
     puts Vernier::Output::Top.new(result, 40).output, "The whole profile (Firefox Profiler format): #{path}"
+  end
+
+  # Plan 26: the programs of spinel/ run under no JIT, YJIT and ZJIT, then compiled by Spinel (`rake spinel:fetch`)
+  # without the type seeds of spinel/sig, with them, and with them and integers that wrap instead of raising, so every
+  # row of a table comes from the same source.
+  desc 'Measure nestest and Super Mario Bros. 3 on CRuby and as Spinel binaries; append tables to docs/benchmarks.md'
+  task :spinel do
+    require 'date'
+    require 'json'
+    require 'open3'
+    require_relative '../bench/cpu_benchmark'
+    require_relative '../bench/frame_benchmark'
+
+    requirement = TestRoms.requirement
+    unavailable_reason = requirement.skip_reason([Nestest::ROM_PATH, Nestest::LOG_PATH])
+    abort unavailable_reason if unavailable_reason
+    frame_defaults = FrameBenchmark::Options::DEFAULTS
+    abort format(FrameBenchmark::CommandLine::MISSING_ROM, path: frame_defaults[:rom]) unless
+      File.exist?(frame_defaults[:rom])
+
+    compiler = File.expand_path('../tmp/spinel/bin/spinel', __dir__)
+    abort "Spinel is not built: run `rake spinel:fetch` first (#{compiler})" unless File.executable?(compiler)
+
+    signatures = File.expand_path('../spinel/sig', __dir__)
+    builds = {
+      'spinel' => [],
+      'spinel + RBS' => ['--rbs', signatures],
+      'spinel + RBS, wrap' => ['--rbs', signatures, '--int-overflow=wrap']
+    }
+    build_directory = File.expand_path('../tmp/spinel-build', __dir__)
+    FileUtils.mkdir_p(build_directory)
+    # A JIT inherited from the environment would run the 'interpreter' row under YJIT: each program runs with none.
+    no_inherited_jit = { 'RUBYOPT' => nil, 'RUBY_YJIT_ENABLE' => nil, 'RUBY_ZJIT_ENABLE' => nil }
+    # Each row is named by the configuration it ran under: the CRuby rows' report must match their flags, the compiled
+    # ones must report Spinel, then take the name of their build.
+    runs = ->(program) do
+      script = File.expand_path("../spinel/#{program}.rb", __dir__)
+      cruby = CpuBenchmark::Configuration::FLAGS.map do |name, flags|
+        { name:, reported: name, command: [RbConfig.ruby, *flags, script] }
+      end
+      compiled = builds.each_with_index.map do |(name, flags), index|
+        binary = File.join(build_directory, "#{program}-#{index}")
+        sh compiler, script, '-o', binary, *flags
+        { name:, reported: 'spinel', command: [binary] }
+      end
+      cruby + compiled
+    end
+    measure_each = ->(program, arguments) do
+      runs.call(program).map do |run|
+        puts "#{program} / #{run[:name]}…"
+        output, status = Open3.capture2(no_inherited_jit, *run[:command], *arguments.map(&:to_s))
+        abort "spinel/#{program}.rb failed under #{run[:name]}" unless status.success?
+
+        measurement = JSON.parse(output, symbolize_names: true)
+        reported = measurement[:configuration]
+        abort "spinel/#{program}.rb ran under #{reported}, not #{run[:reported]}" unless reported == run[:reported]
+
+        measurement.merge(configuration: run[:name])
+      end
+    end
+
+    cpu_defaults = CpuBenchmark::Options::WORKLOAD_DEFAULTS
+    cpu_arguments = [
+      requirement.path_of(Nestest::ROM_PATH),
+      requirement.path_of(Nestest::LOG_PATH),
+      *cpu_defaults.values_at(:cycles, :warm_up_runs, :measured_runs)
+    ]
+    frame_arguments = frame_defaults.values_at(:rom, :input, :warm_up_frames, :frames_per_run, :measured_runs)
+    # Both programs are measured before either table is written, so a failure leaves docs/benchmarks.md as it was.
+    cpu_measurements = measure_each.call('cpu', cpu_arguments)
+    frame_measurements = measure_each.call('frames', frame_arguments)
+    append_report.call(
+      CpuBenchmark::Report,
+      title: "Plan 26: CPU on CRuby and Spinel (#{workload_description.call})",
+      measurements: cpu_measurements
+    )
+    append_report.call(
+      FrameBenchmark::Report,
+      title: "Plan 26: frames on CRuby and Spinel — #{frame_workload_description.call(frame_defaults)}",
+      measurements: frame_measurements
+    )
   end
 
   desc 'Run nestest in each windowed backend under no JIT, YJIT and ZJIT (plan 17); print the table'

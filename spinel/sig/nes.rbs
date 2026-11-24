@@ -1,0 +1,68 @@
+# Type seeds for Spinel (plan 26): `spinel --rbs spinel/sig` pins these slots before inference. Without them, the
+# mappers' hierarchy and the buses' device slots meet several classes, the integers flowing through them widen to
+# untyped, and every operation on them takes Spinel's boxed slow path (docs/spinel.md). CRuby never reads this file;
+# Spinel refuses to compile when a value it can see contradicts a seed.
+module Ruby
+  module Nes
+    class Cpu
+      @accumulator: Integer
+      @index_x: Integer
+      @index_y: Integer
+    end
+
+    module Input
+      class ControllerPorts
+        def cpu_read: (Integer address, Integer data_bus) -> Integer
+        def cpu_write: (Integer address, Integer value) -> void
+      end
+    end
+
+    class CpuBus
+      @data_bus: Integer
+
+      module Disconnected
+        def self.cpu_read: (Integer address, Integer data_bus) -> Integer
+        def self.cpu_write: (Integer address, Integer value) -> void
+      end
+
+      def read: (Integer address) -> Integer
+      def write: (Integer address, Integer value) -> void
+    end
+
+    class PpuBus
+      def read: (Integer address) -> Integer
+      def write: (Integer address, Integer value) -> void
+
+      class Nametables
+        def read: (Integer address) -> Integer
+        def write: (Integer address, Integer value) -> void
+      end
+
+      class PaletteRam
+        def read: (Integer address) -> Integer
+        def write: (Integer address, Integer colour) -> void
+      end
+    end
+
+    module Mappers
+      class Base
+        def cpu_read: (Integer address, Integer data_bus) -> Integer
+        def cpu_write: (Integer address, Integer value) -> void
+        def ppu_read: (Integer address) -> Integer
+        def ppu_write: (Integer address, Integer value) -> void
+      end
+    end
+
+    class Console
+      class PpuRegisterSync
+        def cpu_read: (Integer address, Integer data_bus) -> Integer
+        def cpu_write: (Integer address, Integer value) -> void
+      end
+    end
+
+    class Apu
+      def cpu_read: (Integer address, Integer data_bus) -> Integer
+      def cpu_write: (Integer address, Integer value) -> void
+    end
+  end
+end
