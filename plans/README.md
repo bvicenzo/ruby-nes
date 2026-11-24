@@ -54,7 +54,7 @@ Conventions (see also `CLAUDE.md`):
 | 23 | [APU: triangle, noise, DMC and mixer](23-apu-triangle-noise-dmc-mixer.md) | 22 | done |
 | 24 | [Audio output and synchronisation](24-audio-output-sync.md) | 18, 23 | done |
 | 25 | [Performance pass](25-performance-pass.md) | 21, 24 | done |
-| 26 | [Spinel AOT experiment](26-spinel-experiment.md) | 10 (minimum), 25 (full) | todo |
+| 26 | [Spinel AOT experiment](26-spinel-experiment.md) | 10 (minimum), 25 (full) | done |
 | 27 | ~~[Horizontal edge crop](27-horizontal-edge-crop.md)~~ | 18 | won't do |
 | 28 | [PPU dot ranges](28-ppu-dot-ranges.md) | 25 | done |
 | 29 | [APU sync deadline and runs of cycles](29-apu-sync-deadline-and-runs.md) | 28 | done |
@@ -78,10 +78,17 @@ dropped to 48-53 fps in play: its sound effects play the triangle at period 0 an
 the APU's runs to every cycle. Plan 33 lets the triangle and the noise go clock by clock within the runs the slow units
 bound, exactly, and Super Pitfall's window reaches about 60 fps.
 
+Plan 26 (M8) compiled the emulation core with Spinel, unchanged: the binaries match CRuby's trace and digests and play
+Super Mario Bros. 3 headless at 95 fps out of the box, 179 fps with RBS type seeds and wrapping integers (2.75× YJIT).
+The window does not run under Spinel yet (bugs in Spinel), so there is no playable `bin/ruby-nes`; YJIT stays the
+runtime (`docs/spinel.md`).
+
 ## Backlog (not planned)
 
 - Battery-backed PRG RAM persistence (SMB3 has none; Zelda/Final Fantasy need it).
 - Save states.
+- A playable `bin/ruby-nes` compiled by Spinel: the window, once Spinel's bugs listed in `docs/spinel.md` are fixed
+  (plan 26, decision 8).
 - A TV-like border in the backdrop colour around the picture (plan 27, decision 3; plan 27 itself won't be done),
   which needs the backdrop colour of every frame from the PPU.
 - MMC5, MMC2/MMC4, NES 2.0 extended fields beyond detection.
