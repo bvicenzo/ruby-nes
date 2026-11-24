@@ -1,4 +1,4 @@
-# ruby-nes
+<h1 align="center"><img src="docs/logo.svg" alt="ruby-nes" width="700"></h1>
 
 A Nintendo Entertainment System emulator written in pure Ruby 4 — a study project.
 
