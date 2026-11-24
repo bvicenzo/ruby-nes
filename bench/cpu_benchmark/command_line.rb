@@ -30,7 +30,8 @@ module CpuBenchmark
       log_lines = Nestest::Log.lines(File.read(@requirement.path_of(Nestest::LOG_PATH)))
       ensure_trace_matches(cartridge, log_lines)
       workload = Workload.new(cartridge, steps_per_pass: log_lines.size)
-      @output.puts(JSON.generate(measurement(options, workload)))
+      summary = session(options, workload).measure
+      @output.puts(JSON.generate(Measurement.to_h(summary, variant: options.variant)))
     end
 
     private
@@ -38,19 +39,6 @@ module CpuBenchmark
     def ensure_trace_matches(cartridge, log_lines)
       divergence = Nestest::Runner.automation_mode(cartridge).first_divergence(log_lines)
       raise BrokenVariant, divergence.message if divergence
-    end
-
-    def measurement(options, workload)
-      summary = session(options, workload).measure
-
-      {
-        configuration: Configuration.current,
-        variant: options.variant,
-        megahertz: summary.megahertz,
-        percent_of_real_time: summary.percent_of_real_time,
-        spread: summary.spread,
-        ruby: RUBY_DESCRIPTION
-      }
     end
 
     def session(options, workload)

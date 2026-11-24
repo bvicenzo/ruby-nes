@@ -19,7 +19,7 @@ module FrameBenchmark
 
       workload = Workload.from_files(rom: options.rom, input: options.input)
       summary = session(options, workload).measure
-      @output.puts(JSON.generate(measurement(summary, workload)))
+      @output.puts(JSON.generate(Measurement.to_h(summary, workload)))
     end
 
     private
@@ -31,19 +31,6 @@ module FrameBenchmark
         frames_per_run: options.frames_per_run,
         measured_runs: options.measured_runs
       )
-    end
-
-    def measurement(summary, workload)
-      {
-        configuration: CpuBenchmark::Configuration.current,
-        frames_per_second: summary.frames_per_second,
-        milliseconds_per_frame: summary.milliseconds_per_frame,
-        percent_of_real_time: summary.percent_of_real_time,
-        spread: summary.spread,
-        frame_digest: workload.frame_digest,
-        audio_digest: workload.audio_digest,
-        ruby: RUBY_DESCRIPTION
-      }
     end
   end
 end
