@@ -36,8 +36,12 @@ module Ruby
           @period = (high << Bits::BYTE_WIDTH) | (@period & Bits::BYTE_MASK) # glossary: combine-bytes
         end
 
+        # The ticks from one clock to the next: the counter runs period, ..., 0, so period + 1 ticks. A quiet run of the
+        # other APU units steps the triangle and the noise clock by clock (plan 33).
+        def ticks_per_clock = @period + 1
+
         # The ticks before the next clock: the tick that finds the counter at 0. A run of quiet cycles goes on until a
-        # channel's next clock (plan 29).
+        # slow channel's next clock (plans 29 and 33); the triangle's and the noise's first clock within a run.
         def ticks_before_next_clock = @counter
 
         # The ticks before the one on which clock number `clocks` (1 is the next) comes: the tick that finds the counter
@@ -57,8 +61,9 @@ module Ruby
           @counter -= ticks
         end
 
-        # `ticks` ticks at once for a sequencer whose clocks would change nothing (a stopped triangle, plan 29): the
-        # counter ends where the ticks would leave it, reloads included, without a call per clock.
+        # `ticks` ticks at once without clocking the sequencer: its clocks would change nothing (a stopped triangle,
+        # plan 29), or were already made one by one (the triangle and the noise through a run, plan 33). The counter
+        # ends where the ticks would leave it, reloads included, without a call per clock.
         def skip_without_clocking(ticks)
           if ticks <= @counter
             @counter -= ticks

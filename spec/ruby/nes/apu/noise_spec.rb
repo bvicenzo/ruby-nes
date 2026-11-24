@@ -266,4 +266,49 @@ RSpec.describe Ruby::Nes::Apu::Noise do
       expect(timer).to have_received(:skip).with(25)
     end
   end
+
+  # A quiet run of the other units steps the noise clock by clock (plan 33): its clocks come every `ticks_per_clock`
+  # APU ticks, each one steps the shift register, and after them the timer moves on through the run without stepping
+  # it again.
+  describe '#ticks_per_clock' do
+    subject(:channel) { described_class.new(timer:) }
+
+    let(:timer) { instance_double(Ruby::Nes::Apu::Timer, ticks_per_clock: 2) }
+
+    it "answers its timer's ticks per clock" do
+      expect(channel.ticks_per_clock).to eq(2)
+    end
+  end
+
+  describe '#step' do
+    subject(:channel) { described_class.new(envelope:, length_counter:, shift_register:) }
+
+    let(:envelope) { instance_double(Ruby::Nes::Apu::Envelope) }
+    let(:length_counter) { instance_double(Ruby::Nes::Apu::LengthCounter) }
+    let(:shift_register) { instance_double(Ruby::Nes::Apu::NoiseShiftRegister, step: nil) }
+
+    it 'steps the shift register' do
+      channel.step
+      expect(shift_register).to have_received(:step).once
+    end
+
+    # The doubles answer nothing: any call to the envelope or the length counter would fail.
+    it 'leaves the envelope and the length counter' do
+      expect { channel.step }.not_to raise_error
+    end
+  end
+
+  describe '#skip_without_clocking' do
+    subject(:channel) { described_class.new(shift_register:, timer:) }
+
+    let(:shift_register) { instance_double(Ruby::Nes::Apu::NoiseShiftRegister, step: nil) }
+    let(:timer) { instance_double(Ruby::Nes::Apu::Timer, skip_without_clocking: nil, skip: nil) }
+
+    it 'moves its timer on the ticks without stepping the shift register', :aggregate_failures do
+      channel.skip_without_clocking(25)
+      expect(timer).to have_received(:skip_without_clocking).with(25)
+      expect(timer).not_to have_received(:skip)
+      expect(shift_register).not_to have_received(:step)
+    end
+  end
 end

@@ -134,6 +134,41 @@ RSpec.describe Ruby::Nes::Apu::Timer do
     end
   end
 
+  # The ticks from one clock to the next, which a run of quiet cycles steps through (plan 33).
+  describe '#ticks_per_clock' do
+    context 'when the period is 0' do
+      subject(:timer) { described_class.new(sequencer:) }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'answers 1' do
+        expect(timer.ticks_per_clock).to eq(1)
+      end
+
+      it 'leaves the counter and clocks nothing', :aggregate_failures do
+        timer.ticks_per_clock
+        expect(timer.ticks_before_next_clock).to eq(0)
+        expect(sequencer).not_to have_received(:step)
+      end
+    end
+
+    context 'when the period is above 0' do
+      subject(:timer) { described_class.new(sequencer:, period: 5) }
+
+      let(:sequencer) { instance_double(Ruby::Nes::Apu::DutySequencer, step: nil) }
+
+      it 'answers the period plus 1' do
+        expect(timer.ticks_per_clock).to eq(6)
+      end
+
+      it 'leaves the counter and clocks nothing', :aggregate_failures do
+        timer.ticks_per_clock
+        expect(timer.ticks_before_next_clock).to eq(0)
+        expect(sequencer).not_to have_received(:step)
+      end
+    end
+  end
+
   # A run of quiet cycles goes on until a channel's next clock (plan 29): the tick that finds the counter at 0.
   describe '#ticks_before_next_clock' do
     context 'when the counter is at 0' do

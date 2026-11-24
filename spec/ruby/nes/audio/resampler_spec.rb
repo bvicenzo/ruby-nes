@@ -78,6 +78,51 @@ RSpec.describe Ruby::Nes::Audio::Resampler do
       end
     end
 
+    # The fast channels hand runs of one cycle by the thousand a frame (plan 33, decision 2).
+    context 'when the run is one cycle' do
+      context 'and no sample is due after it' do
+        subject(:resampler) { described_class.new(output_rate: 3, output:, input_rate: 10) }
+
+        let(:output) { Ruby::Nes::Audio::SampleBuffer.new }
+        let(:cycle_by_cycle) { described_class.new(output_rate: 3, output: cycle_by_cycle_output, input_rate: 10) }
+        let(:cycle_by_cycle_output) { Ruby::Nes::Audio::SampleBuffer.new }
+
+        before do
+          resampler.add_run(0.7, 1)
+          3.times { resampler.add(0.1) }
+          cycle_by_cycle.add(0.7)
+          3.times { cycle_by_cycle.add(0.1) }
+        end
+
+        it 'adds the level as add does', :aggregate_failures do
+          levels = output.drain
+          expect(levels.size).to eq(1)
+          expect(levels).to eq(cycle_by_cycle_output.drain)
+        end
+      end
+
+      context 'and a sample is due after it' do
+        subject(:resampler) { described_class.new(output_rate: 3, output:, input_rate: 10) }
+
+        let(:output) { Ruby::Nes::Audio::SampleBuffer.new }
+        let(:cycle_by_cycle) { described_class.new(output_rate: 3, output: cycle_by_cycle_output, input_rate: 10) }
+        let(:cycle_by_cycle_output) { Ruby::Nes::Audio::SampleBuffer.new }
+
+        before do
+          3.times { resampler.add(0.1) }
+          resampler.add_run(0.7, 1)
+          3.times { cycle_by_cycle.add(0.1) }
+          cycle_by_cycle.add(0.7)
+        end
+
+        it 'pushes the sample as add does', :aggregate_failures do
+          levels = output.drain
+          expect(levels.size).to eq(1)
+          expect(levels).to eq(cycle_by_cycle_output.drain)
+        end
+      end
+    end
+
     context 'when the run ends before a sample is due' do
       subject(:resampler) { described_class.new(output_rate: 3, output:, input_rate: 10) }
 

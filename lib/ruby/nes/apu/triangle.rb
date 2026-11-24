@@ -65,6 +65,16 @@ module Ruby
           end
         end
 
+        # The ticks from one clock to the next, for a quiet run of the other units that steps the triangle clock by clock
+        # (plan 33).
+        def ticks_per_clock = @timer.ticks_per_clock
+
+        # `ticks` CPU cycles at once whose clocks were already made one by one (`step`, plan 33): the timer ends where the
+        # ticks leave it, and the sequencer is not clocked again.
+        def skip_without_clocking(ticks)
+          @timer.skip_without_clocking(ticks)
+        end
+
         def quarter_frame
           @linear_counter.clock
         end

@@ -36,9 +36,12 @@ module Ruby
 
         # `level` for `cycles` cycles, a run of quiet cycles (plan 29): the samples are those of as many #add calls. The
         # run is split where samples are due, found from the integer phase; within each part the level is still added
-        # once per cycle, since adding it n times and adding n × it can differ in the float sum's last bits. Hot path:
-        # once per run, a loop of float additions per cycle.
+        # once per cycle, since adding it n times and adding n × it can differ in the float sum's last bits. A run of 0
+        # cycles adds nothing; one of 1 goes straight to #add, without the split, since the fast channels hand those by
+        # the thousand a frame (plan 33, decision 2). Hot path: once per run, a loop of float additions per cycle.
         def add_run(level, cycles)
+          return add(level) if cycles == 1
+
           until cycles.zero?
             # At least one cycle: with an output rate above the input rate the phase can stand past a sample, and #add
             # then pushes one per cycle.

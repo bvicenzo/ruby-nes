@@ -12,11 +12,13 @@ module Ruby
     #
     # Caught up like the PPU (plan 22, decision 3): `catch_up(cpu_cycle)` runs every CPU cycle before `cpu_cycle`, the
     # frame counter and the triangle timer on each, the pulse, noise and DMC timers on the even ones (the GET cycles,
-    # decision 5), by runs of quiet cycles that every unit skips at once (plan 29). The console calls it from
+    # decision 5), by runs of quiet cycles (plan 29) that only the slow units bound, the frame counter, the pulses and
+    # the DMC: they skip a run at once, and the triangle and the noise, which can change every cycle or every 4, go
+    # through it clock by clock (FastChannels, plan 33). The console calls it from
     # `sync_cycle` on in `run_frame`, after each step in `step`; a register access first catches up through the access
     # cycle, Cpu#access_cycle, past any DMC stall on the way, the CPU being this unit's clock as it is MMC1's. With an
-    # audio resampler attached, each cycle caught up also hands it the mix of the five channels (plan 24), one level
-    # per run. Reset writes $00 to $4015 and clears the frame interrupt flag, writes $4017's last value again
+    # audio resampler attached, each cycle caught up also hands it the mix of the five channels (plan 24), in parts
+    # between changes. Reset writes $00 to $4015 and clears the frame interrupt flag, writes $4017's last value again
     # (apu_reset's readme, plan 22 decision 4) and resets the triangle's phase and the DMC's level
     # (https://www.nesdev.org/wiki/CPU_power_up_state).
     # Hot path: integers only, no allocation per cycle.
@@ -46,13 +48,16 @@ module Ruby
 
       # One keyword per collaborator, so specs can stand in for each; the frame counter clocks this APU's channels.
       # `resampler`, an Audio::Resampler, takes the mix of every CPU cycle; without one nothing is mixed (plan 24,
-      # decision 6: the safe navigation skips evaluating `output`).
+      # decision 6: the safe navigation skips evaluating `output`). The fast channels run the triangle and the noise
+      # through the quiet runs, handing their parts of the mix to the same resampler: one given in its place must be
+      # built with this APU's `resampler`, or the runs' samples go missing.
       # rubocop:disable-next Metrics/ParameterLists
       def initialize(cpu: nil, first_pulse: Pulse.new(negation: Sweep::ONES_COMPLEMENT),
                      second_pulse: Pulse.new(negation: Sweep::TWOS_COMPLEMENT), triangle: Triangle.new,
                      noise: Noise.new, dmc: Dmc.new(cpu:),
                      frame_interrupt: InterruptFlag.new(source: Cpu::InterruptLines::FRAME_IRQ, cpu:),
-                     frame_counter: FrameCounter.new(listener: self, interrupt: frame_interrupt), resampler: nil)
+                     frame_counter: FrameCounter.new(listener: self, interrupt: frame_interrupt), resampler: nil,
+                     fast_channels: FastChannels.new(triangle:, noise:, resampler:))
         @cpu = cpu
         @first_pulse = first_pulse
         @second_pulse = second_pulse
@@ -63,9 +68,9 @@ module Ruby
         @frame_interrupt = frame_interrupt
         @frame_counter = frame_counter
         @resampler = resampler
+        @fast_channels = fast_channels
         @cycle = 0
         @sync_cycle = nil
-        @level = 0.0
       end
 
       # The CPU, the APU's clock, the IRQ line of its interrupt flags and what the DMC halts.
@@ -100,16 +105,15 @@ module Ruby
         end
       end
 
-      # Runs every CPU cycle before `cpu_cycle`, by runs (plan 29): the cycles before the next one on which a unit
-      # changes are quiet and skipped at once, at the mix as it stands; the cycle with a change runs on its own. The mix
-      # is taken afresh at each catch-up, since register writes between them change it. Each part is a method of its
-      # own: under YJIT a long catch-up whose loop held the cycle's body ran about half as fast per cycle as short ones
-      # (benchmarks.md, plan 29).
+      # Runs every CPU cycle before `cpu_cycle`, by runs (plan 29): the cycles before the next one on which a slow unit
+      # changes are quiet, skipped at once by the slow units while the fast channels go through them clock by clock
+      # (plan 33); the cycle with a slow change runs on its own. Each part is a method of its own: under YJIT a long
+      # catch-up whose loop held the cycle's body ran about half as fast per cycle as short ones (benchmarks.md,
+      # plan 29).
       def catch_up(cpu_cycle)
         @sync_cycle = nil
         return unless @cycle < cpu_cycle
 
-        @level = output if @resampler
         while @cycle < cpu_cycle
           quiet = quiet_cycles(cpu_cycle - @cycle)
           if quiet.zero?
@@ -169,31 +173,34 @@ module Ruby
         event_cycle == NEVER ? NEVER : event_cycle + 1
       end
 
-      # The cycles from the APU's next one, at most `limit`, before the first on which a unit changes: the frame
-      # counter's and the triangle's quiet cycles, and the cycles before the get cycle of the other timers' first
-      # changing tick.
+      # The cycles from the APU's next one, at most `limit`, before the first on which a slow unit changes: the frame
+      # counter's quiet cycles, and the cycles before the get cycle of the pulses' and the DMC's first changing tick.
+      # The triangle and the noise do not bound them (plan 33).
       def quiet_cycles(limit)
-        timer_ticks = [@first_pulse.quiet_ticks, @second_pulse.quiet_ticks, @noise.quiet_ticks, @dmc.quiet_ticks].min
+        timer_ticks = [@first_pulse.quiet_ticks, @second_pulse.quiet_ticks, @dmc.quiet_ticks].min
         timer_cycles = GetCycles.cycle_of_tick(@cycle, timer_ticks) - @cycle
-        [limit, @frame_counter.quiet_cycles, @triangle.quiet_ticks, timer_cycles].min
+        [limit, @frame_counter.quiet_cycles, timer_cycles].min
       end
 
-      # `cycles` quiet cycles at once: each unit skips them, the timers on get cycles by the get cycles among them, and
-      # the resampler takes the mix as it stands for all of them.
+      # `cycles` quiet cycles at once: the slow units skip them, the pulses and the DMC by the get cycles among them,
+      # and the fast channels go through them, handed the slow channels' outputs, which stand still, when there is a mix
+      # to take.
       def skip(cycles)
         timer_ticks = GetCycles.count(@cycle, cycles)
         @frame_counter.skip(cycles)
-        @triangle.skip(cycles)
         @first_pulse.skip(timer_ticks)
         @second_pulse.skip(timer_ticks)
-        @noise.skip(timer_ticks)
         @dmc.skip(timer_ticks)
-        @resampler&.add_run(@level, cycles)
+        if @resampler
+          @fast_channels.run(@cycle, cycles, @first_pulse.output, @second_pulse.output, @dmc.output)
+        else
+          @fast_channels.run(@cycle, cycles)
+        end
         @cycle += cycles
       end
 
-      # One CPU cycle with a change: the frame counter and the triangle timer, on even cycles the other timers, then the
-      # mix, which stands for the quiet cycles after it.
+      # One CPU cycle with a slow change: the frame counter and the triangle timer, on even cycles the other timers,
+      # then the cycle's mix.
       def run_cycle
         @frame_counter.tick(@cycle)
         @triangle.tick_timer
@@ -203,10 +210,7 @@ module Ruby
           @noise.tick_timer
           @dmc.tick_timer(@cycle)
         end
-        if @resampler
-          @level = output
-          @resampler.add(@level)
-        end
+        @resampler&.add(output)
         @cycle += 1
       end
 
@@ -263,3 +267,4 @@ require_relative 'apu/interrupt_flag'
 require_relative 'apu/frame_counter'
 require_relative 'apu/dmc'
 require_relative 'apu/mixer'
+require_relative 'apu/fast_channels'

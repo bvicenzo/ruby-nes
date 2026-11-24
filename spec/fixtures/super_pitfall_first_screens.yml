@@ -1,0 +1,6 @@
+# Super Pitfall from power-up into its first screens, frame number to the buttons held from it on
+# (Frontends::InputScript): Start on the title screen (200), then Right from 600 on. Read by the frame benchmark on the
+# user's own dump (plan 33): its sound effects play the triangle at period 0 and the noise at its shortest period.
+200: [start]
+206: []
+600: [right]

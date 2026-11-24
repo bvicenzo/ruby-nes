@@ -60,6 +60,21 @@ module Ruby
           @timer.skip(ticks)
         end
 
+        # The APU ticks from one clock to the next, for a quiet run of the other units that steps the noise clock by
+        # clock (plan 33).
+        def ticks_per_clock = @timer.ticks_per_clock
+
+        # The timer's clock, made by such a run: the shift register steps.
+        def step
+          @shift_register.step
+        end
+
+        # `ticks` APU cycles at once whose clocks were already made one by one (`step`, plan 33): the timer ends where the
+        # ticks leave it, and the shift register is not stepped again.
+        def skip_without_clocking(ticks)
+          @timer.skip_without_clocking(ticks)
+        end
+
         def quarter_frame
           @envelope.clock
         end

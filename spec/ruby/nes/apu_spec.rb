@@ -370,10 +370,12 @@ RSpec.describe Ruby::Nes::Apu do
     end
   end
 
-  # Runs every CPU cycle before the target (plan 22, decision 3) by runs (plan 29): the cycles before the next one on
-  # which a unit changes are quiet, and every unit skips them at once, the timers on get cycles by the get cycles among
-  # them; the cycle with a change runs as before, the frame counter and the triangle every cycle, the other timers on
-  # even ones. With a resampler, a run hands it the mix as it stands, one level for all its cycles; without one,
+  # Runs every CPU cycle before the target (plan 22, decision 3) by runs (plan 29) that only the slow units bound since
+  # plan 33: the frame counter, the pulses and the DMC. The cycles before the first one on which one of them changes are
+  # quiet: they skip them at once, the pulses and the DMC by the get cycles among them, and the triangle and the noise,
+  # which can change every cycle or every 4, go through them clock by clock (FastChannels), handed the slow channels'
+  # outputs when a resampler takes the mix. The cycle with a slow change runs as before: the frame counter and the
+  # triangle every cycle, the other timers on even ones, and the cycle's mix handed on its own. Without a resampler,
   # nothing is mixed (plan 24, decision 6). The doubles answer NEVER for the units that do not bound the run.
   describe '#catch_up' do
     context 'when the APU has already reached the target' do
@@ -387,195 +389,23 @@ RSpec.describe Ruby::Nes::Apu do
     end
 
     context 'when it is behind the target' do
-      context 'and no unit changes before the target' do
-        context 'and no resampler is attached' do
-          subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
-
-          let(:frame_counter) do
-            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil)
-          end
-          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-
-          before { apu.catch_up(5) }
-
-          it(
-            'skips every unit to the target at once, the timers on get cycles by the get cycles among them',
-            :aggregate_failures
-          ) do
-            expect(frame_counter).to have_received(:skip).once.with(5)
-            expect(triangle).to have_received(:skip).once.with(5)
-            expect(first_pulse).to have_received(:skip).once.with(3)
-            expect(second_pulse).to have_received(:skip).once.with(3)
-            expect(noise).to have_received(:skip).once.with(3)
-            expect(dmc).to have_received(:skip).once.with(3)
-          end
-        end
-
-        context 'and a resampler is attached' do
-          subject(:apu) do
-            described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, resampler:)
-          end
-
-          let(:frame_counter) do
-            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil)
-          end
-          let(:first_pulse) do
-            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 3)
-          end
-          let(:second_pulse) do
-            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 4)
-          end
-          let(:triangle) do
-            instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 5)
-          end
-          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 6) }
-          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 7) }
-          let(:resampler) { instance_double(Ruby::Nes::Audio::Resampler, add_run: nil) }
-
-          before { apu.catch_up(5) }
-
-          it 'hands it the mix as it stands for every cycle, as one run' do
-            expect(resampler).to have_received(:add_run).once.with(Ruby::Nes::Apu::Mixer.mix(3, 4, 5, 6, 7), 5)
-          end
-        end
-      end
-
-      context 'and the frame counter changes first' do
-        subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
-
-        let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, skip: nil, tick: nil) }
-        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-        let(:triangle) do
-          instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-        end
-        let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-
-        before do
-          allow(frame_counter).to receive(:quiet_cycles).and_return(3, 0)
-          apu.catch_up(4)
-        end
-
-        it 'skips the quiet cycles before it, then runs its cycle', :aggregate_failures do
-          expect(frame_counter).to have_received(:skip).once.with(3).ordered
-          expect(frame_counter).to have_received(:tick).once.with(3).ordered
-          expect(triangle).to have_received(:tick_timer).once
-          expect(first_pulse).to have_received(:skip).once.with(2)
-        end
-      end
-
-      context 'and the triangle changes first' do
-        subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
-
-        let(:frame_counter) do
-          instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
-        end
-        let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-        let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-        let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, skip: nil, tick_timer: nil) }
-        let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-        let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
-
-        before do
-          allow(triangle).to receive(:quiet_ticks).and_return(3, 0)
-          apu.catch_up(4)
-        end
-
-        it 'skips the quiet cycles before it, then runs its cycle', :aggregate_failures do
-          expect(triangle).to have_received(:skip).once.with(3).ordered
-          expect(triangle).to have_received(:tick_timer).once.ordered
-          expect(frame_counter).to have_received(:tick).once.with(3)
-        end
-      end
-
-      context 'and a timer on get cycles changes first' do
-        context 'and the run starts on a get cycle' do
-          subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
-
-          let(:frame_counter) do
-            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
-          end
-          let(:first_pulse) do
-            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-          end
-          let(:second_pulse) do
-            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-          end
-          let(:triangle) do
-            instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-          end
-          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, skip: nil, tick_timer: nil) }
-          let(:dmc) do
-            instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-          end
-
-          before do
-            allow(noise).to receive(:quiet_ticks).and_return(2, 0)
-            apu.catch_up(5)
-          end
-
-          it 'skips the cycles before its tick, then runs that cycle', :aggregate_failures do
-            expect(frame_counter).to have_received(:skip).once.with(4).ordered
-            expect(noise).to have_received(:skip).once.with(2).ordered
-            expect(frame_counter).to have_received(:tick).once.with(4).ordered
-            expect(noise).to have_received(:tick_timer).once.ordered
-            expect(dmc).to have_received(:tick_timer).once.with(4)
-          end
-        end
-
-        context 'and the run starts on a put cycle' do
-          subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
-
-          let(:frame_counter) do
-            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
-          end
-          let(:first_pulse) do
-            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-          end
-          let(:second_pulse) do
-            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-          end
-          let(:triangle) do
-            instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-          end
-          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, skip: nil, tick_timer: nil) }
-          let(:dmc) do
-            instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
-          end
-
-          before do
-            allow(noise).to receive(:quiet_ticks).and_return(2, 2, 0)
-            apu.catch_up(1)
-            apu.catch_up(7)
-          end
-
-          it 'skips the cycles before its tick, then runs that cycle', :aggregate_failures do
-            expect(frame_counter).to have_received(:skip).once.with(5).ordered
-            expect(frame_counter).to have_received(:tick).once.with(6).ordered
-            expect(noise).to have_received(:skip).once.with(2)
-          end
-        end
-      end
-
-      context "and a unit changes on the APU's next cycle" do
+      context "and a slow unit changes on the APU's next cycle" do
         context 'and no resampler is attached' do
           subject(:apu) { described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:) }
 
           let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: 0, tick: nil) }
           let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: 0, tick_timer: nil, output: 3) }
           let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: 0, tick_timer: nil, output: 4) }
-          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: 0, tick_timer: nil, output: 5) }
-          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: 0, tick_timer: nil, output: 6) }
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, output: 5) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, output: 6) }
           let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: 0, tick_timer: nil, output: 7) }
 
           before { apu.catch_up(5) }
 
-          it 'ticks the frame counter and triangle every cycle, the other timers on even ones', :aggregate_failures do
+          it(
+            'ticks the frame counter and the triangle every cycle, the other timers on even ones',
+            :aggregate_failures
+          ) do
             expect(frame_counter).to have_received(:tick).with(0).ordered
             expect(frame_counter).to have_received(:tick).with(4).ordered
             expect(frame_counter).to have_received(:tick).exactly(5).times
@@ -603,45 +433,304 @@ RSpec.describe Ruby::Nes::Apu do
             described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, resampler:)
           end
 
-          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, tick: nil, skip: nil) }
-          let(:first_pulse) do
-            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: 0, tick: nil) }
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: 0, tick_timer: nil, output: 3) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: 0, tick_timer: nil, output: 4) }
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil, output: 5) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil, output: 6) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: 0, tick_timer: nil, output: 7) }
+          let(:resampler) { instance_double(Ruby::Nes::Audio::Resampler, add: nil) }
+
+          before { apu.catch_up(1) }
+
+          it "hands it that cycle's mix as one level" do
+            expect(resampler).to have_received(:add).once.with(Ruby::Nes::Apu::Mixer.mix(3, 4, 5, 6, 7))
           end
-          let(:second_pulse) do
-            instance_double(
-              Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil, output: 4
-            )
+        end
+      end
+
+      context 'and the first slow change comes later' do
+        context 'and the frame counter bounds the run' do
+          subject(:apu) do
+            described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, fast_channels:)
           end
-          let(:triangle) do
-            instance_double(
-              Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil, output: 5
-            )
-          end
-          let(:noise) do
-            instance_double(
-              Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil, output: 6
-            )
-          end
-          let(:dmc) do
-            instance_double(
-              Ruby::Nes::Apu::Dmc,
-              quiet_ticks: Ruby::Nes::Apu::NEVER,
-              skip: nil,
-              tick_timer: nil,
-              output: 7
-            )
-          end
-          let(:resampler) { instance_double(Ruby::Nes::Audio::Resampler, add: nil, add_run: nil) }
+
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, skip: nil, tick: nil) }
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
 
           before do
-            allow(frame_counter).to receive(:quiet_cycles).and_return(0, Ruby::Nes::Apu::NEVER)
-            allow(first_pulse).to receive(:output).and_return(3, 9)
-            apu.catch_up(5)
+            allow(frame_counter).to receive(:quiet_cycles).and_return(3, 0)
+            apu.catch_up(4)
           end
 
-          it 'mixes that cycle on its own, then the run after it at the new mix', :aggregate_failures do
-            expect(resampler).to have_received(:add).once.with(Ruby::Nes::Apu::Mixer.mix(9, 4, 5, 6, 7)).ordered
-            expect(resampler).to have_received(:add_run).once.with(Ruby::Nes::Apu::Mixer.mix(9, 4, 5, 6, 7), 4).ordered
+          it 'runs the quiet cycles before it at once, then its cycle', :aggregate_failures do
+            expect(frame_counter).to have_received(:skip).once.with(3).ordered
+            expect(fast_channels).to have_received(:run).once.with(0, 3).ordered
+            expect(frame_counter).to have_received(:tick).once.with(3).ordered
+            expect(triangle).to have_received(:tick_timer).once
+            expect(first_pulse).to have_received(:skip).once.with(2)
+          end
+        end
+
+        context 'and a pulse bounds the run' do
+          context 'and the run starts on a get cycle' do
+            subject(:apu) do
+              described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, fast_channels:)
+            end
+
+            let(:frame_counter) do
+              instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
+            end
+            let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, skip: nil, tick_timer: nil) }
+            let(:second_pulse) do
+              instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+            end
+            let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil) }
+            let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil) }
+            let(:dmc) do
+              instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+            end
+            let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
+
+            before do
+              allow(first_pulse).to receive(:quiet_ticks).and_return(2, 0)
+              apu.catch_up(5)
+            end
+
+            it 'runs the cycles before its tick at once, then that cycle', :aggregate_failures do
+              expect(frame_counter).to have_received(:skip).once.with(4).ordered
+              expect(first_pulse).to have_received(:skip).once.with(2).ordered
+              expect(fast_channels).to have_received(:run).once.with(0, 4).ordered
+              expect(frame_counter).to have_received(:tick).once.with(4).ordered
+              expect(first_pulse).to have_received(:tick_timer).once.ordered
+              expect(dmc).to have_received(:tick_timer).once.with(4)
+            end
+          end
+
+          context 'and the run starts on a put cycle' do
+            subject(:apu) do
+              described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, fast_channels:)
+            end
+
+            let(:frame_counter) do
+              instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
+            end
+            let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, skip: nil, tick_timer: nil) }
+            let(:second_pulse) do
+              instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+            end
+            let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil) }
+            let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil) }
+            let(:dmc) do
+              instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+            end
+            let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
+
+            before do
+              allow(first_pulse).to receive(:quiet_ticks).and_return(2, 2, 0)
+              apu.catch_up(1)
+              apu.catch_up(7)
+            end
+
+            it 'runs the cycles before its tick at once, then that cycle', :aggregate_failures do
+              expect(frame_counter).to have_received(:skip).once.with(5).ordered
+              expect(fast_channels).to have_received(:run).once.with(1, 5).ordered
+              expect(frame_counter).to have_received(:tick).once.with(6).ordered
+              expect(first_pulse).to have_received(:skip).once.with(2)
+            end
+          end
+        end
+
+        context 'and the DMC bounds the run' do
+          context 'and the run starts on a get cycle' do
+            subject(:apu) do
+              described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, fast_channels:)
+            end
+
+            let(:frame_counter) do
+              instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
+            end
+            let(:first_pulse) do
+              instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+            end
+            let(:second_pulse) do
+              instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+            end
+            let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil) }
+            let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil) }
+            let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, skip: nil, tick_timer: nil) }
+            let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
+
+            before do
+              allow(dmc).to receive(:quiet_ticks).and_return(2, 0)
+              apu.catch_up(5)
+            end
+
+            it 'runs the cycles before its tick at once, then that cycle', :aggregate_failures do
+              expect(frame_counter).to have_received(:skip).once.with(4).ordered
+              expect(dmc).to have_received(:skip).once.with(2).ordered
+              expect(fast_channels).to have_received(:run).once.with(0, 4).ordered
+              expect(frame_counter).to have_received(:tick).once.with(4).ordered
+              expect(dmc).to have_received(:tick_timer).once.with(4).ordered
+            end
+          end
+
+          context 'and the run starts on a put cycle' do
+            subject(:apu) do
+              described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, fast_channels:)
+            end
+
+            let(:frame_counter) do
+              instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil, tick: nil)
+            end
+            let(:first_pulse) do
+              instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+            end
+            let(:second_pulse) do
+              instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, tick_timer: nil)
+            end
+            let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, tick_timer: nil) }
+            let(:noise) { instance_double(Ruby::Nes::Apu::Noise, tick_timer: nil) }
+            let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, skip: nil, tick_timer: nil) }
+            let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
+
+            before do
+              allow(dmc).to receive(:quiet_ticks).and_return(2, 2, 0)
+              apu.catch_up(1)
+              apu.catch_up(7)
+            end
+
+            it 'runs the cycles before its tick at once, then that cycle', :aggregate_failures do
+              expect(frame_counter).to have_received(:skip).once.with(5).ordered
+              expect(fast_channels).to have_received(:run).once.with(1, 5).ordered
+              expect(frame_counter).to have_received(:tick).once.with(6).ordered
+              expect(dmc).to have_received(:tick_timer).once.with(6).ordered
+            end
+          end
+        end
+
+        # A triangle at period 0 clocks on every cycle (plan 33).
+        context 'and the triangle would change before it' do
+          subject(:apu) do
+            described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, fast_channels:)
+          end
+
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, skip: nil, tick: nil) }
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: 0, tick_timer: nil) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: Ruby::Nes::Apu::NEVER) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
+
+          before do
+            allow(frame_counter).to receive(:quiet_cycles).and_return(3, 0)
+            apu.catch_up(4)
+          end
+
+          it 'does not cut the run', :aggregate_failures do
+            expect(fast_channels).to have_received(:run).once.with(0, 3)
+            expect(triangle).to have_received(:tick_timer).once
+          end
+        end
+
+        # A noise at its shortest period clocks every 4 cycles (plan 33).
+        context 'and the noise would change before it' do
+          subject(:apu) do
+            described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, fast_channels:)
+          end
+
+          let(:frame_counter) { instance_double(Ruby::Nes::Apu::FrameCounter, skip: nil, tick: nil) }
+          let(:first_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:second_pulse) { instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle, quiet_ticks: Ruby::Nes::Apu::NEVER, tick_timer: nil) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise, quiet_ticks: 0, tick_timer: nil) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil) }
+          let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
+
+          before do
+            allow(frame_counter).to receive(:quiet_cycles).and_return(3, 0)
+            apu.catch_up(4)
+          end
+
+          it 'does not cut the run', :aggregate_failures do
+            expect(fast_channels).to have_received(:run).once.with(0, 3)
+            expect(noise).not_to have_received(:tick_timer)
+          end
+        end
+      end
+
+      context 'and no slow unit changes before the target' do
+        context 'and no resampler is attached' do
+          subject(:apu) do
+            described_class.new(frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, fast_channels:)
+          end
+
+          let(:frame_counter) do
+            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil)
+          end
+          let(:first_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 3)
+          end
+          let(:second_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 4)
+          end
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 7) }
+          let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
+
+          before { apu.catch_up(5) }
+
+          it(
+            'skips the slow units to the target at once, the pulses and the DMC by the get cycles among them',
+            :aggregate_failures
+          ) do
+            expect(frame_counter).to have_received(:skip).once.with(5)
+            expect(first_pulse).to have_received(:skip).once.with(3)
+            expect(second_pulse).to have_received(:skip).once.with(3)
+            expect(dmc).to have_received(:skip).once.with(3)
+          end
+
+          it 'runs the fast channels through it, without the outputs to mix', :aggregate_failures do
+            expect(fast_channels).to have_received(:run).once.with(0, 5)
+            expect(first_pulse).not_to have_received(:output)
+            expect(second_pulse).not_to have_received(:output)
+            expect(dmc).not_to have_received(:output)
+          end
+        end
+
+        context 'and a resampler is attached' do
+          subject(:apu) do
+            described_class.new(
+              frame_counter:, first_pulse:, second_pulse:, triangle:, noise:, dmc:, resampler:, fast_channels:
+            )
+          end
+
+          let(:frame_counter) do
+            instance_double(Ruby::Nes::Apu::FrameCounter, quiet_cycles: Ruby::Nes::Apu::NEVER, skip: nil)
+          end
+          let(:first_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 3)
+          end
+          let(:second_pulse) do
+            instance_double(Ruby::Nes::Apu::Pulse, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 4)
+          end
+          let(:triangle) { instance_double(Ruby::Nes::Apu::Triangle) }
+          let(:noise) { instance_double(Ruby::Nes::Apu::Noise) }
+          let(:dmc) { instance_double(Ruby::Nes::Apu::Dmc, quiet_ticks: Ruby::Nes::Apu::NEVER, skip: nil, output: 7) }
+          let(:resampler) { instance_double(Ruby::Nes::Audio::Resampler) }
+          let(:fast_channels) { instance_double(Ruby::Nes::Apu::FastChannels, run: nil) }
+
+          before { apu.catch_up(5) }
+
+          it "runs the fast channels through it with the slow channels' outputs" do
+            expect(fast_channels).to have_received(:run).once.with(0, 5, 3, 4, 7)
           end
         end
       end
