@@ -17,7 +17,8 @@ controls, reset, back to the list, quit.
   gives to another action leaves its default action.
 - Writing that file back from the program is new. Today it is only read, and people may have written comments in it.
 - Plan 37 brings the menu's look and a window that outlives a game. Plan 35 brings save state slots. Plan 36 brings
-  gamepad bindings and, open decision 3 there, a pad combination meant to open this menu.
+  gamepad bindings for the controller buttons only: hotkeys on the pad, and the pad combination that opens this menu,
+  were left to this plan (plan 36, decision 3), so `Frontends::Hotkeys` must learn a second input source here.
 
 ## Scope
 
@@ -29,7 +30,8 @@ In:
 2. Saving writes the config file (open decision 1), and the running game uses the new bindings at once.
 3. Restoring the defaults, for one action or for all.
 4. A pause menu over the paused game: resume, save state, load state (with the slots and their thumbnails), controls,
-   reset, back to the ROM list, quit. It opens from the keyboard and from the gamepad (plan 36, decision 3).
+   reset, back to the ROM list, quit. It opens from the keyboard and from the gamepad, with a pad combination such as
+   select + start (plan 36, decision 3, left it to this plan).
 5. README: the menus, and the config file's sections as written by the program.
 
 Out: video and audio settings on screen (scale, aspect, overscan, volume), which could be a later plan.
