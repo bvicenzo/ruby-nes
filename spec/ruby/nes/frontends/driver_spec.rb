@@ -8,10 +8,13 @@ require 'ruby/nes/frontends/driver'
 # (Ppu#frame_buffer, plan 16, decision 1). Before a frame the console is reset when the frontend asks; a paused
 # frontend gets the last completed frame again, with no frame run, so it keeps drawing and pacing (plan 18, decision
 # 5). After each frame it runs, the frontend gets the frame's audio samples (Console#audio_samples) before the frame
-# itself, so a frontend paced by its audio has them queued when it waits (plan 24).
+# itself, so a frontend paced by its audio has them queued when it waits (plan 24). A frame observer (the battery save's
+# keeper, plan 34) is told after each frame the driver runs.
 RSpec.describe Ruby::Nes::Frontends::Driver do
   describe '#run' do
-    subject(:driver) { described_class.new(console:, frontend:) }
+    subject(:driver) { described_class.new(console:, frontend:, frame_observer:) }
+
+    let(:frame_observer) { object_double(Ruby::Nes::Frontends::Driver::NoFrameObserver, frame_ran: nil) }
 
     let(:first_controller) { instance_double(Ruby::Nes::Input::Controller, :buttons= => nil) }
     let(:second_controller) { instance_double(Ruby::Nes::Input::Controller, :buttons= => nil) }
@@ -91,6 +94,10 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
           it 'queues no audio' do
             expect(frontend).not_to have_received(:queue_audio)
           end
+
+          it 'tells the frame observer nothing' do
+            expect(frame_observer).not_to have_received(:frame_ran)
+          end
         end
       end
 
@@ -146,6 +153,14 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
                 :run_frame
               ]
             )
+          end
+
+          it 'tells the frame observer after running each frame' do
+            calls = []
+            allow(console).to receive(:run_frame) { calls << :run_frame }
+            allow(frame_observer).to receive(:frame_ran) { calls << :frame_ran }
+            driver.run
+            expect(calls).to eq(%i[run_frame frame_ran run_frame frame_ran])
           end
 
           it 'presents each completed frame', :aggregate_failures do
