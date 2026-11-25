@@ -85,11 +85,11 @@ Every measurement, with the profiles that led to each change, is in [`docs/bench
 - **PPU:** registers, VRAM and mirroring, background and sprites, sprite 0 hit and overflow, VBlank and NMI timing.
 - **APU:** two pulse channels, triangle, noise and DMC, the frame counter and the mixer, played at 48 kHz.
 - **Mappers:** NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4) with its scanline IRQ, and AxROM (7). iNES files.
-- **Controllers:** the first controller from the keyboard, with configurable keys.
+- **Controllers:** both controllers, from the keyboard and USB gamepads, with configurable keys and buttons.
 - **Frontends:** a window with sound (raylib), and a headless mode that writes screenshots and WAV audio.
 
-Not emulated (yet): battery-backed saves, save states, PAL consoles, and other mappers. The test ROMs the suite runs
-are listed in [`docs/test-roms.md`](docs/test-roms.md).
+Not emulated (yet): save states, PAL consoles, and other mappers. The test ROMs the suite runs are listed in
+[`docs/test-roms.md`](docs/test-roms.md).
 
 ## Installation
 
@@ -168,7 +168,7 @@ The window opens at 3× scale and runs under YJIT, with sound.
 | `--scale N` | `3` | Window scale. |
 | `--aspect square\|8:7` | `square` | Square pixels, or the 8:7 pixel aspect of a TV. |
 | `--crop-overscan` | off | Shows lines 8 to 231 only, as TVs did. |
-| `--config PATH` | `~/.config/ruby-nes/config.yml` | The key configuration file. |
+| `--config PATH` | `~/.config/ruby-nes/config.yml` | The keys and gamepad configuration file. |
 | `--no-audio` | off | No sound; the timer paces the frames. |
 
 `bundle exec exe/ruby-nes --help` lists every option.
@@ -192,6 +192,47 @@ keys:
   b: [z, left_control]
   pause: space
 ```
+
+### Gamepads
+
+A USB gamepad plays too: the first one is player 1, beside the keyboard, and a second one is player 2. They can be
+plugged in or pulled out while the game runs. Players follow the order raylib numbers the pads in: with two pads in,
+pulling out the first leaves the second as player 2. The buttons are named by their place on a standard pad, as raylib names
+them, so on a SNES-style pad the letters match:
+
+| NES controller | Gamepad button | SNES-style pad |
+|---|---|---|
+| A | `right_face_right`, `right_face_up` | A, X |
+| B | `right_face_down`, `right_face_left` | B, Y |
+| Select | `middle_left` | Select |
+| Start | `middle_right` | Start |
+| D-pad | `left_face_up`, `left_face_down`, `left_face_left`, `left_face_right` | D-pad |
+
+The left analog stick, on pads that have one, moves too once pushed past half way. The other buttons are
+`left_trigger_1`, `right_trigger_1` (L and R), `left_trigger_2`, `right_trigger_2`, `middle`, `left_thumb` and
+`right_thumb`. The `gamepad:` section of the config file sets them with the rules of `keys:`. Emulator hotkeys stay on
+the keyboard.
+
+```yaml
+gamepad:
+  a: right_face_down
+  b: right_face_left
+```
+
+raylib recognises a pad from the SDL GameControllerDB mappings it carries, which tell it where each physical button
+is. A pad it does not know answers to nothing; one that matches the wrong mapping shows buttons that answer as other
+buttons, or Select and Start that move the D-pad. Give it its own line from
+[SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB) (or one written for it by a tool such as SDL's
+`controllermap`), under `gamepad_mappings:`. raylib skips a line it cannot read without saying so, so test the pad
+after adding one:
+
+```yaml
+gamepad_mappings: |
+  03000000790000001100000010010000,Retrolink SNES Controller,a:b2,b:b1,back:b8,dpdown:+a1,dpleft:-a0,dpright:+a0,dpup:-a1,leftshoulder:b4,rightshoulder:b5,start:b9,x:b3,y:b0,platform:Linux,
+```
+
+On Linux, raylib reads the pad from `/dev/input`, which desktop sessions open to the logged-in user. A cheap USB SNES
+pad (DragonRise chip, `0079:0011`) is known to raylib on Linux and macOS as it is.
 
 ### Saves
 
