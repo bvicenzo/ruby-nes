@@ -30,7 +30,7 @@ RSpec.describe FrontendLibraries do
       context 'and it loads' do
         subject(:sandboxed_run) { TestRoms::SandboxedGroup.run(group_metadata:, &install_hook) }
 
-        let(:group_metadata) { [{ frontend_library: 'ruby/nes/frontends/keyboard' }] }
+        let(:group_metadata) { [{ frontend_library: 'ruby/nes/frontends/controls' }] }
 
         it 'runs the group' do
           expect(sandboxed_run.execution_result.status).to eq(:passed)

@@ -3,10 +3,10 @@
 module Ruby
   module Nes
     module Frontends
-      # Cancels opposite directions held together on a keyboard (plan 18, decision 3): Left with Right, or Up with Down,
-      # reach the controller as neither, the other buttons untouched. NESdev documents no behaviour for them
-      # (https://www.nesdev.org/wiki/Standard_controller), and the core does not filter them (plan 15, decision 2). Off
-      # the hot path: once per frame.
+      # Cancels opposite directions held together on a port's combined inputs, the keyboard and the gamepads (plan 18,
+      # decision 3; plan 36): Left with Right, or Up with Down, reach the controller as neither, the other buttons
+      # untouched. NESdev documents no behaviour for them (https://www.nesdev.org/wiki/Standard_controller), and the core
+      # does not filter them (plan 15, decision 2). Off the hot path: once per frame.
       module OppositeDirections
         PAIRS = [
           Bits.set_flag(Input::Controller::BUTTONS[:left], Input::Controller::BUTTONS[:right]),

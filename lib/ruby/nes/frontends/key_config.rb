@@ -2,61 +2,77 @@
 
 require 'yaml'
 require_relative 'hotkeys'
+require_relative 'key_config/section'
 
 module Ruby
   module Nes
     module Frontends
-      # The keys of the windowed frontend as the config file sets them (plan 18, decision 7), in YAML:
+      # The window's controls as the config file sets them (plan 18, decision 7; plan 36), in YAML:
       #
       #   keys:
       #     a: x
       #     b: [z, left_control]
       #     pause: space
+      #   gamepad:
+      #     a: right_face_right
+      #   gamepad_mappings: "03000000790000001100000010010000,USB Gamepad,a:b2,b:b1,...,platform:Linux,"
       #
-      # Each action, a controller button (Input::Controller::BUTTONS) or a hotkey (Hotkeys::ACTIONS), takes a key name
-      # or a list of key names; an empty list leaves it without a key. Actions the file does not mention keep their
-      # DEFAULTS, except the keys the file gives to another action: the file wins, so `a: z` leaves B, whose default is
-      # Z, without a key. `keys:` is the only section. Key names are the graphics library's: Frontends::KeyBindings
-      # turns them into key codes. Off the hot path: read once.
+      # `keys:` binds each action, a controller button (Input::Controller::BUTTONS) or a hotkey (Hotkeys::ACTIONS), to
+      # keyboard keys; `gamepad:` binds the controller buttons only to gamepad buttons, hotkeys on the pad being plan
+      # 38's (plan 36, decision 3). Both follow KeyConfig::Section's rules, from DEFAULTS and GAMEPAD_DEFAULTS. Names
+      # are the graphics library's: Frontends::KeyBindings turns them into codes. `gamepad_mappings:` is text in the SDL
+      # GameControllerDB format, one pad per line, for pads the library does not know (plan 36, decision 4). Off the
+      # hot path: read once.
       class KeyConfig
         # The file cannot be used: the message says why.
         class InvalidConfig < Error; end
 
-        SECTION = 'keys'
-        ACTIONS = (Input::Controller::BUTTONS.keys + Hotkeys::ACTIONS).freeze
+        KEYS = 'keys'
+        GAMEPAD = 'gamepad'
+        GAMEPAD_MAPPINGS = 'gamepad_mappings'
+        SECTIONS = [KEYS, GAMEPAD, GAMEPAD_MAPPINGS].freeze
         DEFAULTS = {
-          a: 'x',
-          b: 'z',
-          select: 'right_shift',
-          start: 'enter',
-          up: 'up',
-          down: 'down',
-          left: 'left',
-          right: 'right',
-          pause: 'p',
-          reset: 'r',
-          quit: 'escape',
-          frame_rate: 'f'
+          a: ['x'],
+          b: ['z'],
+          select: ['right_shift'],
+          start: ['enter'],
+          up: ['up'],
+          down: ['down'],
+          left: ['left'],
+          right: ['right'],
+          pause: ['p'],
+          reset: ['r'],
+          quit: ['escape'],
+          frame_rate: ['f']
         }.freeze
+        # raylib's names for a standard pad's buttons, by position (plan 36, decision 1): on a SNES pad A (right) is
+        # A and B (bottom) is B, X (top) repeats A and Y (left) repeats B; the D-pad is the left face.
+        GAMEPAD_DEFAULTS = {
+          a: %w[right_face_right right_face_up],
+          b: %w[right_face_down right_face_left],
+          select: ['middle_left'],
+          start: ['middle_right'],
+          up: ['left_face_up'],
+          down: ['left_face_down'],
+          left: ['left_face_left'],
+          right: ['left_face_right']
+        }.freeze
+        KEY_SECTION = Section.new(name: KEYS, kind: 'key', defaults: DEFAULTS)
+        GAMEPAD_SECTION = Section.new(name: GAMEPAD, kind: 'gamepad button', defaults: GAMEPAD_DEFAULTS)
 
-        # Each action to the names of its keys.
-        attr_reader :keys
+        # Each action to the names of its keys, and each controller button to the names of its gamepad buttons.
+        attr_reader :keys, :gamepad_buttons
+        # The extra gamepad mappings' text, or nil.
+        attr_reader :gamepad_mappings
 
         # The config in a YAML text; raises InvalidConfig when it is not one.
         def self.parse(text)
-          section = keys_section(load_yaml(text) || {})
-          unknown_names = section.keys - ACTIONS.map(&:to_s)
-          raise InvalidConfig, "not actions: #{unknown_names.join(', ')}" if unknown_names.any?
-
-          new(section.to_h { |action, names| [action.to_sym, key_names(action, names)] })
-        end
-
-        # A key name or a list of them, each once; anything else (YAML's null, booleans, numbers) is an error.
-        def self.key_names(action, names)
-          list = names.is_a?(String) ? [names] : names
-          return list.uniq if list.is_a?(Array) && list.all?(String)
-
-          raise InvalidConfig, "#{action}: takes a key name or a list of key names ([] for none), not #{names.inspect}"
+          document = sections(load_yaml(text) || {})
+          new(
+            keys: KEY_SECTION.bindings(document[KEYS]),
+            gamepad_buttons: GAMEPAD_SECTION.bindings(document[GAMEPAD]),
+            gamepad_mappings: mappings(document[GAMEPAD_MAPPINGS])
+          )
         end
 
         def self.load_yaml(text)
@@ -65,27 +81,31 @@ module Ruby
           raise InvalidConfig, "the config cannot be loaded as YAML: #{error.message}"
         end
 
-        def self.keys_section(document)
-          raise InvalidConfig, 'the config is a mapping with a keys: section' unless document.is_a?(Hash)
+        def self.sections(document)
+          raise InvalidConfig, "the config is a mapping of sections: #{SECTIONS.join(', ')}" unless document.is_a?(Hash)
 
-          other_sections = document.keys - [SECTION]
+          other_sections = document.keys - SECTIONS
           raise InvalidConfig, "unknown sections: #{other_sections.join(', ')}" if other_sections.any?
 
-          section = document[SECTION] || {}
-          raise InvalidConfig, 'keys: maps actions to key names' unless section.is_a?(Hash)
-
-          section
+          document
         end
 
-        private_class_method :key_names, :load_yaml, :keys_section
+        def self.mappings(text)
+          return text if text.nil? || text.is_a?(String)
 
-        # `keys` overrides the defaults of the actions it names, and takes its keys from the others.
-        def initialize(keys)
-          taken = keys.values.flatten
-          @keys = DEFAULTS.transform_values { [it] - taken }.merge(keys).freeze
+          raise InvalidConfig, "#{GAMEPAD_MAPPINGS}: takes the text of SDL GameControllerDB lines, not #{text.inspect}"
         end
 
-        # The actions left without a key.
+        private_class_method :load_yaml, :sections, :mappings
+
+        def initialize(keys:, gamepad_buttons:, gamepad_mappings:)
+          @keys = keys.freeze
+          @gamepad_buttons = gamepad_buttons.freeze
+          @gamepad_mappings = gamepad_mappings
+        end
+
+        # The actions left without a key. Actions without a gamepad button are not named: a person without a pad
+        # would always see them (plan 36, decision 4).
         def unbound_actions = @keys.select { |_action, names| names.empty? }.keys
       end
     end

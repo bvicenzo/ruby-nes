@@ -1,12 +1,40 @@
 # frozen_string_literal: true
 
-# A smoke test of the raylib backend (plan 17, decision 4; plan 18): no assertion on the library's calls, only that a
-# hidden window opens, names raylib's keys for the config file, takes a frame and audio, and closes. Its decisions are
+# A smoke test of the raylib backend (plan 17, decision 4; plan 18; plan 36): little assertion on the library's calls,
+# only that a hidden window opens, hands extra gamepad mappings to raylib, names raylib's keys and gamepad buttons for
+# the config file, takes a frame and audio, and closes. Its decisions are
 # specified in its collaborators. Skipped when the optional `frontends` group is not installed.
 RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/frontends/raylib' do
   describe 'KEY_CODES' do
     it "names raylib's keys as the config file does" do
       expect(Ruby::Nes::Frontends::Raylib::KEY_CODES).to include('right_shift' => 344, 'enter' => 257, 'x' => 88)
+    end
+  end
+
+  describe 'GAMEPAD_BUTTON_CODES' do
+    it "names raylib's gamepad buttons as the config file does", :aggregate_failures do
+      expect(Ruby::Nes::Frontends::Raylib::GAMEPAD_BUTTON_CODES)
+        .to include('right_face_right' => 6, 'middle_right' => 15, 'left_face_up' => 1)
+      expect(Ruby::Nes::Frontends::Raylib::GAMEPAD_BUTTON_CODES).not_to have_key('unknown')
+    end
+  end
+
+  describe '.new' do
+    context 'when gamepad mappings are given' do
+      let(:gamepad_mappings) do
+        '03000000790000001100000010010000,Retrolink SNES Controller,a:b2,b:b1,back:b8,dpdown:+a1,dpleft:-a0,' \
+          'dpright:+a0,dpup:-a1,leftshoulder:b4,rightshoulder:b5,start:b9,x:b3,y:b0,platform:Linux,'
+      end
+
+      before { allow(Raylib).to receive(:SetGamepadMappings).and_call_original }
+
+      it 'hands them to raylib' do
+        frontend = Ruby::Nes::Frontends::Raylib.new(hidden: true, gamepad_mappings:)
+
+        expect(Raylib).to have_received(:SetGamepadMappings).with(gamepad_mappings)
+      ensure
+        frontend&.close
+      end
     end
   end
 

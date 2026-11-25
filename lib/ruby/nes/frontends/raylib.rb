@@ -4,14 +4,16 @@ require 'raylib'
 require_relative '../audio'
 require_relative 'audio_pacing'
 require_relative 'base'
+require_relative 'controls'
 require_relative 'frame_pacing'
 require_relative 'frame_rate'
+require_relative 'gamepad'
 require_relative 'hotkeys'
 require_relative 'key_bindings'
 require_relative 'key_config'
-require_relative 'keyboard'
-require_relative 'opposite_directions'
+require_relative 'players'
 require_relative 'raylib_audio_stream'
+require_relative 'raylib_input'
 require_relative 'raylib_library'
 require_relative 'raylib_picture'
 require_relative 'viewport'
@@ -22,10 +24,10 @@ module Ruby
       # The emulator's window on raylib (https://www.raylib.com/cheatsheet/cheatsheet.html) through the raylib-bindings
       # gem, FFI bindings that ship the library built for each platform (plan 17). An adapter: the decisions live in its
       # collaborators, each specified on its own (plan 18). The frame is drawn by Frontends::RaylibPicture, its colours
-      # looked up on the GPU (plan 32), into the Frontends::Viewport; the keyboard drives the first controller through
-      # Frontends::Keyboard with opposite directions cancelled (Frontends::OppositeDirections) and the emulator through
-      # Frontends::Hotkeys; the frame rate (Frontends::FrameRate) and the JIT are drawn over the frame while the overlay
-      # is shown; after each frame the pacing waits. With audio (plan 24), each frame's samples go through
+      # looked up on the GPU (plan 32), into the Frontends::Viewport; the keyboard and the gamepads (plan 36), read
+      # through Frontends::RaylibInput, drive the controllers through Frontends::Players, and the keyboard drives the
+      # emulator through Frontends::Hotkeys; the frame rate (Frontends::FrameRate) and the JIT are drawn over the frame
+      # while the overlay is shown; after each frame the pacing waits. With audio (plan 24), each frame's samples go through
       # Frontends::AudioPacing into a raylib audio stream (Frontends::RaylibAudioStream), and the audio paces the
       # window; while paused it queues silence. Without audio, or when no audio device opens, the timer paces it
       # (Frontends::FramePacing). A pacing given replaces either, the audio still being fed (the benchmark's tone runs
@@ -43,17 +45,24 @@ module Ruby
         OVERLAY_MARGIN = 8
         OVERLAY_FONT_SIZE = 20
         KEY_PREFIX = 'KEY_'
-        # KEY_NULL is "no key pressed", not a key.
-        NOT_A_KEY = :KEY_NULL
+        GAMEPAD_BUTTON_PREFIX = 'GAMEPAD_BUTTON_'
+        # KEY_NULL is "no key pressed", not a key; GAMEPAD_BUTTON_UNKNOWN is raylib's "for error checking", not a
+        # button.
+        NOT_INPUTS = %i[KEY_NULL GAMEPAD_BUTTON_UNKNOWN].freeze
 
-        # A raylib key constant's name as a config file writes it: lower case, without the prefix (`right_shift`).
-        def self.key_name(constant) = constant.name.delete_prefix(KEY_PREFIX).downcase
-        private_class_method :key_name
+        # raylib's constants of one kind of input to their codes, named as a config file writes them: lower case,
+        # without the prefix (`right_shift`, `right_face_right`).
+        def self.input_codes(prefix)
+          (::Raylib.constants.grep(/\A#{prefix}/) - NOT_INPUTS)
+            .to_h { [it.name.delete_prefix(prefix).downcase, ::Raylib.const_get(it)] }
+            .freeze
+        end
+        private_class_method :input_codes
 
         # raylib's key names to its key codes, the names a config file uses (plan 18, decision 7).
-        KEY_CODES = (::Raylib.constants.grep(/\A#{KEY_PREFIX}/o) - [NOT_A_KEY])
-          .to_h { [key_name(it), ::Raylib.const_get(it)] }
-          .freeze
+        KEY_CODES = input_codes(KEY_PREFIX)
+        # raylib's gamepad button names to their codes, the names the config file's `gamepad:` section uses (plan 36).
+        GAMEPAD_BUTTON_CODES = input_codes(GAMEPAD_BUTTON_PREFIX)
         DEFAULT_VIEWPORT = Viewport.new(scale: 3, pixel_aspect: 1, crop_overscan: false)
 
         # Attaches the raylib library shipped inside the gem's platform build, once per process. raylib-bindings only
@@ -72,11 +81,15 @@ module Ruby
           @library_loaded = true
         end
 
-        # `keys` maps actions to key names (Frontends::KeyConfig#keys); `jit_name` is shown in the overlay. The pacing
-        # is the audio's with `audio` and an audio device, the timer's otherwise, unless one is given.
+        # `keys` maps actions to key names and `gamepad_buttons` controller buttons to gamepad button names
+        # (Frontends::KeyConfig); `gamepad_mappings`, SDL GameControllerDB lines for pads raylib does not know, are
+        # handed to raylib, which skips the lines it cannot read without saying so. `jit_name` is shown in the overlay.
+        # The pacing is the audio's with `audio` and an audio device, the timer's otherwise, unless one is given.
         # rubocop:disable-next Metrics/ParameterLists
         def initialize(
-          keys: KeyConfig.new({}).keys,
+          keys: KeyConfig::DEFAULTS,
+          gamepad_buttons: KeyConfig::GAMEPAD_DEFAULTS,
+          gamepad_mappings: nil,
           viewport: DEFAULT_VIEWPORT,
           jit_name: 'none',
           audio: true,
@@ -85,11 +98,12 @@ module Ruby
         )
           super()
           self.class.load_library
-          key_bindings = KeyBindings.new(keys, key_codes: KEY_CODES)
-          @keyboard = Keyboard.new(key_bindings.controller)
+          key_bindings = KeyBindings.new(keys, codes: KEY_CODES, kind: 'key')
+          @players = players(key_bindings, gamepad_buttons)
           @hotkeys = Hotkeys.new(key_bindings.hotkeys)
           @jit_name = jit_name
           open_window(viewport, hidden)
+          ::Raylib.SetGamepadMappings(gamepad_mappings) if gamepad_mappings
           @picture = RaylibPicture.new
           place_picture(viewport)
           open_audio if audio
@@ -104,9 +118,7 @@ module Ruby
 
         def reset_requested? = @hotkeys.reset_requested?
 
-        def button_states
-          [OppositeDirections.filter(@keyboard.buttons { ::Raylib.IsKeyDown(it) }), 0]
-        end
+        def button_states = @players.button_states(RaylibInput)
 
         # Draws the frame (and the overlay), reads the hotkeys pressed meanwhile (raylib polls its input events as the
         # drawing ends), counts the frame, queues a frame of silence while paused and waits for the pacing.
@@ -133,6 +145,14 @@ module Ruby
         end
 
         private
+
+        def players(key_bindings, gamepad_buttons)
+          gamepad_bindings = KeyBindings.new(gamepad_buttons, codes: GAMEPAD_BUTTON_CODES, kind: 'gamepad button')
+          Players.new(
+            keyboard: Controls.new(key_bindings.controller),
+            gamepad: Gamepad.new(Controls.new(gamepad_bindings.controller))
+          )
+        end
 
         # Esc quits through the hotkeys, so raylib's own exit key ("default is ESC") is turned off.
         def open_window(viewport, hidden)

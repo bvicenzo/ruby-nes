@@ -5,18 +5,21 @@ require_relative 'key_config'
 module Ruby
   module Nes
     module Frontends
-      # The keys of a Frontends::KeyConfig as the graphics library's key codes (plan 18, decision 7): `controller` for
-      # Frontends::Keyboard, `hotkeys` for Frontends::Hotkeys. A key drives one action only: a key code holds a single
-      # button in Keyboard's bindings, so a second action would silently take its place. Off the hot path: built once.
+      # The inputs of a Frontends::KeyConfig section as the graphics library's codes (plan 18, decision 7), its keys or
+      # its gamepad buttons (plan 36): `controller` for Frontends::Controls, `hotkeys` for Frontends::Hotkeys. An input
+      # drives one action only: a code holds a single button in Controls' bindings, so a second action would silently
+      # take its place. Off the hot path: built once.
       class KeyBindings
-        # Key codes to controller button names, and key codes to hotkey actions.
+        # Codes to controller button names, and codes to hotkey actions.
         attr_reader :controller, :hotkeys
 
-        # `keys` maps each action to the names of its keys; `key_codes` maps the library's key names to its codes.
-        # Raises KeyConfig::InvalidConfig when a name is not a key or a key is bound twice.
-        def initialize(keys, key_codes:)
-          actions = keys.each_with_object({}) do |(action, names), bound|
-            names.each { bind(bound, key_code(key_codes, action, it), it, action) }
+        # `inputs` maps each action to the names of its inputs; `codes` maps the library's names to its codes, and
+        # `kind` names the inputs in the errors (`key`, `gamepad button`). Raises KeyConfig::InvalidConfig when a name
+        # is not the library's or an input is bound twice.
+        def initialize(inputs, codes:, kind:)
+          @kind = kind
+          actions = inputs.each_with_object({}) do |(action, names), bound|
+            names.each { bind(bound, code(codes, action, it), it, action) }
           end
           button_bindings, hotkey_bindings = actions.partition { |_code, action| button?(action) }
           @controller = button_bindings.to_h
@@ -27,8 +30,8 @@ module Ruby
 
         def button?(action) = Input::Controller::BUTTONS.has_key?(action)
 
-        def key_code(key_codes, action, name)
-          key_codes.fetch(name) { raise KeyConfig::InvalidConfig, "#{name.inspect} (#{action}) is not a key name" }
+        def code(codes, action, name)
+          codes.fetch(name) { raise KeyConfig::InvalidConfig, "#{name.inspect} (#{action}) is not a #{@kind} name" }
         end
 
         def bind(bound, code, name, action)

@@ -2,13 +2,13 @@
 
 require 'ruby/nes/frontends/key_config'
 
-# The keys of the windowed frontend as the config file sets them (plan 18, decision 7): a `keys:` section mapping each
-# action, a controller button or a hotkey, to a key name or a list of key names. Actions it does not mention keep
-# their default keys; anything else in the file is an error that names what is wrong.
+# The window's controls as the config file sets them (plan 18, decision 7; plan 36): a `keys:` section mapping each
+# action, a controller button or a hotkey, to keyboard keys; a `gamepad:` section mapping controller buttons only to
+# gamepad buttons (plan 36, decision 3); and `gamepad_mappings:`, text in the SDL GameControllerDB format for pads
+# raylib does not know (plan 36, decision 4). Each section's rules are KeyConfig::Section's; anything else in the file
+# is an error that names what is wrong.
 RSpec.describe Ruby::Nes::Frontends::KeyConfig do
   describe '.parse' do
-    let(:defaults) { described_class::DEFAULTS.transform_values { [it] } }
-
     context 'when the text cannot be loaded as YAML' do
       let(:text) { "keys:\n  a: [x\n" }
 
@@ -18,10 +18,12 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
     end
 
     context 'when the text is empty' do
-      let(:text) { '' }
+      it 'keeps every default key and gamepad button, with no gamepad mappings', :aggregate_failures do
+        key_config = described_class.parse('')
 
-      it 'keeps every default key' do
-        expect(described_class.parse(text).keys).to eq(defaults)
+        expect(key_config.keys).to eq(described_class::DEFAULTS)
+        expect(key_config.gamepad_buttons).to eq(described_class::GAMEPAD_DEFAULTS)
+        expect(key_config.gamepad_mappings).to be_nil
       end
     end
 
@@ -29,12 +31,12 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
       let(:text) { "- a\n- x\n" }
 
       it 'raises InvalidConfig' do
-        expect { described_class.parse(text) }.to raise_error(described_class::InvalidConfig, /keys:/)
+        expect { described_class.parse(text) }.to raise_error(described_class::InvalidConfig, /keys, gamepad/)
       end
     end
 
     context 'when the text is a mapping' do
-      context 'but it has a section other than keys' do
+      context 'but it has a section it does not know' do
         let(:text) { "keys:\n  a: x\nvideo:\n  scale: 2\n" }
 
         it 'raises InvalidConfig naming it' do
@@ -42,87 +44,48 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
         end
       end
 
-      context 'and its keys section is not a mapping' do
-        let(:text) { "keys: [x, z]\n" }
-
-        it 'raises InvalidConfig' do
-          expect { described_class.parse(text) }.to raise_error(described_class::InvalidConfig, /keys:/)
-        end
-      end
-
-      context 'and it has no keys section' do
-        let(:text) { "--- {}\n" }
-
-        it 'keeps every default key' do
-          expect(described_class.parse(text).keys).to eq(defaults)
-        end
-      end
-
-      context 'and its keys section is empty' do
-        let(:text) { "keys:\n" }
-
-        it 'keeps every default key' do
-          expect(described_class.parse(text).keys).to eq(defaults)
-        end
-      end
-
-      context 'and its keys section is a mapping' do
-        context 'but it names something that is not an action' do
-          let(:text) { "keys:\n  a: x\n  turbo: t\n  rewind: w\n" }
+      context 'and every section is known' do
+        context 'but its gamepad section names a hotkey' do
+          let(:text) { "gamepad:\n  a: right_face_right\n  pause: middle_right\n" }
 
           it 'raises InvalidConfig naming it' do
-            expect { described_class.parse(text) }.to raise_error(described_class::InvalidConfig, /turbo, rewind/)
+            expect { described_class.parse(text) }
+              .to raise_error(described_class::InvalidConfig, /\Agamepad: not actions: pause \(it takes a, b, select,/)
           end
         end
 
-        context 'and every name is an action' do
-          context 'but an action is given something other than key names' do
-            let(:text) { "keys:\n  a: x\n  quit: off\n" }
+        context 'but its gamepad mappings are not text' do
+          let(:text) { "gamepad_mappings:\n  - 0300\n" }
 
-            it 'raises InvalidConfig naming it' do
-              expect { described_class.parse(text) }.to raise_error(described_class::InvalidConfig, /quit/)
+          it 'raises InvalidConfig' do
+            expect { described_class.parse(text) }.to raise_error(described_class::InvalidConfig, /gamepad_mappings:/)
+          end
+        end
+
+        context 'and its sections are valid' do
+          context 'and it has a keys section' do
+            let(:text) { "keys:\n  pause: space\n" }
+
+            it 'binds the keys it names, keeping the other defaults' do
+              expect(described_class.parse(text).keys).to eq(described_class::DEFAULTS.merge(pause: ['space']))
             end
           end
 
-          context 'and every action is given key names' do
-            context 'and an action is given a key' do
-              let(:text) { "keys:\n  pause: space\n" }
+          context 'and it has a gamepad section' do
+            let(:text) { "gamepad:\n  a: right_trigger_1\n" }
 
-              it "replaces that action's default key only" do
-                expect(described_class.parse(text).keys).to eq(defaults.merge(pause: ['space']))
-              end
+            it 'binds the gamepad buttons it names, keeping the other defaults' do
+              expect(described_class.parse(text).gamepad_buttons)
+                .to eq(described_class::GAMEPAD_DEFAULTS.merge(a: ['right_trigger_1']))
             end
+          end
 
-            context 'and an action is given a list of keys' do
-              let(:text) { "keys:\n  b: [z, left_control]\n" }
+          context 'and it has gamepad mappings' do
+            let(:mappings) { "03000000790000001100000010010000,Pad,a:b2,b:b1,platform:Linux,\n" }
+            let(:text) { "gamepad_mappings: #{mappings.inspect}\n" }
 
-              it 'binds every key of the list' do
-                expect(described_class.parse(text).keys).to eq(defaults.merge(b: %w[z left_control]))
-              end
-            end
-
-            context 'and an action is given the same key twice' do
-              let(:text) { "keys:\n  b: [z, z]\n" }
-
-              it 'binds it once' do
-                expect(described_class.parse(text).keys).to eq(defaults.merge(b: ['z']))
-              end
-            end
-
-            context 'and an action is given an empty list' do
-              let(:text) { "keys:\n  reset: []\n" }
-
-              it 'leaves the action without a key' do
-                expect(described_class.parse(text).keys).to eq(defaults.merge(reset: []))
-              end
-            end
-
-            context 'and an action is given a key another action has by default' do
-              let(:text) { "keys:\n  a: z\n" }
-
-              it 'takes the key from that action' do
-                expect(described_class.parse(text).keys).to eq(defaults.merge(a: ['z'], b: []))
-              end
+            it 'keeps their text' do
+              expect(described_class.parse(text).gamepad_mappings).to eq(mappings)
             end
           end
         end
@@ -144,6 +107,14 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
 
       it 'names them' do
         expect(key_config.unbound_actions).to contain_exactly(:b, :reset)
+      end
+    end
+
+    context 'when actions are left without a gamepad button only' do
+      subject(:key_config) { described_class.parse("gamepad:\n  start: []\n") }
+
+      it 'is empty' do
+        expect(key_config.unbound_actions).to be_empty
       end
     end
   end
