@@ -146,7 +146,9 @@ Windows, so there is nothing to compile.
 - **Graphics:** the picture goes through an OpenGL 3.3 shader.
 - **Linux:** the window needs a desktop session with X11 or XWayland, OpenGL drivers (Mesa or your GPU's), and ALSA
   or PulseAudio for the sound. A desktop install has them all. A minimal one may lack the X11 libraries (libX11,
-  libXrandr, libXinerama, libXcursor, libXi), libGL or libasound.
+  libXrandr, libXinerama, libXcursor, libXi), libGL or libasound. With PulseAudio or PipeWire the emulator asks for
+  15 ms of audio latency (`PULSE_LATENCY_MSEC=15`), so the sound keeps the window at 60 fps; a value you export
+  yourself is kept, and from 25 ms the window slows down.
 
 ### 4. A ROM
 

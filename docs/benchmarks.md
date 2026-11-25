@@ -948,3 +948,36 @@ ruby 4.0.9 (2026-10-23 revision 3e93b23afc) +YJIT +PRISM [x86_64-darwin24]; Inte
 | spinel | 94.0 | 10.6 | 156% | 6.2% | f0903fbc59bf | 10369a5b40df |
 | spinel + RBS | 166.4 | 6.0 | 277% | 2.1% | f0903fbc59bf | 10369a5b40df |
 | spinel + RBS, wrap | 174.0 | 5.7 | 289% | 3.9% | f0903fbc59bf | 10369a5b40df |
+
+### 2026-11-25 — Plan 39: the audio device's period on Linux
+
+ruby 4.0.10 (2026-11-19 revision a704b7cd95) +YJIT +PRISM [x86_64-linux]; 11th Gen Intel(R) Core(TM) i7-1185G7 @
+3.00GHz; Hyprland, PipeWire 1.6.9 with its Pulse server, 48 kHz, graph quantum 256.
+
+The user's Linux laptop showed about 53 fps in the window where the Mac plays at 60, although its emulation is faster:
+`bench/frame.rb` (1200 warm-up frames, 5 runs of 60) took 10.2 ms a frame (98 fps, digests f0903fbc59bf /
+10369a5b40df) against the Mac's 15.0 ms. The window's frame by part, Super Mario Bros. 3 world 1-1 from its input
+script in a hidden raylib window under YJIT, 600 warm-up frames then 900 timed:
+
+| Pacing | Emulation | Pacing's wait | Whole frame, mean / p50 / p90 |
+|---|---|---|---|
+| None | 9.9 ms | — | 10.1 / 10.1 / 11.0 ms (98.6 fps) |
+| Timer (`Frontends::FramePacing`) | 9.9 ms | 6.3 ms | 16.6 / 16.6 / 16.7 ms (60.1 fps) |
+| Audio, before | 9.7-12.4 ms | 5.9-8.6 ms | 18.7 / 20.5-21.0 / 21.7-21.9 ms (53.4 fps) |
+| Audio, after (`PULSE_LATENCY_MSEC` 15) | 9.7-9.8 ms | 6.5 ms | 16.6 / 16.1 / 20.8-20.9 ms (60.1-60.2 fps) |
+
+The audio stream alone, no emulator, a sub-buffer refilled as soon as raylib says it was played (6 s):
+
+| Sub-buffer, latency asked | Chunks a second | Samples of ours a second | Gap between refills, p50 |
+|---|---|---|---|
+| 800, Pulse client default | 53.3 | 42 600 | 21.3 ms |
+| 1600 / 2400 / 4096, default | 30.0 / 20.0 / 11.7 | 48 000 | 32.0 / 53.2 / 85.3 ms |
+| 800, `PULSE_LATENCY_MSEC` 5 / 10 / 15 / 20 | 60.0 | 48 000 | 16.0 ms |
+| 800, `PULSE_LATENCY_MSEC` 30 (a user's value, kept after the change) | 44.5 | 35 600 | 21.4 ms |
+| 800, `PIPEWIRE_QUANTUM=256/48000` | 53.3 | 42 600 | 21.3 ms |
+
+The window with audio pacing under `PULSE_LATENCY_MSEC` 10 / 20 / 25 / 30, before the change: 60.1 / 60.1 / 53.5 /
+44.5 fps. The device asks for about 1024 samples at a time through the Pulse client; raylib serves a request only up to
+the first sub-buffer already played and zero-fills the rest, so each chunk of 800 samples stood for about 898 of real
+time and the pacing, which follows the device, ran at 48 000 / 898 ≈ 53.4 fps. A latency of 15 ms keeps the requests
+within one sub-buffer.
