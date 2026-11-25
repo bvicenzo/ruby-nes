@@ -3,7 +3,7 @@
 <p align="center">
   <a href="../../actions/workflows/ci.yml"><img src="../../actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="../../actions/workflows/ci.yml"><img src="../../raw/badges/coverage.svg" alt="Branch coverage"></a>
-  <img src="https://img.shields.io/badge/ruby-4.0.10-CC342D?logo=ruby&logoColor=white" alt="Ruby 4.0.10">
+  <img src="https://img.shields.io/badge/ruby-4.0.10-555555?logo=ruby&logoColor=white" alt="Ruby 4.0.10">
   <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License: GPL-3.0-or-later">
 </p>
 
