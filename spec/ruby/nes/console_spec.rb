@@ -209,6 +209,38 @@ RSpec.describe Ruby::Nes::Console do
     end
   end
 
+  describe '#battery_ram' do
+    subject(:console) { described_class.new(cartridge) }
+
+    context 'when the cartridge has no battery' do
+      let(:cartridge) { Cartridges.build(battery: false) }
+
+      it 'is nil' do
+        expect(console.battery_ram).to be_nil
+      end
+    end
+
+    context 'when the cartridge has battery-backed PRG RAM' do
+      let(:cartridge) { Cartridges.build(battery: true) }
+
+      before { console.cpu_bus.write(0x6000, 0x11) }
+
+      it 'is the bytes the CPU wrote at $6000-$7FFF' do
+        expect(console.battery_ram).to eq([0x11, *Array.new(8_191, 0x00)])
+      end
+    end
+  end
+
+  describe '#battery_ram=' do
+    subject(:console) { described_class.new(Cartridges.build(battery: true)) }
+
+    it 'puts the bytes where the CPU reads $6000-$7FFF' do
+      console.battery_ram = [0x11, *Array.new(8_191, 0x00)]
+
+      expect(console.cpu_bus.read(0x6000)).to eq(0x11)
+    end
+  end
+
   describe '#step' do
     context 'when the instruction is a NOP' do
       subject(:console) { described_class.new(cartridge) }

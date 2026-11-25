@@ -450,4 +450,21 @@ RSpec.describe Ruby::Nes::Mappers::Mmc1 do
       end
     end
   end
+
+  describe '#battery_ram' do
+    subject(:mmc1) { described_class.new(Cartridges.build(mapper_number: 1, battery: true)) }
+
+    let(:programmer) { Mmc1Programmer.new(mmc1) }
+
+    context 'when PRG bank bit 4 turned PRG RAM off' do
+      before do
+        mmc1.cpu_write(0x6000, 0x42)
+        programmer.load(0xE000, 0x10)
+      end
+
+      it 'is still the bytes the CPU wrote before' do
+        expect(mmc1.battery_ram).to eq([0x42, *Array.new(8_191, 0x00)])
+      end
+    end
+  end
 end

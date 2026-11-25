@@ -12,7 +12,10 @@ module Ruby
       # (https://www.nesdev.org/wiki/UxROM); CHR shows its first 8 KiB.
       #
       # PRG RAM at $6000-$7FFF is 8 KiB when the board says it has some (`prg_ram: true`), and a board may turn it off
-      # (MMC1); without it, or off, the board does not drive the bus there. Nothing answers $4020-$5FFF. No CHR ROM
+      # (MMC1); without it, or off, the board does not drive the bus there. With the header's battery flag (iNES flags 6
+      # bit 1, "battery-backed PRG RAM ($6000-7FFF)"), that RAM is the game's save: `battery_ram` hands a copy of its
+      # bytes out and `battery_ram=` copies a save's bytes in, whether the board turned it off or not (plan 34,
+      # decision 8); a battery flag on a board without PRG RAM saves nothing. Nothing answers $4020-$5FFF. No CHR ROM
       # means 8 KiB of CHR RAM (iNES page: CHR ROM size 0 "means the board uses CHR RAM"). Mirroring is the header's
       # until a board changes it; flags 6 bit 3 asks for four-screen VRAM, whatever the mirroring bit says (plan 21,
       # decision 7), until a board that controls its mirroring (AxROM, MMC1) sets its own; MMC3 keeps it. Every board is
@@ -71,8 +74,7 @@ module Ruby
             first_address: PRG_ROM_START
           )
           @prg_window_offsets = @prg_windows.offsets
-          @prg_ram_enabled = prg_ram
-          @prg_ram = prg_ram ? Array.new(PRG_RAM_SIZE, 0) : []
+          install_prg_ram(prg_ram, battery: cartridge.header.battery?)
           @chr_writable = cartridge.chr_rom.empty?
           @chr = @chr_writable ? Array.new(CHR_RAM_SIZE, 0) : cartridge.chr_rom
           @chr_windows = BankWindows.new(
@@ -127,6 +129,20 @@ module Ruby
         # NEVER.
         def earliest_irq_cycle(_cycle) = NEVER
 
+        # A copy of the battery-backed PRG RAM, $6000 first; nil when the board has none. Off the hot path.
+        def battery_ram = (@prg_ram.dup if @battery)
+
+        # Copies the 8 KiB of a save into the battery-backed PRG RAM, keeping the array the CPU reads; only for a board
+        # whose `battery_ram` is not nil. Raises ArgumentError for another size, leaving the RAM as it was. Off the hot
+        # path.
+        def battery_ram=(bytes)
+          unless bytes.size == PRG_RAM_SIZE
+            raise ArgumentError, "#{bytes.size} bytes, but a battery save has #{PRG_RAM_SIZE}"
+          end
+
+          @prg_ram.replace(bytes)
+        end
+
         # CHR ROM ignores writes; CHR RAM keeps them.
         def ppu_write(address, value)
           return unless @chr_writable
@@ -136,6 +152,13 @@ module Ruby
         end
 
         private
+
+        # 8 KiB of PRG RAM, on, when the board has some; it keeps the game's save when the header says it has a battery.
+        def install_prg_ram(prg_ram, battery:)
+          @prg_ram_enabled = prg_ram
+          @prg_ram = prg_ram ? Array.new(PRG_RAM_SIZE, 0) : []
+          @battery = prg_ram && battery
+        end
 
         # The CPU, the PPU, the register sync and the nametables are handed over once the console and the PPU bus exist.
         def leave_unconnected

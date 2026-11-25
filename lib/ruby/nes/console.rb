@@ -13,6 +13,8 @@ module Ruby
     #
     # The board gets the CPU, the PPU and the register sync (plan 20, decision 1; plan 21, decisions 2 and 6).
     #
+    # `battery_ram` and `battery_ram=` reach the board's battery-backed PRG RAM, for the save file (plan 34).
+    #
     # The two standard controllers answer $4016 and $4017 through Input::ControllerPorts (plan 15); `controllers` hands
     # them to the frontend, which sets the buttons held on each.
     #
@@ -30,6 +32,7 @@ module Ruby
 
       def initialize(cartridge, controllers: [Input::Controller.new, Input::Controller.new], audio_sample_rate: nil)
         mapper = Mappers.build(cartridge)
+        @mapper = mapper
         @controllers = controllers.dup.freeze
         @ppu_bus = PpuBus.new(mapper:)
         @ppu = Ppu.new(bus: @ppu_bus)
@@ -75,6 +78,14 @@ module Ruby
       # The signed 16-bit samples of the frames run since the last call, at the sample rate the console was built with;
       # none without one.
       def audio_samples = @audio_samples.drain
+
+      # A copy of the board's battery-backed PRG RAM, or nil when the cartridge has none (Mappers::Base#battery_ram).
+      def battery_ram = @mapper.battery_ram
+
+      # Copies a save's 8 KiB into the board's battery-backed PRG RAM (Mappers::Base#battery_ram=).
+      def battery_ram=(bytes)
+        @mapper.battery_ram = bytes
+      end
 
       # The reset button: the CPU's, the PPU's and the APU's reset, then the PPU and the APU catch up the reset
       # sequence's cycles.

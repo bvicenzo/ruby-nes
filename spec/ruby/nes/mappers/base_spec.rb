@@ -390,4 +390,96 @@ RSpec.describe Ruby::Nes::Mappers::Base do
       end
     end
   end
+
+  describe '#battery_ram' do
+    context 'when the board has no PRG RAM' do
+      subject(:board) { described_class.new(cartridge) }
+
+      context 'and the header has no battery flag' do
+        let(:cartridge) { Cartridges.build(battery: false) }
+
+        it 'is nil' do
+          expect(board.battery_ram).to be_nil
+        end
+      end
+
+      context 'but the header has the battery flag' do
+        let(:cartridge) { Cartridges.build(battery: true) }
+
+        it 'is nil' do
+          expect(board.battery_ram).to be_nil
+        end
+      end
+    end
+
+    context 'when the board has PRG RAM' do
+      subject(:board) { described_class.new(cartridge, prg_ram: true) }
+
+      context 'but the header has no battery flag' do
+        let(:cartridge) { Cartridges.build(battery: false) }
+
+        it 'is nil' do
+          expect(board.battery_ram).to be_nil
+        end
+      end
+
+      context 'and the header has the battery flag' do
+        let(:cartridge) { Cartridges.build(battery: true) }
+
+        before do
+          board.cpu_write(0x6000, 0x11)
+          board.cpu_write(0x7FFF, 0x22)
+        end
+
+        it 'is the 8 KiB the CPU wrote, $6000 first and $7FFF last' do
+          expect(board.battery_ram).to eq([0x11, *Array.new(8_190, 0x00), 0x22])
+        end
+
+        it 'is a copy: changing it changes nothing the CPU reads' do
+          board.battery_ram[0] = 0x99
+
+          expect(board.cpu_read(0x6000, 0x5A)).to eq(0x11)
+        end
+      end
+    end
+  end
+
+  describe '#battery_ram=' do
+    subject(:board) { described_class.new(Cartridges.build(battery: true), prg_ram: true) }
+
+    context 'when the bytes are not 8 KiB' do
+      before { board.cpu_write(0x6000, 0x44) }
+
+      it 'raises ArgumentError, leaving PRG RAM as it was', :aggregate_failures do
+        expect { board.battery_ram = Array.new(8_191, 0x11) }.to raise_error(ArgumentError, /8191.*8192/)
+        expect(board.battery_ram).to eq([0x44, *Array.new(8_191, 0x00)])
+      end
+    end
+
+    context 'when the bytes are 8 KiB' do
+      let(:save) { [0x11, *Array.new(8_190, 0x00), 0x22] }
+
+      it 'puts the bytes where the CPU reads $6000-$7FFF', :aggregate_failures do
+        board.battery_ram = save
+
+        expect(board.cpu_read(0x6000, 0x5A)).to eq(0x11)
+        expect(board.cpu_read(0x6001, 0x5A)).to eq(0x00)
+        expect(board.cpu_read(0x7FFF, 0x5A)).to eq(0x22)
+      end
+
+      it 'copies them: changing the given array afterwards changes nothing the CPU reads' do
+        board.battery_ram = save
+        save[0] = 0x99
+
+        expect(board.cpu_read(0x6000, 0x5A)).to eq(0x11)
+      end
+
+      it 'lets the CPU write over a loaded byte' do
+        board.battery_ram = save
+        board.cpu_write(0x6000, 0x33)
+
+        expect(board.cpu_read(0x6000, 0x5A)).to eq(0x33)
+      end
+    end
+  end
 end
