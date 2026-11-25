@@ -64,7 +64,7 @@ Conventions (see also `CLAUDE.md`):
 | 31 | [Sprites and the horizontal blank](31-sprites-and-horizontal-blank.md) | 30 | done |
 | 32 | [Window presentation](32-window-presentation.md) | 31 | done |
 | 33 | [Super Pitfall's emulation cost](33-super-pitfall-emulation-cost.md) | 32 | done |
-| 34 | [Battery-backed saves](34-battery-backed-saves.md) | 20, 21 | todo |
+| 34 | [Battery-backed saves](34-battery-backed-saves.md) | 20, 21 | done |
 | 35 | [Save states](35-save-states.md) | 34 | todo |
 | 36 | [Gamepad input](36-gamepad-input.md) | 18 | todo |
 | 37 | [ROM browser](37-rom-browser.md) | 35, 36 | todo |
@@ -105,6 +105,9 @@ and are settled when it starts.
 - Artwork for the ROM list downloaded from libretro-thumbnails (plan 37, open decision 2, option (c)).
 - Video and audio settings on screen: scale, aspect, overscan, volume (plan 38, out of scope).
 - Rewind (plan 35, out of scope).
+- Keys for controller 2 in the window (`Frontends::Raylib#button_states` reports it as nothing held): The Legend of
+  Zelda saves with Up + A on controller 2, so today only a Game Over's SAVE reaches its save (plan 34, manual test).
+  Fits plan 36, which reads gamepads for both ports.
 - MMC5, MMC2/MMC4, NES 2.0 extended fields beyond detection.
 - PAL timing.
 - Ractors — discarded: CPU, PPU and APU are coupled at cycle granularity, so message passing would cost more than it
