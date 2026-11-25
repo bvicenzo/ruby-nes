@@ -10,8 +10,8 @@ module Ruby
       # window opens, kept in step every few seconds by a Saves::BatteryKeeper the driver tells each frame, and written
       # when the run ends, however it ends, before the window closes. Off the hot path.
       class Window
-        # `open_window` takes `keys:` (Frontends::KeyConfig#keys), `viewport:`, `jit_name:` and `audio:` (false with
-        # --no-audio) and returns the frontend.
+        # `open_window` takes `keys:`, `gamepad_buttons:` and `gamepad_mappings:` (Frontends::KeyConfig), `viewport:`,
+        # `jit_name:` and `audio:` (false with --no-audio) and returns the frontend.
         def initialize(
           open_window: RaylibWindow,
           default_config_path: ConfigFile::DEFAULT_PATH,
@@ -33,14 +33,24 @@ module Ruby
           battery_keeper = Saves::BatteryKeeper
             .for(console:, directory: @saves_directory, rom_path: options.rom_path, error_output: @error_output)
             .tap(&:load)
-          frontend = @open_window
-            .call(keys: key_config.keys, viewport: viewport(options), jit_name:, audio: options.audio)
+          frontend = open_frontend(key_config, options, jit_name)
           Frontends::Driver.new(console:, frontend:, frame_observer: battery_keeper).run
         ensure
           close(battery_keeper, frontend)
         end
 
         private
+
+        def open_frontend(key_config, options, jit_name)
+          @open_window.call(
+            keys: key_config.keys,
+            gamepad_buttons: key_config.gamepad_buttons,
+            gamepad_mappings: key_config.gamepad_mappings,
+            viewport: viewport(options),
+            jit_name:,
+            audio: options.audio
+          )
+        end
 
         # The save is written before the window closes, and the window closes even when the save cannot be written. The
         # keeper is there only once its save loaded, so a refused save is never written over.

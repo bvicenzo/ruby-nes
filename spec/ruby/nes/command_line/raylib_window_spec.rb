@@ -6,7 +6,7 @@ require 'ruby/nes/command_line'
 # gem is in the optional `frontends` Gemfile group (plan 17, decision 5).
 RSpec.describe Ruby::Nes::CommandLine::RaylibWindow do
   describe '.call' do
-    let(:keys) { Ruby::Nes::Frontends::KeyConfig.new({}).keys }
+    let(:keys) { Ruby::Nes::Frontends::KeyConfig::DEFAULTS }
     let(:viewport) { Ruby::Nes::Frontends::Viewport.new(scale: 1, pixel_aspect: 1, crop_overscan: true) }
 
     context 'when the window library cannot be loaded' do

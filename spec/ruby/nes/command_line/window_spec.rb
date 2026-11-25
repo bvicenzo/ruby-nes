@@ -114,13 +114,16 @@ RSpec.describe Ruby::Nes::CommandLine::Window do
 
               context 'and every action has a key' do
                 before do
-                  File.write(config_path, "keys:\n  pause: space\n")
+                  config = "keys:\n  pause: space\ngamepad:\n  a: right_trigger_1\ngamepad_mappings: 0300,Pad\n"
+                  File.write(config_path, config)
                   window.run(console, options, jit_name: 'zjit')
                 end
 
-                it 'opens it with the keys, the viewport, the JIT and the audio' do
+                it 'opens it with the keys, the gamepad config, the viewport, the JIT and the audio' do
                   expect(open_window).to have_received(:call).with(
                     keys: a_hash_including(pause: ['space'], a: ['x']),
+                    gamepad_buttons: a_hash_including(a: ['right_trigger_1'], start: ['middle_right']),
+                    gamepad_mappings: '0300,Pad',
                     viewport: an_object_having_attributes(width: 585, height: 448),
                     jit_name: 'zjit',
                     audio: true
