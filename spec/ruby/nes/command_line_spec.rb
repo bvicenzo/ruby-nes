@@ -201,6 +201,32 @@ RSpec.describe Ruby::Nes::CommandLine do
           end
         end
 
+        context 'and the ROM is a battery game with a save' do
+          let(:rom_path) { File.join(directory, 'game.nes') }
+          let(:save_path) { File.join(directory, 'ruby-nes', 'saves', 'game.sav') }
+
+          before do
+            # LDA #$11, STA $6000, then JMP to itself: a run that kept saves would write $11 over the save.
+            program = Cartridges.with_program([0xA9, 0x11, 0x8D, 0x00, 0x60, 0x4C, 0x05, 0x80])
+            File.binwrite(rom_path, Cartridges.ines_image(prg_rom: program.prg_rom, battery: true))
+            FileUtils.mkdir_p(File.dirname(save_path))
+            File.binwrite(save_path, "\x77" * 8_192)
+            stub_const('ENV', ENV.to_h.merge('XDG_DATA_HOME' => directory))
+          end
+
+          context 'and --headless is given' do
+            subject(:command_line) do
+              described_class.new(['--headless', rom_path, '--frames', '2'], output:, error_output:, jit:, window:)
+            end
+
+            it 'leaves the save as it was, writing no other file', :aggregate_failures do
+              expect(command_line.run).to eq(0)
+              expect(File.binread(save_path)).to eq("\x77" * 8_192)
+              expect(Dir.children(File.dirname(save_path))).to eq(['game.sav'])
+            end
+          end
+        end
+
         context 'and the ROM is the Super Mario Bros. 3 dump', :slow, local_rom: 'smb3.nes' do
           # The title screen is silent: the game first writes the channels after Start (frame 521, the menu's sound),
           # and the world map music starts at frame 588. A 1200-frame run with this input, whose first 720 frames are
