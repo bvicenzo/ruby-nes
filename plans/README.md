@@ -69,6 +69,7 @@ Conventions (see also `CLAUDE.md`):
 | 36 | [Gamepad input](36-gamepad-input.md) | 18 | done |
 | 37 | [ROM browser](37-rom-browser.md) | 35, 36 | todo |
 | 38 | [On-screen settings and pause menu](38-on-screen-settings.md) | 36, 37 | todo |
+| 39 | [The audio device's period on Linux](39-audio-device-period.md) | 24, 32 | done |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
 
@@ -95,6 +96,12 @@ saves (34), then save states (35), which Marshal can write whole (a probe restor
 digests). Then the couch: the USB gamepad (36, which only needs plan 18 and can be pulled forward), a ROM list with
 previews (37), and the controls and a pause menu on screen (38). Each plan's open decisions carry a recommendation
 and are settled when it starts.
+
+Plan 39 is a fix found in play: on a Linux laptop with PipeWire the window ran at 53 fps with audio, although the
+emulation there is faster than on the Mac. The Pulse client asks for about 1024 samples at a time, more than raylib's
+two sub-buffers of 800 can serve, so raylib fills the rest with silence and the audio pacing slows down. Asking for a
+shorter latency (`PULSE_LATENCY_MSEC`) before the device opens brings it to 60 fps. It depends only on plans 24 and 32
+and can go before 35.
 
 ## Backlog (not planned)
 
