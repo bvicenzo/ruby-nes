@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../audio'
+require_relative 'audio_device_latency'
 
 module Ruby
   module Nes
@@ -8,10 +9,12 @@ module Ruby
       # A raylib audio stream (https://www.raylib.com/cheatsheet/cheatsheet.html) as Frontends::AudioPacing sees it
       # (plan 24): two sub-buffers of `chunk_size` signed 16-bit mono samples, set with SetAudioStreamBufferSizeDefault
       # before the stream is loaded. A chunk can be submitted only while a sub-buffer has been played
-      # (IsAudioStreamProcessed); one that runs dry plays silence (raudio.c zero-fills it). Opens raylib's audio device,
-      # so Frontends::Raylib builds it after loading the library.
+      # (IsAudioStreamProcessed); one that runs dry plays silence (raudio.c zero-fills it). The device must not ask for
+      # more at a time than fits beside one sub-buffer, so its latency is set first (Frontends::AudioDeviceLatency, plan
+      # 39). Opens raylib's audio device, so Frontends::Raylib builds it after loading the library.
       class RaylibAudioStream
         def initialize(sample_rate:, chunk_size:)
+          AudioDeviceLatency.apply(environment: ENV, host_os: RbConfig::CONFIG['host_os'])
           ::Raylib.SetAudioStreamBufferSizeDefault(chunk_size)
           ::Raylib.InitAudioDevice
           @stream = ::Raylib.LoadAudioStream(sample_rate, Audio::BITS_PER_SAMPLE, Audio::CHANNELS)

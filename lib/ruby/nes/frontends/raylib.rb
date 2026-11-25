@@ -39,7 +39,7 @@ module Ruby
         # The NTSC frame rate, rounded: 60.0988 (https://www.nesdev.org/wiki/Cycle_reference_chart).
         FRAMES_PER_SECOND = 60
         # A frame of audio, 800 samples. A raylib audio stream is two sub-buffers of this many samples, refilled only
-        # once played.
+        # once played. Frontends::AudioDeviceLatency's latency is chosen to fit in one: revisit it if this changes.
         SAMPLES_PER_FRAME = SAMPLE_RATE / FRAMES_PER_SECOND
         # The overlay's text, at the top left corner of the window, in screen pixels.
         OVERLAY_MARGIN = 8
