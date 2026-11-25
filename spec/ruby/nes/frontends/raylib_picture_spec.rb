@@ -19,14 +19,15 @@ RSpec.describe 'Ruby::Nes::Frontends::RaylibPicture', frontend_library: 'ruby/ne
     end
 
     context 'when the fragment shader compiles' do
-      # Its input is no output of raylib's vertex shader, so the program does not link.
+      # It calls a function it declares but never defines: a call compiles against the declaration, and the linker
+      # finds no definition, on every driver (an input no vertex shader writes links on Mesa).
       context 'but it does not link' do
         let(:unlinkable_shader) do
           <<~GLSL
             #version 330
-            in vec3 notFromVertex;
             out vec4 finalColor;
-            void main() { finalColor = vec4(notFromVertex, 1.0); }
+            vec4 undefinedColour();
+            void main() { finalColor = undefinedColour(); }
           GLSL
         end
 
