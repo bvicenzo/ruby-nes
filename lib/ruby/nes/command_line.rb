@@ -10,6 +10,7 @@ require_relative 'frontends/wav'
 require_relative 'frontends/headless'
 require_relative 'frontends/key_config'
 require_relative 'frontends/viewport'
+require_relative 'saves'
 
 module Ruby
   module Nes
