@@ -117,9 +117,10 @@ device interface above plus:
 | `ppu=` | takes the PPU: MMC3's A12 filter reads `Ppu#elapsed_dots` (plan 21, decision 2) |
 | `earliest_irq_cycle(cycle)` | the earliest CPU cycle the PPU's fetches could make the board assert its IRQ, the PPU standing on `cycle`: `Mappers::Base::NEVER` (`Float::INFINITY`) by default, MMC3's from its counter (plan 28, decision 3); `PpuBus` hands it to the PPU's `sync_cycle` |
 | `register_sync=` | takes `Console::PpuRegisterSync`, whose `catch_up` brings the PPU to the instruction's access cycle before every register write (plan 21, decision 6) |
+| `battery_ram`, `battery_ram=` | a copy of the 8 KiB of PRG RAM, `$6000` first, when the board has PRG RAM and the header the battery flag (iNES flags 6 bit 1), else `nil`; and the bytes of a save copied into it, in the same array the CPU reads. Off the hot path: the window's battery save (plan 34), through `Console#battery_ram` |
 
-`Console` wires the last three on every board. The IRQ is not a method of the board any more: a board with one
-asserts and releases it on the CPU (plan 21, decision 5).
+`Console` wires `cpu=`, `ppu=` and `register_sync=` on every board. The IRQ is not a method of the board any more: a
+board with one asserts and releases it on the CPU (plan 21, decision 5).
 
 Every board is a `Mappers::Base` (plan 19, decision 1). The base reads PRG ROM through four 8 KiB windows (`$8000`,
 `$A000`, `$C000`, `$E000`, picked by address bits 14-13) and CHR through eight 1 KiB windows (picked by address bits
@@ -379,6 +380,18 @@ tagged `frontend_library:` and skipped without it.
 however the run ends; `CommandLine::Jit` enables the JIT at runtime (YJIT by default), `CommandLine::Window` reads the
 key config (`CommandLine::ConfigFile`) and opens the window through `CommandLine::RaylibWindow`, which loads raylib
 only then. The driver hands each frame's samples to `queue_audio` after running it and before presenting it.
+`Frontends::Driver` tells a frame observer `frame_ran` after each frame it runs (`Driver::NoFrameObserver` by default).
+The window's observer is the battery save's keeper (plan 34): `CommandLine::Window` asks
+`Saves::BatteryKeeper.for(console:, directory:, rom_path:, error_output:)` and loads the save before it opens the
+window. A console without battery RAM gets `Saves::NoBattery`, which does nothing, before the directory is asked
+anything. Otherwise `Saves::Directory` says where the save is (`$XDG_DATA_HOME/ruby-nes`, else `.local/share/ruby-nes`
+under `Dir.home`, as the key config's `~`; the save is `saves/<ROM file name>.sav`), and `Saves::BatteryFile` reads
+and writes it (the raw 8 KiB; a missing file is no save, another size is `Saves::InvalidSave` and stops the run before
+the window opens; a write goes to a temporary file of its own, created exclusively, flushed and renamed over the save,
+about 2 ms with the `fsync`). The keeper writes the RAM every 300 frames and when the run ends, before the window
+closes, each time only when it changed since the load or the last write; a periodic write that fails is a warning on
+the error output and the game goes on, the last one raises. Headless runs never touch saves, so their digests stay
+reproducible.
 `bench/frontends.rb` and `rake bench:frontends` run and time the backend unpaced; its tone still reaches the speaker,
 as the audio pacing submits whatever the stream has room for when samples are queued.
 
@@ -527,10 +540,11 @@ most calls.
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller`, `::ControllerPorts` | a standard controller; the device answering `$4016`/`$4017` |
 | `lib/ruby/nes/audio.rb` | `Ruby::Nes::Audio` | the sample rate and the RC time constant (plan 24) |
 | `lib/ruby/nes/audio/` | `Ruby::Nes::Audio::Resampler`, `::OutputStage`, `::HighPassFilter`, `::LowPassFilter`, `::SampleBuffer` | the box resampler, the NES's output filters and 16-bit conversion, the frame's samples (plan 24) |
-| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver`, `::Headless`, `::InputScript`, `::Palette`, `::Png`, `::Wav`, `::Keyboard`, `::Raylib`, `::RaylibLibrary`, `::RaylibAudioStream`, `::RaylibPicture`, `::Viewport`, `::KeyConfig`, `::KeyBindings`, `::Hotkeys`, `::OppositeDirections`, `::FramePacing`, `::AudioPacing`, `::FrameRate`, `::MonotonicClock` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); keys to controller buttons and the raylib window (plan 17), the frame on the GPU (plan 32); the window's viewport, key config, hotkeys, direction filter, pacing and frame rate (plan 18); WAV encoding, the raylib audio stream and audio-driven pacing (plan 24). Never loaded by `lib/ruby/nes.rb` |
+| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver` (`::Driver::NoFrameObserver`), `::Headless`, `::InputScript`, `::Palette`, `::Png`, `::Wav`, `::Keyboard`, `::Raylib`, `::RaylibLibrary`, `::RaylibAudioStream`, `::RaylibPicture`, `::Viewport`, `::KeyConfig`, `::KeyBindings`, `::Hotkeys`, `::OppositeDirections`, `::FramePacing`, `::AudioPacing`, `::FrameRate`, `::MonotonicClock` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); keys to controller buttons and the raylib window (plan 17), the frame on the GPU (plan 32); the window's viewport, key config, hotkeys, direction filter, pacing and frame rate (plan 18); WAV encoding, the raylib audio stream and audio-driven pacing (plan 24). Never loaded by `lib/ruby/nes.rb` |
 | `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer` | tooling off the hot path |
 | `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | the bit constants hot paths use inline (`BYTE_MASK`, `PAGE_MASK`…) and readable bit helpers for code off the hot path |
 | `lib/ruby/nes/command_line.rb`, `command_line/` | `Ruby::Nes::CommandLine`, `::Options`, `::Jit`, `::ConfigFile`, `::Window`, `::RaylibWindow` | `exe/ruby-nes`: loads the core and the frontends, parses the arguments, enables the JIT, runs a ROM headless or in the window (plans 16 and 18) |
+| `lib/ruby/nes/saves.rb`, `saves/` | `Ruby::Nes::Saves`, `::Directory`, `::BatteryFile`, `::BatteryKeeper`, `::NoBattery`, errors | the window's battery saves (plan 34): where they live, the `.sav` file and its atomic write, the keeper that loads the save and writes the RAM back. Never loaded by `lib/ruby/nes.rb` |
 | `spec/support/test_roms.rb`, `spec/support/test_roms/` | `TestRoms`, `TestRoms::Manifest`, `::Fetcher`… | test ROM harness (plan 02): test tooling, not shipped in the gem |
 | `spec/support/blargg.rb`, `spec/support/blargg/` | `Blargg`, `Blargg::Report`, `::LegacyReport`, `::ScreenReport`, `::Runner`, `::Programs` | blargg's "Output at $6000" protocol, the 2005 ROMs' result at `$F8` (plan 14), the older shell's result line on screen (plan 19), and a runner that presses reset when asked (plan 12): test tooling, also used by `rake blargg:run`; specs in `spec/blargg/`, the real ROMs tagged `slow: true` |
 | `spec/support/nestest.rb`, `spec/support/nestest/` | `Nestest`, `Nestest::Log`, `::Runner`, `::Divergence` | nestest in automation mode compared with its reference trace (plan 08): test tooling, also used by `rake nestest:diff` |
@@ -791,3 +805,8 @@ presentation, in a frontend).
 | 94 | 2026-11-23 | Only the slow units bound `Apu#catch_up`'s runs (the frame counter, the pulses, the DMC); the triangle and the noise go through each run clock by clock in `Apu::FastChannels`, handed the slow channels' outputs once per run, and hand the resampler the run in parts | Super Pitfall's sound effects play the triangle at period 0 and the noise at 4 cycles, which cut runs to every cycle: those frames took 25-37 ms against about 15. In play the mean fell from 16.7 to 14.4 ms and the worst frame from 28-30 to 18, digests unchanged (plan 33, decision 1) | — |
 | 95 | 2026-11-23 | `Apu::FastChannels` is a collaborator, not private methods of `Apu` | With the run inside, `#catch_up`'s spec tree came to 27 leaves, 6 levels deep, for three jobs; keeping one unit is worth it only for performance, and the split costs one call per run, not per clock (plan 33, decision 1) | — |
 | 96 | 2026-11-23 | `Audio::Resampler#add_run` takes parts of any length: 0 cycles add nothing, 1 goes straight to `#add` | The fast channels hand thousands of one-cycle parts a frame; the length is decided in one place, and `#add` makes the same float additions (plan 33, decision 2) | — |
+| 97 | 2026-11-25 | Battery saves live in the user's data directory, `$XDG_DATA_HOME/ruby-nes/saves/` (else `~/.local/share/ruby-nes/saves/`), each the raw 8 KiB of PRG RAM named after the ROM's file name with `.sav` | Works whatever folder the ROMs are in, beside `~/.config/ruby-nes/`; plans 35 and 37 keep their files there. The raw format and the name are other emulators', so a save moves between them (plan 34, decisions 1 and 2) | — |
+| 98 | 2026-11-25 | The window writes the running game's save every 300 emulated frames (about 5 s) when the RAM changed since the last write, and when the run ends; no file until the RAM changes | Comparing 8 KiB every few seconds keeps the bus's hot path untouched, where a dirty flag would add work to every write to `$6000-$7FFF`; a killed process loses at most one interval (plan 34, decisions 4 and 6) | — |
+| 99 | 2026-11-25 | Headless runs never read or write saves, with no option to | Their digests stay reproducible; the window's specs exercise the keeper with a stand-in frontend (plan 34, decision 3) | When a tool-assisted run needs a save |
+| 100 | 2026-11-25 | A save of the wrong size stops the run before the window opens; writes are atomic (a temporary file of its own, created exclusively, `fsync`, rename) | A save is never overwritten by mistake, a crash mid-write leaves the old save or the new one, and two windows of the same game never write into each other's temporary file (plan 34, decisions 5 and 7) | — |
+| 101 | 2026-11-25 | A periodic battery save write that fails is a warning and the game goes on; the write at the end raises | The RAM in memory is intact, so stopping the game would lose more than it saves; the next interval tries again (plan 34, review) | — |

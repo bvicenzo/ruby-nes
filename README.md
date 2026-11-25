@@ -193,6 +193,16 @@ keys:
   pause: space
 ```
 
+### Saves
+
+Games that keep their progress on the cartridge's battery (The Legend of Zelda, Final Fantasy, Kirby's Adventure…)
+keep it here too. The window loads the game's save when it starts, writes it every few seconds while the game changes
+it, and once more when the window closes. Saves live in `~/.local/share/ruby-nes/saves/` (or
+`$XDG_DATA_HOME/ruby-nes/saves/`), named after the ROM file: `Legend of Zelda, The (USA) (Rev 1).nes` saves to
+`Legend of Zelda, The (USA) (Rev 1).sav`. They are the raw 8 KiB of the cartridge's RAM, as other emulators keep
+theirs, so a `.sav` copied from one of them, renamed after the ROM, just works. A game without a battery saves
+nothing, and `--headless` never reads or writes saves.
+
 ## Running without a window
 
 `--headless` runs the emulator with no window and no sound device, as fast as it can. It is how the specs and the
