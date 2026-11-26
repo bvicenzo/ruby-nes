@@ -287,6 +287,30 @@ gamepad_mappings: |
 On Linux, raylib reads the pad from `/dev/input`, which desktop sessions open to the logged-in user. A cheap USB SNES
 pad (DragonRise chip, `0079:0011`) is known to raylib on Linux and macOS as it is.
 
+### The screensaver
+
+Most systems count only the keyboard and the mouse as activity, so a game played on a gamepad alone can be taken over
+by the screensaver or the lock screen after a few minutes. ruby-nes does not yet ask the system to stay awake, and a
+compositor that listens only to Wayland's idle-inhibit protocol could not hear it anyway: raylib's window is an X11 one,
+run through XWayland. Until then, the desktop can be told to keep the screen awake while the emulator's window is
+focused. On Hyprland (Omarchy included), whose Lua config matches the window by its class, `ruby-nes`:
+
+```lua
+-- Omarchy, in ~/.config/hypr/hyprland.lua:
+o.window("ruby-nes", { idle_inhibit = "focus" })
+-- Hyprland without Omarchy's helpers:
+hl.window_rule({ match = { class = "ruby-nes" }, idle_inhibit = "focus" })
+```
+
+`focus` keeps the screen awake while the window has focus: a game paused and left focused keeps it awake too, but the
+screen sleeps again once another window takes the focus. `always` keeps it awake as long as the window is open.
+`fullscreen`, the rule Omarchy gives other emulators, never applies here, as the window has no fullscreen mode.
+
+A future version could ask the system itself, the way SDL games do: `SetThreadExecutionState` on Windows,
+`IOPMAssertionCreateWithName` on macOS, and `org.freedesktop.ScreenSaver.Inhibit` over D-Bus (or the desktop portal's
+Inhibit) on Linux. Desktops that listen only to the Wayland protocol would still need the rule above while the window
+is X11.
+
 ### Saves
 
 Games that keep their progress on the cartridge's battery (The Legend of Zelda, Final Fantasy, Kirby's Adventure…)
