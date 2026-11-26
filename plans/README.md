@@ -24,7 +24,7 @@ Conventions (see also `CLAUDE.md`):
 | M7 — Fast enough | 25 | full speed (60 fps) or a documented gap, per JIT |
 | M8 — AOT experiment | 26 | Spinel findings documented |
 | M9 — Progress kept | 35 | battery saves and save states survive closing the window |
-| M10 — Console-like | 38 | ROM list, gamepad and on-screen settings: no terminal or YAML needed to play |
+| M10 — Console-like | 40 | ROM list, gamepad and on-screen settings: no terminal or YAML needed to play |
 
 ## Index
 
@@ -68,8 +68,9 @@ Conventions (see also `CLAUDE.md`):
 | 35 | [Save states](35-save-states.md) | 34 | done |
 | 36 | [Gamepad input](36-gamepad-input.md) | 18 | done |
 | 37 | [ROM browser](37-rom-browser.md) | 35, 36 | done |
-| 38 | [On-screen settings and pause menu](38-on-screen-settings.md) | 36, 37 | todo |
+| 38 | [Pause menu](38-pause-menu.md) | 36, 37 | done |
 | 39 | [The audio device's period on Linux](39-audio-device-period.md) | 24, 32 | done |
+| 40 | [On-screen controls](40-on-screen-controls.md) | 38 | todo |
 
 Plans 11, 15 and 19 only depend on the bus, so they can be pulled forward if the CPU work gets tiring.
 
@@ -91,11 +92,11 @@ Super Mario Bros. 3 headless at 95 fps out of the box, 179 fps with RBS type see
 The window does not run under Spinel yet (bugs in Spinel), so there is no playable `bin/ruby-nes`; YJIT stays the
 runtime (`docs/spinel.md`).
 
-Plans 34-38 turn the emulator into something to play with, as a console is. First the progress is kept: battery
-saves (34), then save states (35), which Marshal can write whole (a probe restored SMB3's console to the same
-digests). Then the couch: the USB gamepad (36, which only needs plan 18 and can be pulled forward), a ROM list with
-previews (37), and the controls and a pause menu on screen (38). Each plan's open decisions carry a recommendation
-and are settled when it starts.
+Plans 34-38 and 40 turn the emulator into something to play with, as a console is. First the progress is kept: battery
+saves (34), then save states (35), which Marshal can write whole (a probe restored SMB3's console to the same digests).
+Then the couch: the USB gamepad (36, which only needs plan 18 and can be pulled forward), a ROM list with previews (37),
+a pause menu that opens from the pad too (38), and the controls on screen (40, split off from 38). Each plan's open
+decisions carry a recommendation and are settled when it starts.
 
 Plan 39 is a fix found in play: on a Linux laptop with PipeWire the window ran at 53 fps with audio, although the
 emulation there is faster than on the Mac. The Pulse client asks for about 1024 samples at a time, more than raylib's
@@ -110,7 +111,7 @@ and can go before 35.
 - A TV-like border in the backdrop colour around the picture (plan 27, decision 3; plan 27 itself won't be done),
   which needs the backdrop colour of every frame from the PPU.
 - Artwork for the ROM list downloaded from libretro-thumbnails (plan 37, open decision 2, option (c)).
-- Video and audio settings on screen: scale, aspect, overscan, volume (plan 38, out of scope).
+- Video and audio settings on screen: scale, aspect, overscan, volume (plans 38 and 40, out of scope).
 - Rewind (plan 35, out of scope).
 - Keys for controller 2 on the keyboard: since plan 36 a second gamepad drives controller 2, but one person with one pad
   and the keyboard has no controller 2. The Legend of Zelda saves with Up + A on controller 2 (plan 34, manual test), so
