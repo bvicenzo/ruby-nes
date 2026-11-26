@@ -20,7 +20,8 @@ it. From the game, a hotkey returns to the list. Like a console's menu: no termi
   - their own captures: the last frame played, or a save state's thumbnail;
   - running the game: a capture of its title screen after a few seconds, or the game running live in the preview.
 - What exists: the headless frontend runs a ROM without a window and writes PNGs (`--screenshot`). Plan 35 writes a
-  thumbnail with each state. raylib draws textures and text, and raylib-bindings also ships raygui.
+  thumbnail with each state, `states/<ROM file name>/<slot>.png` under the data directory, and starts a game on its
+  most recently saved slot (`Saves::StateSlots`). raylib draws textures and text, and raylib-bindings also ships raygui.
 - `docs/architecture.md` § Concurrency: single-threaded. Work in the menu (a preview being made) is sliced into the
   menu's frames, never a thread.
 

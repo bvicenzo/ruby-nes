@@ -65,7 +65,7 @@ Conventions (see also `CLAUDE.md`):
 | 32 | [Window presentation](32-window-presentation.md) | 31 | done |
 | 33 | [Super Pitfall's emulation cost](33-super-pitfall-emulation-cost.md) | 32 | done |
 | 34 | [Battery-backed saves](34-battery-backed-saves.md) | 20, 21 | done |
-| 35 | [Save states](35-save-states.md) | 34 | todo |
+| 35 | [Save states](35-save-states.md) | 34 | done |
 | 36 | [Gamepad input](36-gamepad-input.md) | 18 | done |
 | 37 | [ROM browser](37-rom-browser.md) | 35, 36 | todo |
 | 38 | [On-screen settings and pause menu](38-on-screen-settings.md) | 36, 37 | todo |
