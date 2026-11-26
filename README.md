@@ -183,7 +183,9 @@ The window opens at 3× scale and runs under YJIT, with sound.
 | B | Z | | Reset | R |
 | Select | Right Shift | | Frame rate overlay | F |
 | Start | Enter | | Quit | Escape |
-| D-pad | Arrow keys | | | |
+| D-pad | Arrow keys | | Save state | F5 |
+| | | | Load state | F7 |
+| | | | Previous / next state slot | F6 / F8 |
 
 Keys are set in `~/.config/ruby-nes/config.yml`, or in the file given with `--config`. Each action takes a key name or
 a list of them, and `[]` leaves an action without a key. Actions the file doesn't mention keep their default keys:
@@ -245,6 +247,26 @@ it, and once more when the window closes. Saves live in `~/.local/share/ruby-nes
 `Legend of Zelda, The (USA) (Rev 1).sav`. They are the raw 8 KiB of the cartridge's RAM, as other emulators keep
 theirs, so a `.sav` copied from one of them, renamed after the ROM, just works. A game without a battery saves
 nothing, and `--headless` never reads or writes saves.
+
+### Save states
+
+A save state keeps the whole machine at one moment, so any game can be left and taken up again exactly there, even
+one with no save of its own:
+
+- **Save and load.** F5 saves to the current slot, replacing what was there, and F7 loads it. The sound starts over
+  from that moment.
+- **Slots.** There are 10 slots, 0 to 9, picked with F6 and F8, and a game opens on the slot it saved last. A message
+  at the bottom of the window says what happened: "State 3 saved", "Slot 4", "State 3 is empty".
+- **Files.** A state lives in `~/.local/share/ruby-nes/states/<ROM name>/` (or under `$XDG_DATA_HOME`), as
+  `<slot>.state` with a picture of the moment, `<slot>.png`. A state is about 10-20 KB: the game itself is not inside.
+- **The game's own save.** A state also holds the cartridge's battery RAM, so after loading one the battery save
+  follows it, as in other emulators.
+- **Refused states.** A state saved from another ROM, or by a version of ruby-nes whose machine is built differently,
+  is refused with a message, and the game goes on. So is a state saved with `--no-audio` loaded with the sound on, or
+  the other way round.
+
+A state is written with Ruby's Marshal, which can build any object when it is loaded: **load only states ruby-nes
+saved on your own machine**, never ones from someone else.
 
 ## Running without a window
 

@@ -981,3 +981,26 @@ The window with audio pacing under `PULSE_LATENCY_MSEC` 10 / 20 / 25 / 30, befor
 the first sub-buffer already played and zero-fills the rest, so each chunk of 800 samples stood for about 898 of real
 time and the pacing, which follows the device, ran at 48 000 / 898 ≈ 53.4 fps. A latency of 15 ms keeps the requests
 within one sub-buffer.
+
+### 2026-11-25 — Plan 35: save states
+
+Same machine as plan 39. Each game ran 600 frames, pressing Right now and then, from its power-up under YJIT. Then
+`Saves::ConsoleState#encode` saved it, and a new console of the same cartridge loaded the state. The probe is outside
+the repository.
+
+"First" is the first save or load of a game: it takes the console's shape (`Saves::Shape`, about 18 ms on SMB3) once.
+The last two columns are a frame's time over 300 frames after 60 of warm-up, for the console that kept running and the
+restored one, which run the same frames. Over three runs (the third beside the test suite) they differed in both
+directions, within the noise.
+
+| Game | Board | State | Picture | Save (first) | Load (first) | Frame running / restored |
+|---|---|---|---|---|---|---|
+| Bomberman II | MMC1 | 12,119 B | 259 B | 5.1 ms (20.2) | 4.2 ms (16.1) | 8.25 / 8.55 ms |
+| Castlevania | UxROM | 14,311 B | 259 B | 4.0 ms (16.0) | 3.8 ms (14.9) | 9.60 / 10.79 ms |
+| The Legend of Zelda | MMC1 | 17,977 B | 1,929 B | 5.6 ms (19.2) | 4.0 ms (17.3) | 10.23 / 8.76 ms |
+| Mario Bros. | NROM | 9,335 B | 1,637 B | 4.0 ms (11.0) | 4.3 ms (10.6) | 8.65 / 8.76 ms |
+| Super Mario Bros. 3 | MMC3 | 15,466 B | 5,604 B | 5.9 ms (32.9) | 3.8 ms (30.6) | 10.78 / 10.70 ms |
+| Super Pitfall | UxROM | 11,712 B | 259 B | 4.4 ms (17.2) | 3.8 ms (16.5) | 9.04 / 8.60 ms |
+
+The picture (`Frontends::Screenshot`) takes 1.7-3.0 ms. With the ROM inside, SMB3's uncompressed dump would be
+1,265,209 bytes, 971 KB of it PRG and CHR ROM.
