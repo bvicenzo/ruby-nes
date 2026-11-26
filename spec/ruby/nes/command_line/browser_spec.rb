@@ -9,10 +9,12 @@ require 'ruby/nes/command_line'
 # Frontends::Browser::EmptyMenu for a folder with no ROM) is told controller 1's buttons, the window gets a frame of
 # silence (so audio keeps pacing it, decision 7; while paused it queues its own) and the menu's picture. A ROM started
 # is played (CommandLine::Game) in the same window, on a console of its own, sounding as the options say; the window
-# starts over (Frontends::Base#next_screen) on the way in and out. Leaving the game (Escape) returns to the list, read
-# again from the folder so its marks are fresh, the focus on the game played; closing the window ends the browser. A
-# game that cannot be started, or whose battery save cannot be written as it closes, is a message in the window and a
-# warning, and the list comes back. Leaving the list ends the browser.
+# starts over (Frontends::Base#next_screen) on the way in and out. Leaving the game (its pause menu) returns to the
+# list, read again from the folder so its marks are fresh, the focus on the game played; closing the window ends the
+# browser. A game that cannot be started, or whose battery save cannot be written as it closes, is a message in the
+# window and a warning, and the list comes back. Leaving the list ends the browser. A game started from the list offers
+# the way back in its pause menu (plan 38); the list's own menu, over it (Escape or L + R, CommandLine::MenuLoop),
+# resumes it or quits, ending the session.
 RSpec.describe Ruby::Nes::CommandLine::Browser do
   describe '#run' do
     context 'when the player leaves the list at once' do
@@ -40,7 +42,12 @@ RSpec.describe Ruby::Nes::CommandLine::Browser do
 
         let(:frontend) do
           instance_double(
-            Ruby::Nes::Frontends::Base, button_states: [0, 0], queue_silence: nil, paused?: true, present: nil
+            Ruby::Nes::Frontends::Base,
+            button_states: [0, 0],
+            queue_silence: nil,
+            paused?: true,
+            present: nil,
+            menu_requested?: false
           )
         end
         let(:folder) { '/home/player/roms' }
@@ -64,7 +71,12 @@ RSpec.describe Ruby::Nes::CommandLine::Browser do
 
         let(:frontend) do
           instance_double(
-            Ruby::Nes::Frontends::Base, button_states: [0, 0], queue_silence: nil, paused?: false, present: nil
+            Ruby::Nes::Frontends::Base,
+            button_states: [0, 0],
+            queue_silence: nil,
+            paused?: false,
+            present: nil,
+            menu_requested?: false
           )
         end
         let(:folder) { '/home/player/roms' }
@@ -80,6 +92,117 @@ RSpec.describe Ruby::Nes::CommandLine::Browser do
           expect(frontend).to have_received(:present)
             .once
             .with(satisfy { ScreenText.rows(it)[13] == '           NO ROMS IN           ' })
+        end
+      end
+    end
+
+    context "when the player opens the list's menu" do
+      context 'and closes the window in it' do
+        subject(:browser) do
+          described_class.new(frontend:, folder:, roms: [], directory:, audio_sample_rate: nil, error_output:)
+        end
+
+        let(:folder) { '/home/player/roms' }
+        let(:directory) { Ruby::Nes::Saves::Directory.new(environment: { 'XDG_DATA_HOME' => '/data' }) }
+        let(:error_output) { StringIO.new }
+        let(:frontend) do
+          instance_double(
+            Ruby::Nes::Frontends::Base,
+            button_states: [0, 0],
+            queue_silence: nil,
+            paused?: false,
+            present: nil,
+            menu_requested?: true,
+            quit: nil
+          )
+        end
+
+        before do
+          allow(Ruby::Nes::Frontends::Pause::Menu).to receive(:new)
+          allow(Ruby::Nes::CommandLine::MenuLoop).to receive(:run).and_return(nil)
+          allow(frontend).to receive(:running?).and_return(true, false)
+        end
+
+        it 'ends, quitting nothing itself' do
+          browser.run
+
+          expect(frontend).not_to have_received(:quit)
+        end
+      end
+
+      context 'and chooses to quit' do
+        subject(:browser) do
+          described_class.new(frontend:, folder:, roms: [], directory:, audio_sample_rate: nil, error_output:)
+        end
+
+        let(:folder) { '/home/player/roms' }
+        let(:directory) { Ruby::Nes::Saves::Directory.new(environment: { 'XDG_DATA_HOME' => '/data' }) }
+        let(:error_output) { StringIO.new }
+        let(:list_menu) { instance_double(Ruby::Nes::Frontends::Pause::Menu) }
+        let(:frontend) do
+          instance_double(
+            Ruby::Nes::Frontends::Base,
+            button_states: [0, 0],
+            queue_silence: nil,
+            paused?: false,
+            present: nil,
+            menu_requested?: true,
+            quit: nil
+          )
+        end
+
+        before do
+          allow(Ruby::Nes::Frontends::Pause::Menu).to receive(:new).and_return(list_menu)
+          allow(Ruby::Nes::CommandLine::MenuLoop).to receive(:run)
+            .and_return(Ruby::Nes::Frontends::Pause::Choice.new(action: :quit, slot: nil))
+          allow(frontend).to receive(:running?).and_return(true, false)
+        end
+
+        it 'opens it over the list, with RESUME and QUIT, and ends the session', :aggregate_failures do
+          no_roms_list = satisfy { ScreenText.rows(it)[13] == '           NO ROMS IN           ' }
+          browser.run
+
+          expect(Ruby::Nes::Frontends::Pause::Menu).to have_received(:new)
+            .with(entries: %i[resume quit], background: no_roms_list)
+          expect(Ruby::Nes::CommandLine::MenuLoop).to have_received(:run).with(frontend:, menu: list_menu)
+          expect(frontend).to have_received(:quit)
+        end
+      end
+
+      context 'and chooses to resume' do
+        subject(:browser) do
+          described_class.new(frontend:, folder:, roms: [], directory:, audio_sample_rate: nil, error_output:)
+        end
+
+        let(:folder) { '/home/player/roms' }
+        let(:directory) { Ruby::Nes::Saves::Directory.new(environment: { 'XDG_DATA_HOME' => '/data' }) }
+        let(:error_output) { StringIO.new }
+        let(:frontend) do
+          instance_double(
+            Ruby::Nes::Frontends::Base,
+            button_states: [0, 0],
+            queue_silence: nil,
+            paused?: false,
+            present: nil,
+            quit: nil,
+            resume: nil
+          )
+        end
+
+        before do
+          allow(Ruby::Nes::Frontends::Pause::Menu).to receive(:new)
+          allow(Ruby::Nes::CommandLine::MenuLoop).to receive(:run).and_return(Ruby::Nes::Frontends::Pause::Choice::RESUME)
+          allow(frontend).to receive(:running?).and_return(true, true, false)
+          allow(frontend).to receive(:menu_requested?).and_return(true, false)
+        end
+
+        # The A that chose RESUME would start the ROM in focus (plan 38, review).
+        it 'shows the list again, still running, the buttons held kept from it', :aggregate_failures do
+          browser.run
+
+          expect(frontend).to have_received(:present).twice
+          expect(frontend).to have_received(:resume)
+          expect(frontend).not_to have_received(:quit)
         end
       end
     end
@@ -107,6 +230,7 @@ RSpec.describe Ruby::Nes::CommandLine::Browser do
             queue_silence: nil,
             paused?: false,
             present: nil,
+            menu_requested?: false,
             notify: nil,
             next_screen: nil,
             closed?: false
@@ -153,6 +277,7 @@ RSpec.describe Ruby::Nes::CommandLine::Browser do
               queue_silence: nil,
               paused?: false,
               present: nil,
+              menu_requested?: false,
               notify: nil,
               next_screen: nil,
               closed?: false
@@ -213,6 +338,36 @@ RSpec.describe Ruby::Nes::CommandLine::Browser do
           end
         end
 
+        context 'and it is played' do
+          subject(:browser) do
+            described_class.new(frontend:, folder:, roms:, directory:, audio_sample_rate: nil, error_output:)
+          end
+
+          let(:folder) { Dir.mktmpdir }
+          let(:directory) { Ruby::Nes::Saves::Directory.new(environment: { 'XDG_DATA_HOME' => '/data' }) }
+          let(:error_output) { StringIO.new }
+          let(:roms) do
+            File.binwrite(File.join(folder, 'Zelda.nes'), Cartridges.ines_image(prg_rom: Array.new(16_384, 0)))
+            Ruby::Nes::Frontends::Browser::RomList.scan(folder, directory:)
+          end
+          let(:game) { instance_double(Ruby::Nes::CommandLine::Game, load: nil, play: nil, close: nil) }
+          let(:frontend) { instance_double(Ruby::Nes::Frontends::Base, next_screen: nil, closed?: true) }
+
+          before do
+            allow(Ruby::Nes::CommandLine::Game).to receive(:new).and_return(game)
+            allow(frontend).to receive_messages(running?: true, button_states: [start, 0])
+          end
+
+          after { FileUtils.remove_entry(folder) }
+
+          it 'plays it as a game started from the list, whose pause menu leads back to it', :aggregate_failures do
+            browser.run
+
+            expect(Ruby::Nes::CommandLine::Game).to have_received(:new).with(hash_including(back_to_list: true))
+            expect(game).to have_received(:play).with(frontend)
+          end
+        end
+
         context 'and the player leaves it' do
           subject(:browser) do
             described_class.new(frontend:, folder:, roms:, directory:, audio_sample_rate: nil, error_output:)
@@ -237,6 +392,7 @@ RSpec.describe Ruby::Nes::CommandLine::Browser do
               queue_silence: nil,
               paused?: false,
               present: nil,
+              menu_requested?: false,
               next_screen: nil,
               closed?: false
             )

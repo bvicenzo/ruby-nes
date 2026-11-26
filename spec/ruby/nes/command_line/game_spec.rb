@@ -8,8 +8,10 @@ require 'ruby/nes/command_line'
 # A game played in an open window (plan 37, out of CommandLine::Window): its battery save (plan 34) is loaded first,
 # kept by a Saves::BatteryKeeper the driver tells each frame (Frontends::Driver), and written when the game is closed,
 # however it ends; a refused save is never written over. Its save states (plan 35) are kept by a Saves::StateSlots the
-# driver hands each state action the frontend asks for. The keeper decides when to write: here a stand-in, but for a
-# real dump without battery RAM, whose game must leave no file in the temporary data directory.
+# driver hands each state action the frontend asks for, and which its pause menu (CommandLine::Pause, plan 38) saves and
+# loads through; the menu offers BACK TO THE LIST only for a game started from the ROM list. The keeper decides when to
+# write: here a stand-in, but for a real dump without battery RAM, whose game must leave no file in the temporary data
+# directory.
 RSpec.describe Ruby::Nes::CommandLine::Game do
   describe '#load' do
     context 'when the battery save is refused' do
@@ -70,6 +72,7 @@ RSpec.describe Ruby::Nes::CommandLine::Game do
         let(:frontend) do
           instance_double(
             Ruby::Nes::Frontends::Base,
+            menu_requested?: false,
             paused?: false,
             reset_requested?: false,
             notify: nil,
@@ -108,6 +111,7 @@ RSpec.describe Ruby::Nes::CommandLine::Game do
         let(:frontend) do
           instance_double(
             Ruby::Nes::Frontends::Base,
+            menu_requested?: false,
             paused?: false,
             reset_requested?: false,
             state_action: nil,
@@ -127,6 +131,63 @@ RSpec.describe Ruby::Nes::CommandLine::Game do
           game.play(frontend)
 
           expect(battery_keeper).to have_received(:frame_ran).once
+        end
+      end
+    end
+
+    context 'when the player opens the menu' do
+      context 'and the game was started from the ROM list' do
+        subject(:game) do
+          described_class.new(
+            console:, rom_path: 'roms/game.nes', directory: saves_directory, error_output:, back_to_list: true
+          )
+        end
+
+        let(:saves_directory) { Ruby::Nes::Saves::Directory.new(environment: { 'XDG_DATA_HOME' => '/data' }) }
+        let(:error_output) { StringIO.new }
+        let(:console) { Ruby::Nes::Console.new(Cartridges.build) }
+        let(:pause) { instance_double(Ruby::Nes::CommandLine::Pause, open: nil) }
+        let(:frontend) { instance_double(Ruby::Nes::Frontends::Base, reset_requested?: false, state_action: nil) }
+
+        before do
+          allow(Ruby::Nes::CommandLine::Pause).to receive(:new).and_return(pause)
+          allow(frontend).to receive(:menu_requested?).and_return(true)
+          allow(frontend).to receive(:running?).and_return(true, false)
+          game.load
+        end
+
+        it 'opens the pause menu over the game, with its slots and the way back to the list', :aggregate_failures do
+          game.play(frontend)
+
+          expect(Ruby::Nes::CommandLine::Pause).to have_received(:new)
+            .with(console:, slots: an_instance_of(Ruby::Nes::Saves::StateSlots), back_to_list: true)
+          expect(pause).to have_received(:open).with(frontend)
+        end
+      end
+
+      context 'and the game was started on its own' do
+        subject(:game) do
+          described_class.new(console:, rom_path: 'roms/game.nes', directory: saves_directory, error_output:)
+        end
+
+        let(:saves_directory) { Ruby::Nes::Saves::Directory.new(environment: { 'XDG_DATA_HOME' => '/data' }) }
+        let(:error_output) { StringIO.new }
+        let(:console) { Ruby::Nes::Console.new(Cartridges.build) }
+        let(:pause) { instance_double(Ruby::Nes::CommandLine::Pause, open: nil) }
+        let(:frontend) { instance_double(Ruby::Nes::Frontends::Base, reset_requested?: false, state_action: nil) }
+
+        before do
+          allow(Ruby::Nes::CommandLine::Pause).to receive(:new).and_return(pause)
+          allow(frontend).to receive(:menu_requested?).and_return(true)
+          allow(frontend).to receive(:running?).and_return(true, false)
+          game.load
+        end
+
+        it 'opens the pause menu over the game without the way back to the list' do
+          game.play(frontend)
+
+          expect(Ruby::Nes::CommandLine::Pause).to have_received(:new)
+            .with(console:, slots: an_instance_of(Ruby::Nes::Saves::StateSlots), back_to_list: false)
         end
       end
     end
@@ -170,6 +231,7 @@ RSpec.describe Ruby::Nes::CommandLine::Game do
         let(:frontend) do
           instance_double(
             Ruby::Nes::Frontends::Base,
+            menu_requested?: false,
             paused?: false,
             reset_requested?: false,
             state_action: nil,

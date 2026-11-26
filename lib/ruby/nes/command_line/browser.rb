@@ -7,12 +7,17 @@ module Ruby
       # the menu (Frontends::Browser::Menu, or Frontends::Browser::EmptyMenu for a folder with no ROM) is told
       # controller 1's buttons, and the window gets a frame of silence, so the audio keeps pacing it (decision 7; while
       # paused the window queues its own), then the menu's picture. A ROM started is played (CommandLine::Game) in
-      # the same window on a console of its own, at `audio_sample_rate`; the window starts over
-      # (Frontends::Base#next_screen) on the way in and out. Leaving the game (Escape, decision 5) returns to the list,
-      # read again from the folder so its marks are fresh, the focus on the game played; closing the window ends the
-      # browser. A game that cannot be started, or whose battery save cannot be written as it closes, is a message in
-      # the window and a warning, and the list comes back. Off the hot path: once per menu frame.
+      # the same window on a console of its own, at `audio_sample_rate`, as a game started from the list, whose pause
+      # menu leads back to it (plan 38); the window starts over (Frontends::Base#next_screen) on the way in and out.
+      # Leaving the game returns to the list, read again from the folder so its marks are fresh, the focus on the game
+      # played; closing the window, or quitting from a menu, ends the browser. The list's own menu (the menu's key or
+      # buttons, CommandLine::MenuLoop) opens over it, dimmed, and resumes it or quits; the buttons held as the list
+      # comes back from a menu or a game are kept from it until let go (Frontends::Base#resume, #next_screen). A game that cannot be started,
+      # or whose battery save cannot be written as it closes, is a message in the window and a warning, and the list
+      # comes back. Off the hot path: once per menu frame.
       class Browser
+        LIST_MENU_ENTRIES = %i[resume quit].freeze
+
         # `roms` are the Frontends::Browser::Rom of `folder`; the saves and the previews are in `directory` (a
         # Saves::Directory); warnings go to `error_output`.
         # rubocop:disable-next Metrics/ParameterLists
@@ -51,7 +56,18 @@ module Ruby
 
             @frontend.queue_silence unless @frontend.paused?
             @frontend.present(@menu.picture)
+            open_list_menu if @frontend.menu_requested?
           end
+        end
+
+        # The list's menu over it: QUIT ends the session; RESUME returns to the list, the buttons held kept from it until
+        # let go, so the A that chose it starts no ROM. A window closed in it has nothing more done.
+        def open_list_menu
+          list_menu = Frontends::Pause::Menu.new(entries: LIST_MENU_ENTRIES, background: @menu.picture)
+          choice = MenuLoop.run(frontend: @frontend, menu: list_menu)
+          return unless choice
+
+          choice.action == :quit ? @frontend.quit : @frontend.resume
         end
 
         def play(rom)
@@ -65,7 +81,11 @@ module Ruby
 
         def started_game(rom)
           console = Console.new(Cartridge::Loader.from_file(rom.path), audio_sample_rate: @audio_sample_rate)
-          Game.new(console:, rom_path: rom.path, directory: @directory, error_output: @error_output).tap(&:load)
+          game = Game.new(
+            console:, rom_path: rom.path, directory: @directory, error_output: @error_output, back_to_list: true
+          )
+          game.load
+          game
         end
 
         def close(game)
