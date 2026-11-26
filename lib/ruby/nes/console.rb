@@ -27,17 +27,24 @@ module Ruby
     # With a sample rate, the APU hands the mix of every cycle to an Audio::Resampler, through the NES's output filters
     # (Audio::OutputStage) into an Audio::SampleBuffer that `audio_samples` drains once per frame (plan 24). Without
     # one, nothing is mixed.
+    #
+    # `snapshot` writes the components as bytes, with Marshal, the board leaving the ROM out; `restore` puts a snapshot
+    # of a console of the same cartridge in place of the components, so whoever holds the console keeps it (plan 35,
+    # decision 1). Off the hot path: between frames.
     class Console
-      attr_reader :cpu, :ppu, :apu, :cpu_bus, :ppu_bus, :controllers
+      attr_reader :cartridge, :cpu, :ppu, :apu, :cpu_bus, :ppu_bus, :controllers
+      # The rate of the samples `audio_samples` returns, or nil when the console mixes no audio.
+      attr_reader :audio_sample_rate
 
       def initialize(cartridge, controllers: [Input::Controller.new, Input::Controller.new], audio_sample_rate: nil)
+        @cartridge = cartridge
+        @audio_sample_rate = audio_sample_rate
         mapper = Mappers.build(cartridge)
         @mapper = mapper
-        @controllers = controllers.dup.freeze
+        controller_ports = plug_controllers(controllers)
         @ppu_bus = PpuBus.new(mapper:)
         @ppu = Ppu.new(bus: @ppu_bus)
         register_sync = PpuRegisterSync.new(ppu: @ppu)
-        controller_ports = Input::ControllerPorts.new(first: controllers.first, second: controllers.last)
         @audio_samples = Audio::SampleBuffer.new
         @apu = Apu.new(resampler: audio_resampler(audio_sample_rate))
         @cpu_bus = CpuBus.new(mapper:, ppu_registers: register_sync, apu_registers: @apu, controller_ports:)
@@ -87,6 +94,27 @@ module Ruby
         @mapper.battery_ram = bytes
       end
 
+      # The components as Marshal writes them, without the ROM (Mappers::Base#marshal_dump).
+      def snapshot = Marshal.dump(components)
+
+      # Brings the console back to the moment of `snapshot`, taken from this console or another one of the same
+      # cartridge (Saves::ConsoleState checks it): the board gets the cartridge's ROM back, and the components take the
+      # place of the running ones.
+      def restore(snapshot)
+        # Only this emulator's own snapshots: states come from its own directory, behind Saves::ConsoleState's checks.
+        # rubocop:disable-next Security/MarshalLoad
+        mapper, controllers, ppu_bus, ppu, audio_samples, apu, cpu_bus, cpu = Marshal.load(snapshot)
+        mapper.reattach_rom(@cartridge)
+        @mapper = mapper
+        @controllers = controllers.freeze
+        @ppu_bus = ppu_bus
+        @ppu = ppu
+        @audio_samples = audio_samples
+        @apu = apu
+        @cpu_bus = cpu_bus
+        @cpu = cpu
+      end
+
       # The reset button: the CPU's, the PPU's and the APU's reset, then the PPU and the APU catch up the reset
       # sequence's cycles.
       def reset
@@ -98,6 +126,15 @@ module Ruby
       end
 
       private
+
+      # Everything that changes as the console runs, and what wires it together; the order `restore` reads them in.
+      def components = [@mapper, @controllers, @ppu_bus, @ppu, @audio_samples, @apu, @cpu_bus, @cpu]
+
+      # The ports $4016 and $4017 read, with the two controllers in them.
+      def plug_controllers(controllers)
+        @controllers = controllers.dup.freeze
+        Input::ControllerPorts.new(first: controllers.first, second: controllers.last)
+      end
 
       def audio_resampler(sample_rate)
         return unless sample_rate

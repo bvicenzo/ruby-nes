@@ -169,6 +169,26 @@ RSpec.describe Ruby::Nes::Console do
   end
 
   # The frontend sets the buttons held through the controllers (plan 15, decision 6).
+  describe '#audio_sample_rate' do
+    let(:cartridge) { Cartridges.with_program([0x4C, 0x00, 0x80]) }
+
+    context 'when the console was built without a sample rate' do
+      subject(:console) { described_class.new(cartridge) }
+
+      it 'is nil' do
+        expect(console.audio_sample_rate).to be_nil
+      end
+    end
+
+    context 'when the console was built with a sample rate' do
+      subject(:console) { described_class.new(cartridge, audio_sample_rate: 48_000) }
+
+      it 'is that rate' do
+        expect(console.audio_sample_rate).to eq(48_000)
+      end
+    end
+  end
+
   describe '#controllers' do
     let(:cartridge) { Cartridges.with_program([0x4C, 0x00, 0x80]) }
 
@@ -604,6 +624,147 @@ RSpec.describe Ruby::Nes::Console do
         console.run_frame
         console.run_frame
         expect(console.cpu_bus.read(0x0010)).to eq(0x00)
+      end
+    end
+  end
+
+  # A save state holds the console's components, without the ROM (plan 35, decision 1). Taking one changes nothing, and
+  # restoring one brings the console back to that moment, whether it is the console the snapshot was taken from or a
+  # new one of the same cartridge, as when a game is opened again. Checking the cartridge is Saves::ConsoleState's.
+  describe '#snapshot' do
+    subject(:console) { described_class.new(cartridge) }
+
+    # LDA #$80 / STA $2000 once, then INC $11 / JMP $8005 forever; the NMI handler counts in $10: INC $10 / RTI.
+    let(:cartridge) do
+      Cartridges.with_program(
+        [0xA9, 0x80, 0x8D, 0x00, 0x20, 0xE6, 0x11, 0x4C, 0x05, 0x80], interrupt_handler: [0xE6, 0x10, 0x40]
+      )
+    end
+    let(:uninterrupted_console) { described_class.new(cartridge) }
+
+    before do
+      3.times { console.run_frame }
+      3.times { uninterrupted_console.run_frame }
+      console.snapshot
+      3.times { console.run_frame }
+      3.times { uninterrupted_console.run_frame }
+    end
+
+    it 'leaves the console running as if none had been taken', :aggregate_failures do
+      expect(console.cpu).to have_attributes(
+        cycles: uninterrupted_console.cpu.cycles, program_counter: uninterrupted_console.cpu.program_counter
+      )
+      expect(console.cpu_bus.read(0x0010)).to eq(uninterrupted_console.cpu_bus.read(0x0010))
+      expect(console.cpu_bus.read(0x0011)).to eq(uninterrupted_console.cpu_bus.read(0x0011))
+    end
+  end
+
+  describe '#restore' do
+    context 'when the console is the one the snapshot was taken from, frames later' do
+      subject(:console) { described_class.new(cartridge) }
+
+      # LDA #$80 / STA $2000 once, then INC $11 / JMP $8005 forever; the NMI handler counts in $10: INC $10 / RTI.
+      let(:cartridge) do
+        Cartridges.with_program(
+          [0xA9, 0x80, 0x8D, 0x00, 0x20, 0xE6, 0x11, 0x4C, 0x05, 0x80], interrupt_handler: [0xE6, 0x10, 0x40]
+        )
+      end
+      let(:uninterrupted_console) { described_class.new(cartridge) }
+
+      before do
+        3.times { console.run_frame }
+        3.times { uninterrupted_console.run_frame }
+        snapshot = console.snapshot
+        5.times { console.run_frame }
+        console.restore(snapshot)
+        3.times { console.run_frame }
+        3.times { uninterrupted_console.run_frame }
+      end
+
+      it 'runs on from the moment of the snapshot', :aggregate_failures do
+        expect(console.cpu).to have_attributes(
+          cycles: uninterrupted_console.cpu.cycles, program_counter: uninterrupted_console.cpu.program_counter
+        )
+        expect(console.cpu_bus.read(0x0010)).to eq(uninterrupted_console.cpu_bus.read(0x0010))
+        expect(console.cpu_bus.read(0x0011)).to eq(uninterrupted_console.cpu_bus.read(0x0011))
+      end
+    end
+
+    context 'when the console is a new one of the same cartridge' do
+      context 'and the cartridge is a program built in memory' do
+        subject(:console) { described_class.new(cartridge) }
+
+        # LDA #$80 / STA $2000 once, then INC $11 / JMP $8005 forever; the NMI handler counts in $10: INC $10 / RTI.
+        let(:cartridge) do
+          Cartridges.with_program(
+            [0xA9, 0x80, 0x8D, 0x00, 0x20, 0xE6, 0x11, 0x4C, 0x05, 0x80], interrupt_handler: [0xE6, 0x10, 0x40]
+          )
+        end
+        let(:saved_console) { described_class.new(cartridge) }
+
+        before do
+          3.times { saved_console.run_frame }
+          console.restore(saved_console.snapshot)
+          3.times { console.run_frame }
+          3.times { saved_console.run_frame }
+        end
+
+        it 'runs on from the moment of the snapshot', :aggregate_failures do
+          expect(console.cpu).to have_attributes(
+            cycles: saved_console.cpu.cycles, program_counter: saved_console.cpu.program_counter
+          )
+          expect(console.cpu_bus.read(0x0010)).to eq(saved_console.cpu_bus.read(0x0010))
+          expect(console.cpu_bus.read(0x0011)).to eq(saved_console.cpu_bus.read(0x0011))
+        end
+
+        it 'keeps its controllers frozen' do
+          expect(console.controllers).to be_frozen
+        end
+      end
+
+      context(
+        'and the cartridge is the MMC3 scanline timing test ROM',
+        test_rom: 'mmc3_test_2/rom_singles/4-scanline_timing.nes'
+      ) do
+        subject(:console) { described_class.new(cartridge, audio_sample_rate: 48_000) }
+
+        let(:cartridge) do
+          Ruby::Nes::Cartridge::Loader.from_file(test_rom_path('mmc3_test_2/rom_singles/4-scanline_timing.nes'))
+        end
+        let(:saved_console) { described_class.new(cartridge, audio_sample_rate: 48_000) }
+        let(:saved_recording) { RecordedPlay.new(saved_console).record(21..80) }
+        let(:restored_recording) { RecordedPlay.new(console).record(21..80) }
+
+        before do
+          RecordedPlay.new(saved_console).record(1..20)
+          console.restore(saved_console.snapshot)
+        end
+
+        it 'shows and plays the same frames as the console never interrupted' do
+          expect(restored_recording).to eq(saved_recording)
+        end
+      end
+
+      context 'and the cartridge is Super Mario Bros. 3, played into world 1-1', :slow, local_rom: 'smb3.nes' do
+        subject(:console) { described_class.new(cartridge, audio_sample_rate: 48_000) }
+
+        # Frame 1250 is in world 1-1, with the music playing; from frame 1200 Mario walks right
+        # (spec/fixtures/smb3_world_1_1.yml).
+        let(:cartridge) { Ruby::Nes::Cartridge::Loader.from_file(local_rom_path('smb3.nes')) }
+        let(:input_script_path) { File.expand_path('../../fixtures/smb3_world_1_1.yml', __dir__) }
+        let(:input_script) { Ruby::Nes::Frontends::InputScript.parse(File.read(input_script_path)) }
+        let(:saved_console) { described_class.new(cartridge, audio_sample_rate: 48_000) }
+        let(:saved_recording) { RecordedPlay.new(saved_console, input_script).record(1251..1370) }
+        let(:restored_recording) { RecordedPlay.new(console, input_script).record(1251..1370) }
+
+        before do
+          RecordedPlay.new(saved_console, input_script).record(1..1250)
+          console.restore(saved_console.snapshot)
+        end
+
+        it 'shows and plays the same frames as the console never interrupted' do
+          expect(restored_recording).to eq(saved_recording)
+        end
       end
     end
   end

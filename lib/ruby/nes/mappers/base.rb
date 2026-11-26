@@ -143,6 +143,26 @@ module Ruby
           @prg_ram.replace(bytes)
         end
 
+        # The board as a save state carries it (plan 35, decision 1): every instance variable, a subclass's too, with
+        # nil in place of the PRG ROM and of CHR when it is ROM, which the game already has. The nil keeps each variable
+        # where a new board has it, so a restored board has a new one's shape. Off the hot path.
+        def marshal_dump
+          instance_variables.to_h { [it, rom_variable?(it) ? nil : instance_variable_get(it)] }
+        end
+
+        # A board built by Marshal.load has no ROM until `reattach_rom` hands it back.
+        def marshal_load(variables)
+          variables.each { |name, value| instance_variable_set(name, value) }
+        end
+
+        # Hands a board loaded from a save state its cartridge's PRG ROM, and its CHR ROM when it has one: CHR RAM came
+        # with the state. The cartridge is the one the board was built from (Saves::ConsoleState checks the ROM's
+        # digest before loading).
+        def reattach_rom(cartridge)
+          @prg_rom = cartridge.prg_rom
+          @chr = cartridge.chr_rom unless @chr_writable
+        end
+
         # CHR ROM ignores writes; CHR RAM keeps them.
         def ppu_write(address, value)
           return unless @chr_writable
@@ -152,6 +172,8 @@ module Ruby
         end
 
         private
+
+        def rom_variable?(name) = name == :@prg_rom || (name == :@chr && !@chr_writable)
 
         # 8 KiB of PRG RAM, on, when the board has some; it keeps the game's save when the header says it has a battery.
         def install_prg_ram(prg_ram, battery:)

@@ -482,4 +482,93 @@ RSpec.describe Ruby::Nes::Mappers::Base do
       end
     end
   end
+
+  # A save state carries the board without the cartridge's ROM, which the game already has (plan 35, decision 1). The
+  # ROMs here are 256 KiB of PRG and 128 KiB of CHR, so a dump that kept either would be hundreds of KiB.
+  describe '#marshal_dump' do
+    context 'when the board has CHR ROM' do
+      subject(:board) { described_class.new(cartridge, prg_ram: true) }
+
+      let(:cartridge) do
+        Cartridges.build(
+          prg_rom: Cartridges.numbered_banks(count: 16, size: 16_384),
+          chr_rom: Cartridges.numbered_banks(count: 128, size: 1_024)
+        )
+      end
+
+      it 'leaves the PRG ROM and the CHR ROM out' do
+        expect(Marshal.dump(board).bytesize).to be < 65_536
+      end
+    end
+
+    context 'when the board has CHR RAM' do
+      subject(:board) { described_class.new(cartridge, prg_ram: true) }
+
+      let(:cartridge) { Cartridges.build(prg_rom: Cartridges.numbered_banks(count: 16, size: 16_384), chr_rom: []) }
+
+      it 'leaves the PRG ROM out' do
+        expect(Marshal.dump(board).bytesize).to be < 65_536
+      end
+    end
+  end
+
+  # A board Marshal.load built from a dump has no ROM until the cartridge's is handed back (plan 35, decision 1).
+  describe '#reattach_rom' do
+    context 'when the board has CHR ROM' do
+      subject(:board) { described_class.new(cartridge, prg_ram: true) }
+
+      let(:cartridge) do
+        Cartridges.build(
+          prg_rom: Cartridges.numbered_banks(count: 4, size: 16_384),
+          chr_rom: Cartridges.numbered_banks(count: 8, size: 1_024),
+          mirroring: :vertical
+        )
+      end
+      let(:restored_board) { Marshal.load(Marshal.dump(board)) }
+
+      before do
+        board.cpu_write(0x6000, 0x42)
+        restored_board.reattach_rom(cartridge)
+      end
+
+      it 'reads as the board dumped', :aggregate_failures do
+        expect(restored_board.cpu_read(0x8000, 0x5A)).to eq(0)
+        expect(restored_board.cpu_read(0xC000, 0x5A)).to eq(3)
+        expect(restored_board.cpu_read(0x6000, 0x5A)).to eq(0x42)
+        expect(restored_board.ppu_read(0x0000)).to eq(0)
+        expect(restored_board.ppu_read(0x1C00)).to eq(7)
+        expect(restored_board.mirroring).to eq(:vertical)
+      end
+
+      it 'keeps the instance variables in the order of a new board' do
+        expect(restored_board.instance_variables)
+          .to eq(described_class.new(cartridge, prg_ram: true).instance_variables)
+      end
+    end
+
+    context 'when the board has CHR RAM' do
+      subject(:board) { described_class.new(cartridge, prg_ram: true) }
+
+      let(:cartridge) { Cartridges.build(prg_rom: Cartridges.numbered_banks(count: 4, size: 16_384), chr_rom: []) }
+      let(:restored_board) { Marshal.load(Marshal.dump(board)) }
+
+      before do
+        board.ppu_write(0x0000, 0x5A)
+        board.ppu_write(0x1FFF, 0xA5)
+        restored_board.reattach_rom(cartridge)
+      end
+
+      it 'reads as the board dumped, its CHR RAM included', :aggregate_failures do
+        expect(restored_board.cpu_read(0x8000, 0x00)).to eq(0)
+        expect(restored_board.cpu_read(0xC000, 0x00)).to eq(3)
+        expect(restored_board.ppu_read(0x0000)).to eq(0x5A)
+        expect(restored_board.ppu_read(0x1FFF)).to eq(0xA5)
+      end
+
+      it 'keeps the instance variables in the order of a new board' do
+        expect(restored_board.instance_variables)
+          .to eq(described_class.new(cartridge, prg_ram: true).instance_variables)
+      end
+    end
+  end
 end
