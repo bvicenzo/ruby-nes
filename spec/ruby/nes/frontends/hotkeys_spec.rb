@@ -3,16 +3,17 @@
 require 'ruby/nes/frontends/hotkeys'
 
 # The keys that drive the emulator rather than the controller (plan 18, decision 6): quit, pause, reset and the frame
-# rate overlay. A windowed frontend tells it once per frame which bound keys were pressed during that frame; pause and
-# the overlay toggle on each frame their key is pressed, reset is asked for during that frame only, quit stays asked.
+# rate overlay, and the save states' (plan 35, decision 3). A windowed frontend tells it once per frame which bound keys
+# were pressed during that frame; pause and the overlay toggle on each frame their key is pressed, reset and a state
+# action are asked for during that frame only, quit stays asked.
 # Key codes here are arbitrary integers, as each graphics library numbers its keys its own way.
 RSpec.describe Ruby::Nes::Frontends::Hotkeys do
   describe '.new' do
     context 'when a binding names something that is not an action' do
-      let(:bindings) { { 80 => :pause, 83 => :save_state, 87 => :rewind } }
+      let(:bindings) { { 80 => :pause, 83 => :rewind, 87 => :fast_forward } }
 
       it 'raises ArgumentError naming it' do
-        expect { described_class.new(bindings) }.to raise_error(ArgumentError, /save_state, rewind/)
+        expect { described_class.new(bindings) }.to raise_error(ArgumentError, /rewind, fast_forward/)
       end
     end
 
@@ -148,6 +149,77 @@ RSpec.describe Ruby::Nes::Frontends::Hotkeys do
 
       it 'is true' do
         expect(hotkeys).to be_frame_rate_shown
+      end
+    end
+  end
+
+  # Saving, loading, and the previous and next slot (Saves::StateSlots::ACTIONS); one action a frame, the first of them
+  # in that order when several keys were pressed together.
+  describe '#state_action' do
+    subject(:hotkeys) { described_class.new(bindings) }
+
+    let(:bindings) do
+      { 116 => :save_state, 118 => :load_state, 117 => :previous_slot, 119 => :next_slot, 80 => :pause }
+    end
+
+    context 'when no state key has been pressed' do
+      before { hotkeys.poll { |key_code| key_code == 80 } }
+
+      it 'is nil' do
+        expect(hotkeys.state_action).to be_nil
+      end
+    end
+
+    context 'when the last poll pressed a state key' do
+      context 'and it is the save key' do
+        before { hotkeys.poll { |key_code| key_code == 116 } }
+
+        it 'is save_state' do
+          expect(hotkeys.state_action).to eq(:save_state)
+        end
+      end
+
+      context 'and it is the load key' do
+        before { hotkeys.poll { |key_code| key_code == 118 } }
+
+        it 'is load_state' do
+          expect(hotkeys.state_action).to eq(:load_state)
+        end
+      end
+
+      context 'and it is the previous slot key' do
+        before { hotkeys.poll { |key_code| key_code == 117 } }
+
+        it 'is previous_slot' do
+          expect(hotkeys.state_action).to eq(:previous_slot)
+        end
+      end
+
+      context 'and it is the next slot key' do
+        before { hotkeys.poll { |key_code| key_code == 119 } }
+
+        it 'is next_slot' do
+          expect(hotkeys.state_action).to eq(:next_slot)
+        end
+      end
+
+      context 'and the load and the save keys were both pressed' do
+        before { hotkeys.poll { |key_code| [118, 116].include?(key_code) } }
+
+        it 'is save_state' do
+          expect(hotkeys.state_action).to eq(:save_state)
+        end
+      end
+    end
+
+    context 'when only an earlier poll pressed a state key' do
+      before do
+        hotkeys.poll { |key_code| key_code == 116 }
+        hotkeys.poll { false }
+      end
+
+      it 'is nil' do
+        expect(hotkeys.state_action).to be_nil
       end
     end
   end

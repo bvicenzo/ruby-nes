@@ -21,6 +21,10 @@ module Ruby
       #   default;
       # - `queue_audio(samples)`: the signed 16-bit audio samples of the frame just run, before it is presented (plan
       #   24); ignored by default;
+      # - `state_action`: the save state action asked for before the next frame (Saves::StateSlots::ACTIONS), or nil;
+      #   nil by default (plan 35);
+      # - `notify(message)`: a short message to show the player ("State 3 saved"); shown nowhere by default;
+      # - `discard_audio`: drops the audio queued and not yet played, after a state is loaded; nothing by default;
       # - `close`: once the run ends, however it ends, releases what the frontend opened (a window, an audio device;
       #   plan 17); nothing by default.
       class Base
@@ -41,6 +45,12 @@ module Ruby
         def reset_requested? = false
 
         def queue_audio(_samples) = nil
+
+        def state_action = nil
+
+        def notify(_message) = nil
+
+        def discard_audio = nil
 
         def close = nil
       end

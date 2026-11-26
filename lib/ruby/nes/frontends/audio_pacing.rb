@@ -38,6 +38,9 @@ module Ruby
         # A chunk of silence, for a frame the paused window does not run (plan 24, decision 7).
         def queue_silence = queue(Array.new(@chunk_size, 0))
 
+        # Drops the samples queued and not yet submitted, after a save state is loaded (plan 35, decision 8).
+        def clear = @pending.clear
+
         def wait
           while whole_chunk?
             return @pending.clear unless room_within_limit?

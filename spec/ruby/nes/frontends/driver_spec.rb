@@ -9,12 +9,14 @@ require 'ruby/nes/frontends/driver'
 # frontend gets the last completed frame again, with no frame run, so it keeps drawing and pacing (plan 18, decision
 # 5). After each frame it runs, the frontend gets the frame's audio samples (Console#audio_samples) before the frame
 # itself, so a frontend paced by its audio has them queued when it waits (plan 24). A frame observer (the battery save's
-# keeper, plan 34) is told after each frame the driver runs.
+# keeper, plan 34) is told after each frame the driver runs. A save state action the frontend asks for goes to the
+# states (Saves::StateSlots, plan 35) with the frontend, before the frame and whether paused or not.
 RSpec.describe Ruby::Nes::Frontends::Driver do
   describe '#run' do
-    subject(:driver) { described_class.new(console:, frontend:, frame_observer:) }
+    subject(:driver) { described_class.new(console:, frontend:, frame_observer:, states:) }
 
     let(:frame_observer) { object_double(Ruby::Nes::Frontends::Driver::NoFrameObserver, frame_ran: nil) }
+    let(:states) { object_double(Ruby::Nes::Frontends::Driver::NoStates, perform: nil) }
 
     let(:first_controller) { instance_double(Ruby::Nes::Input::Controller, :buttons= => nil) }
     let(:second_controller) { instance_double(Ruby::Nes::Input::Controller, :buttons= => nil) }
@@ -50,7 +52,9 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
       context 'but it is paused' do
         context 'and it asks for a reset' do
           let(:frontend) do
-            instance_double(Ruby::Nes::Frontends::Base, paused?: true, present: nil, button_states: [0x00, 0x00])
+            instance_double(
+              Ruby::Nes::Frontends::Base, paused?: true, state_action: nil, present: nil, button_states: [0x00, 0x00]
+            )
           end
 
           before do
@@ -71,6 +75,7 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
               Ruby::Nes::Frontends::Base,
               paused?: true,
               reset_requested?: false,
+              state_action: nil,
               present: nil,
               queue_audio: nil,
               button_states: [0x00, 0x00]
@@ -99,13 +104,42 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
             expect(frame_observer).not_to have_received(:frame_ran)
           end
         end
+
+        context 'and it asks for a save state action' do
+          let(:frontend) do
+            instance_double(
+              Ruby::Nes::Frontends::Base,
+              paused?: true,
+              reset_requested?: false,
+              present: nil,
+              queue_audio: nil,
+              button_states: [0x00, 0x00]
+            )
+          end
+
+          before do
+            allow(frontend).to receive(:running?).and_return(true, true, false)
+            allow(frontend).to receive(:state_action).and_return(:load_state, nil)
+            allow(ppu).to receive(:frame_buffer).and_return(first_frame)
+            driver.run
+          end
+
+          it 'hands the action and the frontend to the states once' do
+            expect(states).to have_received(:perform).with(:load_state, frontend).once
+          end
+        end
       end
 
       context 'and it is not paused' do
         context 'and it asks for a reset' do
           let(:frontend) do
             instance_double(
-              Ruby::Nes::Frontends::Base, paused?: false, present: nil, queue_audio: nil, button_states: [0x00, 0x00]
+              Ruby::Nes::Frontends::Base,
+              paused?: false,
+              state_action: nil,
+              present: nil,
+              queue_audio: nil,
+              button_states: [0x00, 0x00]
             )
           end
 
@@ -127,7 +161,12 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
         context 'and it asks for no reset' do
           let(:frontend) do
             instance_double(
-              Ruby::Nes::Frontends::Base, paused?: false, reset_requested?: false, present: nil, queue_audio: nil
+              Ruby::Nes::Frontends::Base,
+              paused?: false,
+              reset_requested?: false,
+              state_action: nil,
+              present: nil,
+              queue_audio: nil
             )
           end
 
@@ -186,6 +225,33 @@ RSpec.describe Ruby::Nes::Frontends::Driver do
                 [:present, second_frame]
               ]
             )
+          end
+        end
+
+        context 'and it asks for a save state action' do
+          let(:frontend) do
+            instance_double(
+              Ruby::Nes::Frontends::Base,
+              paused?: false,
+              reset_requested?: false,
+              present: nil,
+              queue_audio: nil,
+              button_states: [0x00, 0x00]
+            )
+          end
+
+          before do
+            allow(frontend).to receive(:running?).and_return(true, true, false)
+            allow(frontend).to receive(:state_action).and_return(:save_state, nil)
+            allow(ppu).to receive(:frame_buffer).and_return(first_frame, second_frame)
+          end
+
+          it 'hands it to the states before running the frame' do
+            calls = []
+            allow(states).to receive(:perform) { |action, _frontend| calls << [:perform, action] }
+            allow(console).to receive(:run_frame) { calls << :run_frame }
+            driver.run
+            expect(calls).to eq([[:perform, :save_state], :run_frame, :run_frame])
           end
         end
       end

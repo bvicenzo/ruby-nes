@@ -43,7 +43,12 @@ module Ruby
           pause: ['p'],
           reset: ['r'],
           quit: ['escape'],
-          frame_rate: ['f']
+          frame_rate: ['f'],
+          # The save states' keys, as several emulators lay them out (plan 35, decision 3).
+          save_state: ['f5'],
+          load_state: ['f7'],
+          previous_slot: ['f6'],
+          next_slot: ['f8']
         }.freeze
         # raylib's names for a standard pad's buttons, by position (plan 36, decision 1): on a SNES pad A (right) is
         # A and B (bottom) is B, X (top) repeats A and Y (left) repeats B; the D-pad is the left face.

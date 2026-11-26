@@ -121,4 +121,23 @@ RSpec.describe Ruby::Nes::Frontends::AudioPacing do
       expect(stream).to have_received(:submit).once.with([0, 0])
     end
   end
+
+  # After a save state is loaded, the sound queued is of the moment left behind (plan 35, decision 8).
+  describe '#clear' do
+    subject(:pacing) { described_class.new(stream:, chunk_size: 2, sleeper:) }
+
+    let(:stream) { instance_double(Ruby::Nes::Frontends::RaylibAudioStream, submit: nil) }
+    let(:sleeper) { instance_double(Proc, call: nil) }
+
+    before { allow(stream).to receive(:room?).and_return(false) }
+
+    it 'drops the samples queued, so none is submitted' do
+      pacing.queue([1, 2, 3, 4, 5])
+      pacing.clear
+      allow(stream).to receive(:room?).and_return(true)
+      pacing.wait
+
+      expect(stream).not_to have_received(:submit)
+    end
+  end
 end

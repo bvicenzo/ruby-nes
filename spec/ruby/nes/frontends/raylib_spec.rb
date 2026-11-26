@@ -2,7 +2,7 @@
 
 # A smoke test of the raylib backend (plan 17, decision 4; plan 18; plan 36): little assertion on the library's calls,
 # only that a hidden window opens, hands extra gamepad mappings to raylib, names raylib's keys and gamepad buttons for
-# the config file, takes a frame and audio, and closes. Its decisions are
+# the config file, takes a frame and audio, draws a message and drops its audio (plan 35), and closes. Its decisions are
 # specified in its collaborators. Skipped when the optional `frontends` group is not installed.
 RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/frontends/raylib' do
   describe 'KEY_CODES' do
@@ -107,6 +107,45 @@ RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/front
       samples = Array.new(Ruby::Nes::Frontends::Raylib::SAMPLES_PER_FRAME, 1000)
 
       expect { frontend.queue_audio(samples) }.not_to raise_error
+    end
+  end
+
+  describe '#state_action' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    after { frontend.close }
+
+    context 'when no key is pressed' do
+      it 'is nil' do
+        expect(frontend.state_action).to be_nil
+      end
+    end
+  end
+
+  describe '#notify' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    before { allow(Raylib).to receive(:DrawText).and_call_original }
+
+    after { frontend.close }
+
+    it 'draws the message over the next frame' do
+      frontend.notify('State 3 saved')
+      frontend.present(Array.new(Ruby::Nes::Ppu::Picture::WIDTH * Ruby::Nes::Ppu::Picture::HEIGHT, 0x16))
+
+      expect(Raylib).to have_received(:DrawText).with('State 3 saved', any_args)
+    end
+  end
+
+  describe '#discard_audio' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    after { frontend.close }
+
+    it 'takes the order to drop the samples queued' do
+      frontend.queue_audio(Array.new(Ruby::Nes::Frontends::Raylib::SAMPLES_PER_FRAME * 3, 1000))
+
+      expect { frontend.discard_audio }.not_to raise_error
     end
   end
 end

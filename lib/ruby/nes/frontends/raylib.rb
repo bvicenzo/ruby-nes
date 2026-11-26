@@ -11,6 +11,7 @@ require_relative 'gamepad'
 require_relative 'hotkeys'
 require_relative 'key_bindings'
 require_relative 'key_config'
+require_relative 'notice'
 require_relative 'players'
 require_relative 'raylib_audio_stream'
 require_relative 'raylib_input'
@@ -27,11 +28,12 @@ module Ruby
       # looked up on the GPU (plan 32), into the Frontends::Viewport; the keyboard and the gamepads (plan 36), read
       # through Frontends::RaylibInput, drive the controllers through Frontends::Players, and the keyboard drives the
       # emulator through Frontends::Hotkeys; the frame rate (Frontends::FrameRate) and the JIT are drawn over the frame
-      # while the overlay is shown; after each frame the pacing waits. With audio (plan 24), each frame's samples go through
-      # Frontends::AudioPacing into a raylib audio stream (Frontends::RaylibAudioStream), and the audio paces the
-      # window; while paused it queues silence. Without audio, or when no audio device opens, the timer paces it
-      # (Frontends::FramePacing). A pacing given replaces either, the audio still being fed (the benchmark's tone runs
-      # unpaced). The gem's module is `::Raylib`; this class is `Frontends::Raylib`.
+      # while the overlay is shown, and a message (Frontends::Notice, plan 35) at the bottom left while it lasts; after
+      # each frame the pacing waits. With audio (plan 24), each frame's samples go through Frontends::AudioPacing into a
+      # raylib audio stream (Frontends::RaylibAudioStream), and the audio paces the window; while paused it queues
+      # silence, and after a save state is loaded it drops what it queued. Without audio, or when no audio device opens,
+      # the timer paces it (Frontends::FramePacing). A pacing given replaces either, the audio still being fed (the
+      # benchmark's tone runs unpaced). The gem's module is `::Raylib`; this class is `Frontends::Raylib`.
       class Raylib < Base
         TITLE = 'ruby-nes'
         # Signed 16-bit mono samples at the core's rate, 48 kHz (plan 24, decision 1).
@@ -41,7 +43,8 @@ module Ruby
         # A frame of audio, 800 samples. A raylib audio stream is two sub-buffers of this many samples, refilled only
         # once played. Frontends::AudioDeviceLatency's latency is chosen to fit in one: revisit it if this changes.
         SAMPLES_PER_FRAME = SAMPLE_RATE / FRAMES_PER_SECOND
-        # The overlay's text, at the top left corner of the window, in screen pixels.
+        # The overlay's text, at the top left corner of the window, and the message's, at the bottom left, in screen
+        # pixels.
         OVERLAY_MARGIN = 8
         OVERLAY_FONT_SIZE = 20
         KEY_PREFIX = 'KEY_'
@@ -102,6 +105,8 @@ module Ruby
           @players = players(key_bindings, gamepad_buttons)
           @hotkeys = Hotkeys.new(key_bindings.hotkeys)
           @jit_name = jit_name
+          @notice = Notice.new
+          @notice_top = viewport.height - OVERLAY_MARGIN - OVERLAY_FONT_SIZE
           open_window(viewport, hidden)
           ::Raylib.SetGamepadMappings(gamepad_mappings) if gamepad_mappings
           @picture = RaylibPicture.new
@@ -120,15 +125,28 @@ module Ruby
 
         def button_states = @players.button_states(RaylibInput)
 
+        def state_action = @hotkeys.state_action
+
+        # Shows `message` over the picture for Notice::FRAMES_SHOWN frames.
+        def notify(message)
+          @notice.show(message)
+        end
+
+        def discard_audio
+          @audio_pacing&.clear
+        end
+
         # Draws the frame (and the overlay), reads the hotkeys pressed meanwhile (raylib polls its input events as the
         # drawing ends), counts the frame, queues a frame of silence while paused and waits for the pacing.
         def present(frame_buffer)
           ::Raylib.BeginDrawing
           @picture.draw(frame_buffer, @source, @destination)
           draw_overlay if @hotkeys.frame_rate_shown?
+          draw_notice
           ::Raylib.EndDrawing
           @hotkeys.poll { ::Raylib.IsKeyPressed(it) }
           @frame_rate.tick
+          @notice.tick
           @audio_pacing.queue_silence if @audio_pacing && paused?
           @pacing.wait
         end
@@ -181,6 +199,11 @@ module Ruby
         def draw_overlay
           text = "#{@frame_rate} | #{@jit_name}"
           ::Raylib.DrawText(text, OVERLAY_MARGIN, OVERLAY_MARGIN, OVERLAY_FONT_SIZE, ::Raylib::GREEN)
+        end
+
+        def draw_notice
+          text = @notice.text
+          ::Raylib.DrawText(text, OVERLAY_MARGIN, @notice_top, OVERLAY_FONT_SIZE, ::Raylib::YELLOW) if text
         end
       end
     end

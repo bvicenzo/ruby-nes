@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'digest'
+require_relative 'screenshot'
 
 module Ruby
   module Nes
@@ -52,8 +53,7 @@ module Ruby
         private
 
         def write_screenshot(path, frame_buffer)
-          rgb = Palette.rgb(frame_buffer)
-          File.binwrite(path, Png.encode(width: Ppu::Picture::WIDTH, height: Ppu::Picture::HEIGHT, rgb:))
+          File.binwrite(path, Screenshot.png(frame_buffer))
         end
       end
     end
