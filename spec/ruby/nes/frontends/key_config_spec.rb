@@ -5,8 +5,9 @@ require 'ruby/nes/frontends/key_config'
 # The window's controls as the config file sets them (plan 18, decision 7; plan 36): a `keys:` section mapping each
 # action, a controller button or a hotkey, to keyboard keys; a `gamepad:` section mapping controller buttons only to
 # gamepad buttons (plan 36, decision 3); and `gamepad_mappings:`, text in the SDL GameControllerDB format for pads
-# raylib does not know (plan 36, decision 4). Each section's rules are KeyConfig::Section's; anything else in the file
-# is an error that names what is wrong.
+# raylib does not know (plan 36, decision 4); and `roms_directory:`, the folder the ROM browser lists when the command
+# line names none (plan 37, decision 1). Each section's rules are KeyConfig::Section's; anything else in the file is an
+# error that names what is wrong.
 RSpec.describe Ruby::Nes::Frontends::KeyConfig do
   describe '.parse' do
     context 'when the text cannot be loaded as YAML' do
@@ -18,12 +19,13 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
     end
 
     context 'when the text is empty' do
-      it 'keeps every default key and gamepad button, with no gamepad mappings', :aggregate_failures do
+      it 'keeps every default key and gamepad button, without gamepad mappings or a ROMs folder', :aggregate_failures do
         key_config = described_class.parse('')
 
         expect(key_config.keys).to eq(described_class::DEFAULTS)
         expect(key_config.gamepad_buttons).to eq(described_class::GAMEPAD_DEFAULTS)
         expect(key_config.gamepad_mappings).to be_nil
+        expect(key_config.roms_directory).to be_nil
       end
     end
 
@@ -62,6 +64,14 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
           end
         end
 
+        context 'but its ROMs folder is not text' do
+          let(:text) { "roms_directory: [roms]\n" }
+
+          it 'raises InvalidConfig' do
+            expect { described_class.parse(text) }.to raise_error(described_class::InvalidConfig, /roms_directory:/)
+          end
+        end
+
         context 'and its sections are valid' do
           context 'and it has a keys section' do
             let(:text) { "keys:\n  pause: space\n" }
@@ -86,6 +96,14 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
 
             it 'keeps their text' do
               expect(described_class.parse(text).gamepad_mappings).to eq(mappings)
+            end
+          end
+
+          context 'and it has a ROMs folder' do
+            let(:text) { "roms_directory: ~/games/nes\n" }
+
+            it 'keeps its path as written' do
+              expect(described_class.parse(text).roms_directory).to eq('~/games/nes')
             end
           end
         end

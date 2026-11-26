@@ -16,13 +16,15 @@ module Ruby
       #   gamepad:
       #     a: right_face_right
       #   gamepad_mappings: "03000000790000001100000010010000,USB Gamepad,a:b2,b:b1,...,platform:Linux,"
+      #   roms_directory: ~/games/nes
       #
       # `keys:` binds each action, a controller button (Input::Controller::BUTTONS) or a hotkey (Hotkeys::ACTIONS), to
       # keyboard keys; `gamepad:` binds the controller buttons only to gamepad buttons, hotkeys on the pad being plan
       # 38's (plan 36, decision 3). Both follow KeyConfig::Section's rules, from DEFAULTS and GAMEPAD_DEFAULTS. Names
       # are the graphics library's: Frontends::KeyBindings turns them into codes. `gamepad_mappings:` is text in the SDL
-      # GameControllerDB format, one pad per line, for pads the library does not know (plan 36, decision 4). Off the
-      # hot path: read once.
+      # GameControllerDB format, one pad per line, for pads the library does not know (plan 36, decision 4).
+      # `roms_directory:` is the folder the ROM browser lists when the command line names none, kept as written (plan
+      # 37, decision 1). Off the hot path: read once.
       class KeyConfig
         # The file cannot be used: the message says why.
         class InvalidConfig < Error; end
@@ -30,7 +32,8 @@ module Ruby
         KEYS = 'keys'
         GAMEPAD = 'gamepad'
         GAMEPAD_MAPPINGS = 'gamepad_mappings'
-        SECTIONS = [KEYS, GAMEPAD, GAMEPAD_MAPPINGS].freeze
+        ROMS_DIRECTORY = 'roms_directory'
+        SECTIONS = [KEYS, GAMEPAD, GAMEPAD_MAPPINGS, ROMS_DIRECTORY].freeze
         DEFAULTS = {
           a: ['x'],
           b: ['z'],
@@ -69,6 +72,8 @@ module Ruby
         attr_reader :keys, :gamepad_buttons
         # The extra gamepad mappings' text, or nil.
         attr_reader :gamepad_mappings
+        # The ROM browser's folder as the file writes it, or nil.
+        attr_reader :roms_directory
 
         # The config in a YAML text; raises InvalidConfig when it is not one.
         def self.parse(text)
@@ -76,7 +81,8 @@ module Ruby
           new(
             keys: KEY_SECTION.bindings(document[KEYS]),
             gamepad_buttons: GAMEPAD_SECTION.bindings(document[GAMEPAD]),
-            gamepad_mappings: mappings(document[GAMEPAD_MAPPINGS])
+            gamepad_mappings: text(document, GAMEPAD_MAPPINGS, 'the text of SDL GameControllerDB lines'),
+            roms_directory: text(document, ROMS_DIRECTORY, 'the path of a folder')
           )
         end
 
@@ -95,18 +101,21 @@ module Ruby
           document
         end
 
-        def self.mappings(text)
-          return text if text.nil? || text.is_a?(String)
+        # A section that holds text, or nil when the file leaves it out; `takes` says what the text is.
+        def self.text(document, section, takes)
+          value = document[section]
+          return value if value.nil? || value.is_a?(String)
 
-          raise InvalidConfig, "#{GAMEPAD_MAPPINGS}: takes the text of SDL GameControllerDB lines, not #{text.inspect}"
+          raise InvalidConfig, "#{section}: takes #{takes}, not #{value.inspect}"
         end
 
-        private_class_method :load_yaml, :sections, :mappings
+        private_class_method :load_yaml, :sections, :text
 
-        def initialize(keys:, gamepad_buttons:, gamepad_mappings:)
+        def initialize(keys:, gamepad_buttons:, gamepad_mappings:, roms_directory:)
           @keys = keys.freeze
           @gamepad_buttons = gamepad_buttons.freeze
           @gamepad_mappings = gamepad_mappings
+          @roms_directory = roms_directory
         end
 
         # The actions left without a key. Actions without a gamepad button are not named: a person without a pad
