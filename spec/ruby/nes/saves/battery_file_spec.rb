@@ -6,8 +6,7 @@ require 'ruby/nes/command_line'
 
 # A battery save on disk (plan 34): the raw 8 KiB of the cartridge's battery-backed PRG RAM, as other emulators keep
 # it. A missing file is no save yet; a file of another size is refused, never loaded or overwritten (decision 5).
-# Writes are atomic (decision 7): the bytes go to a temporary file of its own beside the save, which is renamed over it,
-# so two windows of the same game never write into each other's.
+# Writes are atomic (decision 7), through Saves::AtomicFile.
 RSpec.describe Ruby::Nes::Saves::BatteryFile do
   describe '#read' do
     subject(:file) { described_class.new(path) }
@@ -58,67 +57,33 @@ RSpec.describe Ruby::Nes::Saves::BatteryFile do
     end
   end
 
+  # The write itself is Saves::AtomicFile's: a temporary file of its own, renamed over the save.
   describe '#write' do
     subject(:file) { described_class.new(path) }
 
     let(:directory) { Dir.mktmpdir }
-    let(:save) { [0x11, *Array.new(8_190, 0x00), 0x22] }
+    let(:path) { File.join(directory, 'Zelda.sav') }
 
     after { FileUtils.remove_entry(directory) }
 
-    context 'when the folder does not exist' do
-      let(:path) { File.join(directory, 'ruby-nes', 'saves', 'Zelda.sav') }
+    context 'when the bytes cannot be written as bytes' do
+      let(:older_save) { "\x33" * 8_192 }
 
-      it 'creates it and writes the bytes' do
-        file.write(save)
+      before { File.binwrite(path, older_save) }
 
-        expect(File.binread(path).bytes).to eq(save)
+      it 'raises, keeping the older save whole', :aggregate_failures do
+        expect { file.write([0x11, nil]) }.to raise_error(TypeError)
+        expect(File.binread(path)).to eq(older_save)
       end
     end
 
-    context 'when the folder exists' do
-      let(:path) { File.join(directory, 'Zelda.sav') }
+    context 'when they can' do
+      let(:save) { [0x11, *Array.new(8_190, 0x00), 0x22] }
 
-      context 'but the bytes cannot be written' do
-        let(:older_save) { "\x33" * 8_192 }
+      it 'writes them over the save, $6000 first' do
+        file.write(save)
 
-        before { File.binwrite(path, older_save) }
-
-        it 'raises, keeping the older save whole and no temporary file', :aggregate_failures do
-          expect { file.write([0x11, nil]) }.to raise_error(TypeError)
-          expect(File.binread(path)).to eq(older_save)
-          expect(Dir.children(directory)).to eq(['Zelda.sav'])
-        end
-      end
-
-      context 'and another write\'s temporary file is beside the save' do
-        before { File.binwrite("#{path}.tmp", 'half of another window\'s save') }
-
-        it 'writes the save, leaving that file alone', :aggregate_failures do
-          file.write(save)
-
-          expect(File.binread(path).bytes).to eq(save)
-          expect(File.binread("#{path}.tmp")).to eq('half of another window\'s save')
-        end
-      end
-
-      context 'and no save is there yet' do
-        it 'writes the bytes, leaving no temporary file', :aggregate_failures do
-          file.write(save)
-
-          expect(File.binread(path).bytes).to eq(save)
-          expect(Dir.children(directory)).to eq(['Zelda.sav'])
-        end
-      end
-
-      context 'and an older save is there' do
-        before { File.binwrite(path, "\x33" * 8_192) }
-
-        it 'replaces it with the bytes' do
-          file.write(save)
-
-          expect(File.binread(path).bytes).to eq(save)
-        end
+        expect(File.binread(path).bytes).to eq(save)
       end
     end
   end

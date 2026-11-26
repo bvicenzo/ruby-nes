@@ -81,4 +81,33 @@ RSpec.describe Ruby::Nes::Saves::Directory do
       end
     end
   end
+
+  # Each game's save states live in a folder named after the ROM file, as its battery save is (plan 35, decision 7).
+  describe '#states_folder' do
+    subject(:directory) { described_class.new(environment: { 'XDG_DATA_HOME' => '/data' }, home: -> { '' }) }
+
+    context 'when the ROM is a .nes file in a folder' do
+      it 'is the ROM name in the states folder of the root' do
+        expect(directory.states_folder('roms/Zelda.nes')).to eq('/data/ruby-nes/states/Zelda')
+      end
+    end
+
+    context 'when the ROM name has dots of its own' do
+      it 'leaves out only the extension' do
+        expect(directory.states_folder('Mario Bros. 3.nes')).to eq('/data/ruby-nes/states/Mario Bros. 3')
+      end
+    end
+
+    context 'when the extension is upper case' do
+      it 'leaves it out' do
+        expect(directory.states_folder('ZELDA.NES')).to eq('/data/ruby-nes/states/ZELDA')
+      end
+    end
+
+    context 'when the ROM file has no extension' do
+      it 'is the whole name' do
+        expect(directory.states_folder('zelda')).to eq('/data/ruby-nes/states/zelda')
+      end
+    end
+  end
 end

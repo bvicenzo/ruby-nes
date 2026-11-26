@@ -9,12 +9,14 @@ module Ruby
       # "invalid" and ignored. The home directory is Ruby's (`Dir.home`: HOME, else the user's account), as the key
       # config's `~` is, and must be an absolute path. Both are read when a path is asked, so a run that saves nothing
       # never needs them. A battery save is named after the ROM's file name, its extension replaced with `.sav` (plan
-      # 34, decision 2), as other emulators name theirs.
+      # 34, decision 2), as other emulators name theirs; a game's save states live in a folder named after it too (plan
+      # 35, decision 7).
       class Directory
         APPLICATION = 'ruby-nes'
         DEFAULT_DATA_HOME = ['.local', 'share'].freeze
         BATTERY_SAVES = 'saves'
         BATTERY_SAVE_EXTENSION = '.sav'
+        STATES = 'states'
 
         # `home` answers the home directory when called.
         def initialize(environment: ENV, home: -> { Dir.home })
@@ -28,10 +30,16 @@ module Ruby
 
         # The battery save of the ROM at `rom_path`.
         def battery_save_path(rom_path)
-          File.join(root, BATTERY_SAVES, File.basename(rom_path, '.*') + BATTERY_SAVE_EXTENSION)
+          File.join(root, BATTERY_SAVES, game_name(rom_path) + BATTERY_SAVE_EXTENSION)
         end
 
+        # The folder of the save states of the ROM at `rom_path`.
+        def states_folder(rom_path) = File.join(root, STATES, game_name(rom_path))
+
         private
+
+        # The ROM's file name without its extension.
+        def game_name(rom_path) = File.basename(rom_path, '.*')
 
         def data_home
           data_home = @environment['XDG_DATA_HOME'].to_s
