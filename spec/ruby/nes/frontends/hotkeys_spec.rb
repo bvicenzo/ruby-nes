@@ -5,7 +5,8 @@ require 'ruby/nes/frontends/hotkeys'
 # The keys that drive the emulator rather than the controller (plan 18, decision 6): quit, pause, reset and the frame
 # rate overlay, and the save states' (plan 35, decision 3). A windowed frontend tells it once per frame which bound keys
 # were pressed during that frame; pause and the overlay toggle on each frame their key is pressed, reset and a state
-# action are asked for during that frame only, quit stays asked.
+# action are asked for during that frame only, quit stays asked. The ROM browser starts them over between screens
+# (plan 37, decision 7), keeping the overlay as the player left it.
 # Key codes here are arbitrary integers, as each graphics library numbers its keys its own way.
 RSpec.describe Ruby::Nes::Frontends::Hotkeys do
   describe '.new' do
@@ -221,6 +222,22 @@ RSpec.describe Ruby::Nes::Frontends::Hotkeys do
       it 'is nil' do
         expect(hotkeys.state_action).to be_nil
       end
+    end
+  end
+
+  describe '#restart' do
+    subject(:hotkeys) do
+      described_class.new({ 256 => :quit, 80 => :pause, 82 => :reset, 70 => :frame_rate, 116 => :save_state })
+    end
+
+    before { hotkeys.poll { true } }
+
+    it 'starts over, not quitting, not paused and asking nothing, the overlay as it was', :aggregate_failures do
+      hotkeys.restart
+
+      expect(hotkeys).to have_attributes(
+        quit?: false, paused?: false, reset_requested?: false, state_action: nil, frame_rate_shown?: false
+      )
     end
   end
 end

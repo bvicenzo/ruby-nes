@@ -19,10 +19,16 @@ module Ruby
           raise ArgumentError, "not hotkey actions: #{unknown_names.join(', ')}" if unknown_names.any?
 
           @bindings = bindings
+          @frame_rate_shown = true
+          restart
+        end
+
+        # Starts over, as for another screen of the ROM browser (plan 37, decision 7): not quitting, not paused, nothing
+        # asked. The overlay stays as the player left it.
+        def restart
           @quit = false
           @paused = false
           @reset_requested = false
-          @frame_rate_shown = true
           @state_action = nil
         end
 

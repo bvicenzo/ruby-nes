@@ -148,4 +148,38 @@ RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/front
       expect { frontend.discard_audio }.not_to raise_error
     end
   end
+
+  describe '#closed?' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    after { frontend.close }
+
+    context 'when the window is open' do
+      it 'is false' do
+        expect(frontend).not_to be_closed
+      end
+    end
+  end
+
+  describe '#next_screen' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    after { frontend.close }
+
+    it 'takes the order to start over' do
+      frontend.queue_audio(Array.new(Ruby::Nes::Frontends::Raylib::SAMPLES_PER_FRAME * 3, 1000))
+
+      expect { frontend.next_screen }.not_to raise_error
+    end
+  end
+
+  describe '#queue_silence' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    after { frontend.close }
+
+    it 'takes the order to queue a frame of silence' do
+      expect { frontend.queue_silence }.not_to raise_error
+    end
+  end
 end

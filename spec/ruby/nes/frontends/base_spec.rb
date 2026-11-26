@@ -5,7 +5,9 @@ require 'ruby/nes/frontends/base'
 # The contract every frontend honours (plan 16): a frontend presents each frame, gives the buttons held on both
 # controllers, says whether the emulation goes on, whether it is paused and whether the console is to be reset
 # (plan 18), takes audio samples (ignored until plan 24), and releases what it opened when the run ends (plan 17). It
-# may ask for a save state action, show a message and drop the audio it queued (plan 35); by default it does none.
+# may ask for a save state action, show a message and drop the audio it queued (plan 35); by default it does none. A
+# window that outlives a game (plan 37) says whether the player closed it, starts over between screens and queues a
+# frame of silence for a screen that makes no sound; by default it is never closed and does neither.
 RSpec.describe Ruby::Nes::Frontends::Base do
   describe '#present' do
     subject(:frontend) { described_class.new }
@@ -84,6 +86,30 @@ RSpec.describe Ruby::Nes::Frontends::Base do
 
     it 'has nothing to release' do
       expect(frontend.close).to be_nil
+    end
+  end
+
+  describe '#closed?' do
+    subject(:frontend) { described_class.new }
+
+    it 'is false' do
+      expect(frontend).not_to be_closed
+    end
+  end
+
+  describe '#next_screen' do
+    subject(:frontend) { described_class.new }
+
+    it 'has nothing to start over' do
+      expect(frontend.next_screen).to be_nil
+    end
+  end
+
+  describe '#queue_silence' do
+    subject(:frontend) { described_class.new }
+
+    it 'has nothing to play' do
+      expect(frontend.queue_silence).to be_nil
     end
   end
 end

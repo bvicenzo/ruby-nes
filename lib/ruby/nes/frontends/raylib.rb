@@ -117,7 +117,7 @@ module Ruby
           @frame_rate = FrameRate.new
         end
 
-        def running? = !::Raylib.WindowShouldClose && !@hotkeys.quit?
+        def running? = !closed? && !@hotkeys.quit?
 
         def paused? = @hotkeys.paused?
 
@@ -136,6 +136,16 @@ module Ruby
           @audio_pacing&.clear
         end
 
+        # Whether the player closed the window (its close button), which ends the ROM browser too (plan 37).
+        def closed? = ::Raylib.WindowShouldClose
+
+        # Starts over for the ROM browser's next screen (plan 37, decision 7): the hotkeys, not paused nor quitting, and
+        # the audio queued dropped.
+        def next_screen
+          @hotkeys.restart
+          discard_audio
+        end
+
         # Draws the frame (and the overlay), reads the hotkeys pressed meanwhile (raylib polls its input events as the
         # drawing ends), counts the frame, queues a frame of silence while paused and waits for the pacing.
         def present(frame_buffer)
@@ -149,6 +159,11 @@ module Ruby
           @notice.tick
           @audio_pacing.queue_silence if @audio_pacing && paused?
           @pacing.wait
+        end
+
+        # Queues a frame of silence for the audio pacing, for the ROM browser's list (plan 37); ignored without audio.
+        def queue_silence
+          @audio_pacing&.queue_silence
         end
 
         # Queues the frame's samples for the audio pacing to submit; ignored without audio.

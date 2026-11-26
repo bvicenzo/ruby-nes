@@ -25,6 +25,11 @@ module Ruby
       #   nil by default (plan 35);
       # - `notify(message)`: a short message to show the player ("State 3 saved"); shown nowhere by default;
       # - `discard_audio`: drops the audio queued and not yet played, after a state is loaded; nothing by default;
+      # - `closed?`: whether the player closed the window, which ends the ROM browser too (plan 37); false by default;
+      # - `next_screen`: the ROM browser goes from its list to a game or back (plan 37, decision 7): the frontend starts
+      #   over, not paused nor quitting, its queued audio dropped; nothing by default;
+      # - `queue_silence`: a frame of silence for a screen with no sound, the ROM browser's list, so audio keeps pacing
+      #   it (plan 37, decision 7); nothing by default;
       # - `close`: once the run ends, however it ends, releases what the frontend opened (a window, an audio device;
       #   plan 17); nothing by default.
       class Base
@@ -51,6 +56,12 @@ module Ruby
         def notify(_message) = nil
 
         def discard_audio = nil
+
+        def closed? = false
+
+        def next_screen = nil
+
+        def queue_silence = nil
 
         def close = nil
       end
