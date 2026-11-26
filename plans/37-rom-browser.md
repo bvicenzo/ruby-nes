@@ -52,9 +52,20 @@ Out: artwork downloaded from the internet (backlog); folders inside folders; zip
    - (b) The game in focus runs live in the preview, in its attract mode. This is a whole emulation running inside the
      menu.
    - (c) Box art or title screens from libretro-thumbnails, downloaded and matched by hash. Needs the internet, and
-     downloads copyrighted artwork.
+     downloads copyrighted artwork. Front-ends bundled with many games (EmulationStation/ES-DE, LaunchBox) also show
+     short video clips ("video snaps"), scraped from databases such as ScreenScraper or shipped in media packs: the
+     same internet and copyright concerns.
+   - (d) A still picture first, then the attract mode live, started from a cached save state. The emulator is
+     deterministic: a game left alone from power-up always plays the same, so the "video" is the ROM itself, and a
+     save state (plan 35, 10-18 KB, loaded in about 4 ms) replaces the wait until the demo starts. The first time a
+     game shows up in the list, it runs headless, sliced into the menu's frames, until a few seconds past its title
+     screen; that state and its frame's picture are cached by the ROM's SHA-256. Then the picture shows as soon as the
+     cursor reaches the game, and once the cursor rests on it the state is loaded and the demo runs live (a console
+     takes about 11 ms a frame under YJIT, within a 16.7 ms frame). To be measured with the local ROMs: how long each
+     game takes to reach its demo (some have none, and show their title screen), and the cost of building a console
+     at each change of focus. The preview never writes the game's battery save, and its sound is off or low.
 
-   Recommendation: (a).
+   Recommendation: (d), a middle ground between (a) and (b) that the user liked.
 3. **Look.** (a) 8-bit, drawn by us: the logo's pixel font (extended to the letters, digits and punctuation needed),
    colours of the NES palette, pixel frames and cursor. (b) raygui's widgets (lists, buttons), quicker, with a tool's
    look. Recommendation: (a), it matches the project.
