@@ -4,7 +4,8 @@ require 'ruby/nes/command_line'
 
 # The command line's arguments (plan 16, decision 7; plan 18): `ruby-nes ROM [--jit=none|yjit|zjit]`, then the window's
 # `[--scale N] [--aspect square|8:7] [--crop-overscan] [--config PATH]` or the headless run's `--headless [--frames N]
-# [--screenshot FRAME:PATH] [--input SCRIPT]`. Frames count from 1 and numbers are decimal; 60 frames, one second of
+# [--screenshot FRAME:PATH] [--input SCRIPT]`. The window takes a folder of ROMs instead, or no path at all, for the ROM
+# browser (plan 37); the headless run needs a ROM. Frames count from 1 and numbers are decimal; 60 frames, one second of
 # emulation, when --frames is not given; YJIT, a 3× window of square pixels showing the whole frame and the default
 # config with sound otherwise. --help and --version ask only for information, so they need no ROM. A run makes audio
 # (at Audio::SAMPLE_RATE, plan 24) when its frontend plays or keeps it: the window unless --no-audio, the headless run
@@ -15,7 +16,8 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
       let(:arguments) { %w[--help] }
 
       it 'asks to print the usage and the options' do
-        expect(described_class.parse(arguments).information).to include('Usage: ruby-nes ROM', '--screenshot')
+        expect(described_class.parse(arguments).information)
+          .to include('Usage: ruby-nes ROM', 'ruby-nes [FOLDER]', '--screenshot')
       end
     end
 
@@ -28,15 +30,25 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
     end
 
     context 'when neither --help nor --version is given' do
-      context 'and no ROM is given' do
-        let(:arguments) { %w[--headless] }
+      context 'and no path is given' do
+        context 'and the run is headless' do
+          let(:arguments) { %w[--headless] }
 
-        it 'raises a parse error naming the ROM' do
-          expect { described_class.parse(arguments) }.to raise_error(OptionParser::ParseError, /ROM/)
+          it 'raises a parse error naming the ROM' do
+            expect { described_class.parse(arguments) }.to raise_error(OptionParser::ParseError, /ROM/)
+          end
+        end
+
+        context 'and the run is in the window' do
+          let(:arguments) { %w[--scale 2] }
+
+          it 'holds no path, for the ROM browser' do
+            expect(described_class.parse(arguments)).to have_attributes(path: nil, scale: 2)
+          end
         end
       end
 
-      context 'and a ROM is given' do
+      context 'and a path is given' do
         context 'but more than one' do
           let(:arguments) { %w[game.nes other.nes] }
 
@@ -116,7 +128,7 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
 
               it 'holds the defaults' do
                 expect(described_class.parse(arguments)).to have_attributes(
-                  rom_path: 'game.nes',
+                  path: 'game.nes',
                   jit: 'yjit',
                   headless: false,
                   scale: 3,
@@ -141,7 +153,7 @@ RSpec.describe Ruby::Nes::CommandLine::Options do
 
               it 'holds each of them' do
                 expect(described_class.parse(arguments)).to have_attributes(
-                  rom_path: 'game.nes',
+                  path: 'game.nes',
                   jit: 'zjit',
                   headless: true,
                   scale: 2,

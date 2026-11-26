@@ -7,14 +7,15 @@ require 'tmpdir'
 require 'ruby/nes/command_line'
 
 # `ruby-nes ROM` (plan 16, decision 7; plan 18): enables the JIT asked, prints it, loads the ROM and runs it in the
-# window, or with --headless in the headless frontend, which prints the frame count and the last frame's digest. The
+# window, or with --headless in the headless frontend, which prints the frame count and the last frame's digest.
+# `ruby-nes` with no path, or with a folder, browses the ROMs in the window instead (plan 37). The
 # exit status is 0 when the run completes, 1 with a message on the error output otherwise. The JIT and the window are
 # injected, so no spec enables a JIT in its own process or opens a window: here stand-ins for both.
 RSpec.describe Ruby::Nes::CommandLine do
   describe '#run' do
     let(:output) { StringIO.new }
     let(:error_output) { StringIO.new }
-    let(:window) { instance_double(Ruby::Nes::CommandLine::Window, run: nil) }
+    let(:window) { instance_double(Ruby::Nes::CommandLine::Window, run: nil, browse: nil) }
 
     context 'when the options are invalid' do
       subject(:command_line) { described_class.new(%w[--headless], output:, error_output:, jit:, window:) }
@@ -61,6 +62,56 @@ RSpec.describe Ruby::Nes::CommandLine do
         let(:directory) { Dir.mktmpdir }
 
         after { FileUtils.remove_entry(directory) }
+
+        context 'and no path is given' do
+          context 'but the browser cannot run' do
+            subject(:command_line) { described_class.new([], output:, error_output:, jit:, window:) }
+
+            before { allow(window).to receive(:browse).and_raise(Errno::ENOENT, 'roms') }
+
+            it 'prints the reason and fails', :aggregate_failures do
+              expect(command_line.run).to eq(1)
+              expect(error_output.string).to include('roms')
+            end
+          end
+
+          context 'and the browser ends' do
+            subject(:command_line) { described_class.new(%w[--scale 2], output:, error_output:, jit:, window:) }
+
+            it 'browses the ROMs in the window, prints the JIT and succeeds', :aggregate_failures do
+              expect(command_line.run).to eq(0)
+              expect(window).to have_received(:browse).with(an_object_having_attributes(scale: 2), jit_name: 'yjit')
+              expect(output.string).to eq("JIT: yjit\n")
+            end
+          end
+        end
+
+        context 'and a folder is given' do
+          context 'but the browser cannot run' do
+            subject(:command_line) { described_class.new([directory], output:, error_output:, jit:, window:) }
+
+            before do
+              allow(window).to receive(:browse)
+                .and_raise(Ruby::Nes::Frontends::KeyConfig::InvalidConfig, 'not actions: turbo')
+            end
+
+            it 'prints the reason and fails', :aggregate_failures do
+              expect(command_line.run).to eq(1)
+              expect(error_output.string).to include('not actions: turbo')
+            end
+          end
+
+          context 'and the browser ends' do
+            subject(:command_line) { described_class.new([directory], output:, error_output:, jit:, window:) }
+
+            it 'browses its ROMs in the window, prints the JIT and succeeds', :aggregate_failures do
+              expect(command_line.run).to eq(0)
+              expect(window).to have_received(:browse)
+                .with(an_object_having_attributes(path: directory), jit_name: 'yjit')
+              expect(output.string).to eq("JIT: yjit\n")
+            end
+          end
+        end
 
         context 'but the ROM cannot be loaded' do
           subject(:command_line) do

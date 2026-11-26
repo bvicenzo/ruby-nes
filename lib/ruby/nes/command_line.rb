@@ -11,14 +11,16 @@ require_relative 'frontends/wav'
 require_relative 'frontends/headless'
 require_relative 'frontends/key_config'
 require_relative 'frontends/viewport'
+require_relative 'frontends/browser'
 require_relative 'saves'
 
 module Ruby
   module Nes
     # `ruby-nes`, the command line (plan 16; plan 18): enables the JIT asked and prints it, loads a ROM and runs it in
     # the window (CommandLine::Window) or, with --headless, in the headless frontend, which prints the frame count and
-    # the last frame's digest, so two runs can be compared, and writes the WAV file asked (plan 24). The console makes
-    # audio only when the run plays or keeps it (Options#audio_sample_rate). Off the hot path.
+    # the last frame's digest, so two runs can be compared, and writes the WAV file asked (plan 24). With no path, or a
+    # folder, the window browses the ROMs instead (plan 37). The console makes audio only when the run plays or keeps
+    # it (Options#audio_sample_rate). Off the hot path.
     class CommandLine
       SUCCESS = 0
       FAILURE = 1
@@ -39,9 +41,7 @@ module Ruby
 
         @jit.enable(options.jit)
         @output.puts("JIT: #{@jit.running}")
-        cartridge = Cartridge::Loader.from_file(options.rom_path)
-        console = Console.new(cartridge, audio_sample_rate: options.audio_sample_rate)
-        options.headless ? run_headless(console, options) : @window.run(console, options, jit_name: @jit.running)
+        browse?(options) ? @window.browse(options, jit_name: @jit.running) : play(options)
         SUCCESS
       rescue OptionParser::ParseError => error
         fail_with("#{error.message}\n#{Options::USAGE}")
@@ -50,6 +50,19 @@ module Ruby
       end
 
       private
+
+      # The window browses the ROMs when no path is given, or a folder (plan 37); the headless run has no browser.
+      def browse?(options)
+        return true if options.path.nil?
+
+        !options.headless && File.directory?(options.path)
+      end
+
+      def play(options)
+        cartridge = Cartridge::Loader.from_file(options.path)
+        console = Console.new(cartridge, audio_sample_rate: options.audio_sample_rate)
+        options.headless ? run_headless(console, options) : @window.run(console, options, jit_name: @jit.running)
+      end
 
       # The WAV file is written however the run ends.
       def run_headless(console, options)
@@ -84,4 +97,6 @@ require_relative 'command_line/options'
 require_relative 'command_line/jit'
 require_relative 'command_line/config_file'
 require_relative 'command_line/raylib_window'
+require_relative 'command_line/game'
+require_relative 'command_line/browser'
 require_relative 'command_line/window'

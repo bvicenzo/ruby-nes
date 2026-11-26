@@ -3,15 +3,21 @@
 module Ruby
   module Nes
     class CommandLine
-      # `ruby-nes ROM` without --headless (plan 18): reads and checks the key config before any window opens, names the
-      # actions it leaves without a key on the error output, opens the window through `open_window`
-      # (CommandLine::RaylibWindow by default), runs the console in it through Frontends::Driver until it stops, and
-      # closes it however the run ends. The game's battery save (plan 34) is loaded from `saves_directory` before the
-      # window opens, kept in step every few seconds by a Saves::BatteryKeeper the driver tells each frame, and written
-      # when the run ends, however it ends, before the window closes. The game's save states (plan 35) are kept by a
-      # Saves::StateSlots in the same directory, which the driver hands each state action the frontend asks for, the
-      # frame on screen drawn as its picture by Frontends::Screenshot. Off the hot path.
+      # The window of `ruby-nes` without --headless (plan 18): reads and checks the key config before any window opens,
+      # names the actions it leaves without a key on the error output, opens the window through `open_window`
+      # (CommandLine::RaylibWindow by default) and closes it however its run ends.
+      #
+      # - `run`, for `ruby-nes ROM`, plays one game in it (CommandLine::Game): the game's battery save (plan 34) is
+      #   loaded from `saves_directory` before the window opens, so a refused save opens no window, and written when the
+      #   game is closed, before the window closes.
+      # - `browse`, for `ruby-nes [FOLDER]`, opens the ROM browser in it (plan 37, CommandLine::Browser) on the ROMs of
+      #   the folder the command line names, else the config's `roms_directory:`, else ROMS_FOLDER under the current
+      #   directory (decision 1), listed (Frontends::Browser::RomList) before the window opens.
+      #
+      # Off the hot path.
       class Window
+        ROMS_FOLDER = 'roms'
+
         # `open_window` takes `keys:`, `gamepad_buttons:` and `gamepad_mappings:` (Frontends::KeyConfig), `viewport:`,
         # `jit_name:` and `audio:` (false with --no-audio) and returns the frontend.
         def initialize(
@@ -29,20 +35,51 @@ module Ruby
         # Runs the console in the window; raises KeyConfig::InvalidConfig, Saves::InvalidSave, Error or SystemCallError
         # when it cannot.
         def run(console, options, jit_name:)
-          config_text = ConfigFile.text(options.config_path, default_path: @default_config_path)
-          key_config = Frontends::KeyConfig.parse(config_text)
-          warn_unbound(key_config.unbound_actions)
-          battery_keeper = Saves::BatteryKeeper
-            .for(console:, directory: @saves_directory, rom_path: options.rom_path, error_output: @error_output)
-            .tap(&:load)
-          states = state_slots(console, options)
+          key_config = read_key_config(options)
+          game = Game.new(console:, rom_path: options.path, directory: @saves_directory, error_output: @error_output)
+          game.load
           frontend = open_frontend(key_config, options, jit_name)
-          Frontends::Driver.new(console:, frontend:, frame_observer: battery_keeper, states:).run
+          game.play(frontend)
         ensure
-          close(battery_keeper, frontend)
+          close(game, frontend)
+        end
+
+        # Browses the ROMs of the folder in the window; raises KeyConfig::InvalidConfig, Error or SystemCallError when
+        # it cannot.
+        def browse(options, jit_name:)
+          key_config = read_key_config(options)
+          folder = roms_folder(options.path || key_config.roms_directory || ROMS_FOLDER)
+          roms = Frontends::Browser::RomList.scan(folder, directory: @saves_directory)
+          frontend = open_frontend(key_config, options, jit_name)
+          browser(frontend, folder, roms, options).run
+        ensure
+          frontend&.close
         end
 
         private
+
+        def read_key_config(options)
+          config_text = ConfigFile.text(options.config_path, default_path: @default_config_path)
+          Frontends::KeyConfig.parse(config_text).tap { warn_unbound(it.unbound_actions) }
+        end
+
+        # The folder at `path`, its `~` expanded; raises KeyConfig::InvalidConfig when it names a user with no home.
+        def roms_folder(path)
+          File.expand_path(path)
+        rescue ArgumentError => error
+          raise Frontends::KeyConfig::InvalidConfig, "#{Frontends::KeyConfig::ROMS_DIRECTORY}: #{error.message}"
+        end
+
+        def browser(frontend, folder, roms, options)
+          Browser.new(
+            frontend:,
+            folder:,
+            roms:,
+            directory: @saves_directory,
+            audio_sample_rate: options.audio_sample_rate,
+            error_output: @error_output
+          )
+        end
 
         def open_frontend(key_config, options, jit_name)
           @open_window.call(
@@ -55,22 +92,11 @@ module Ruby
           )
         end
 
-        # The save is written before the window closes, and the window closes even when the save cannot be written. The
-        # keeper is there only once its save loaded, so a refused save is never written over.
-        def close(battery_keeper, frontend)
-          battery_keeper&.close
+        # The save is written before the window closes, and the window closes even when the save cannot be written.
+        def close(game, frontend)
+          game&.close
         ensure
           frontend&.close
-        end
-
-        def state_slots(console, options)
-          Saves::StateSlots.for(
-            console:,
-            directory: @saves_directory,
-            rom_path: options.rom_path,
-            picture: Frontends::Screenshot,
-            error_output: @error_output
-          )
         end
 
         def warn_unbound(actions)

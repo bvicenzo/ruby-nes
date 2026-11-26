@@ -5,15 +5,16 @@ require 'optparse'
 module Ruby
   module Nes
     class CommandLine
-      # The arguments of `ruby-nes` (plan 16, decision 7; plan 18): one ROM, then options. The JIT applies to every run
-      # (YJIT by default, plan 18, decision 1); the window takes its scale, its pixel aspect (1, or 8/7) and whether to
-      # crop the overscan (plan 18, decision 4), and a config file path (nil for the default one); the headless run
-      # takes its frames, screenshots, input script and WAV file. The window plays sound unless --no-audio (plan 24).
-      # Each frontend ignores the other's options (plan 18, decision 9). Frames count from 1, as the headless frontend
-      # counts them, and numbers are decimal; without --frames it runs 60, one second of emulation. --help and --version
-      # only ask for `information` to print, so they need no ROM.
+      # The arguments of `ruby-nes` (plan 16, decision 7; plan 18): a path, then options. The path is a ROM, or for the
+      # window a folder of ROMs or nothing, for the ROM browser (plan 37); the headless run needs a ROM. The JIT applies
+      # to every run (YJIT by default, plan 18, decision 1); the window takes its scale, its pixel aspect (1, or 8/7)
+      # and whether to crop the overscan (plan 18, decision 4), and a config file path (nil for the default one); the
+      # headless run takes its frames, screenshots, input script and WAV file. The window plays sound unless --no-audio
+      # (plan 24). Each frontend ignores the other's options (plan 18, decision 9). Frames count from 1, as the headless
+      # frontend counts them, and numbers are decimal; without --frames it runs 60, one second of emulation. --help and
+      # --version only ask for `information` to print, so they need no ROM.
       Options = Data.define(
-        :rom_path,
+        :path,
         :jit,
         :headless,
         :scale,
@@ -32,6 +33,8 @@ module Ruby
         USAGE = <<~TEXT.chomp
           Usage: ruby-nes ROM [--jit=none|yjit|zjit] [--scale N] [--aspect square|8:7] [--crop-overscan] [--config PATH]
                               [--no-audio]
+                 ruby-nes [FOLDER] [--jit=none|yjit|zjit] [--scale N] [--aspect square|8:7] [--crop-overscan]
+                                   [--config PATH] [--no-audio]
                  ruby-nes ROM [--jit=none|yjit|zjit] --headless [--frames COUNT] [--screenshot FRAME:PATH]... [--input SCRIPT]
                               [--wav PATH]
         TEXT
@@ -62,12 +65,12 @@ module Ruby
             wav_path: nil,
             information: nil
           }
-          rom_paths = parser(options).parse(arguments)
-          return new(rom_path: nil, **options) if options[:information]
+          paths = parser(options).parse(arguments)
+          return new(path: nil, **options) if options[:information]
 
-          ensure_one_rom(rom_paths)
+          ensure_one_path(paths, headless: options[:headless])
           ensure_screenshots_run(options[:screenshots], options[:frames])
-          new(rom_path: rom_paths.first, **options)
+          new(path: paths.first, **options)
         end
 
         def self.parser(options)
@@ -124,9 +127,10 @@ module Ruby
           raise OptionParser::InvalidArgument, "#{frame}:#{path} (frame #{frame} is already asked)"
         end
 
-        def self.ensure_one_rom(rom_paths)
-          raise OptionParser::MissingArgument, 'ROM' if rom_paths.empty?
-          raise OptionParser::NeedlessArgument, rom_paths.drop(1).join(' ') if rom_paths.size > 1
+        # The window opens the ROM browser without a path; the headless run has no browser.
+        def self.ensure_one_path(paths, headless:)
+          raise OptionParser::MissingArgument, 'ROM' if headless && paths.empty?
+          raise OptionParser::NeedlessArgument, paths.drop(1).join(' ') if paths.size > 1
         end
 
         def self.ensure_screenshots_run(screenshots, frames)
@@ -149,7 +153,7 @@ module Ruby
           :headless_options,
           :at_least,
           :add_screenshot,
-          :ensure_one_rom,
+          :ensure_one_path,
           :ensure_screenshots_run
         )
       end
