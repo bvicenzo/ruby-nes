@@ -7,7 +7,9 @@ require 'ruby/nes/frontends/base'
 # (plan 18), takes audio samples (ignored until plan 24), and releases what it opened when the run ends (plan 17). It
 # may ask for a save state action, show a message and drop the audio it queued (plan 35); by default it does none. A
 # window that outlives a game (plan 37) says whether the player closed it, starts over between screens and queues a
-# frame of silence for a screen that makes no sound; by default it is never closed and does neither.
+# frame of silence for a screen that makes no sound; by default it is never closed and does neither. It may ask for a
+# menu, and a menu may end its screen or the session and resume the game (plan 38); by default it asks for none and
+# has nothing to end or resume.
 RSpec.describe Ruby::Nes::Frontends::Base do
   describe '#present' do
     subject(:frontend) { described_class.new }
@@ -110,6 +112,38 @@ RSpec.describe Ruby::Nes::Frontends::Base do
 
     it 'has nothing to play' do
       expect(frontend.queue_silence).to be_nil
+    end
+  end
+
+  describe '#menu_requested?' do
+    subject(:frontend) { described_class.new }
+
+    it 'is false' do
+      expect(frontend).not_to be_menu_requested
+    end
+  end
+
+  describe '#leave' do
+    subject(:frontend) { described_class.new }
+
+    it 'has no screen to end' do
+      expect(frontend.leave).to be_nil
+    end
+  end
+
+  describe '#quit' do
+    subject(:frontend) { described_class.new }
+
+    it 'has no session to end' do
+      expect(frontend.quit).to be_nil
+    end
+  end
+
+  describe '#resume' do
+    subject(:frontend) { described_class.new }
+
+    it 'has nothing to resume' do
+      expect(frontend.resume).to be_nil
     end
   end
 end

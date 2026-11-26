@@ -81,6 +81,15 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
             end
           end
 
+          # Escape quits at once, as before plan 38 (decision 2), by the file's rule.
+          context 'and it gives escape to quit' do
+            let(:text) { "keys:\n  quit: escape\n" }
+
+            it 'leaves the menu without a key' do
+              expect(described_class.parse(text).keys).to include(quit: ['escape'], menu: [])
+            end
+          end
+
           context 'and it has a gamepad section' do
             let(:text) { "gamepad:\n  a: right_trigger_1\n" }
 
@@ -113,7 +122,7 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
 
   describe '#unbound_actions' do
     context 'when every action has a key' do
-      subject(:key_config) { described_class.parse("keys:\n  pause: space\n") }
+      subject(:key_config) { described_class.parse("keys:\n  quit: q\n") }
 
       it 'is empty' do
         expect(key_config.unbound_actions).to be_empty
@@ -121,10 +130,21 @@ RSpec.describe Ruby::Nes::Frontends::KeyConfig do
     end
 
     context 'when actions are left without a key' do
-      subject(:key_config) { described_class.parse("keys:\n  a: z\n  reset: []\n") }
+      # Quit has no key by default (plan 38, decision 2): naming it would warn at every start.
+      context 'and an action has no key by default' do
+        subject(:key_config) { described_class.parse("keys:\n  pause: space\n") }
 
-      it 'names them' do
-        expect(key_config.unbound_actions).to contain_exactly(:b, :reset)
+        it 'leaves it out' do
+          expect(key_config.unbound_actions).to be_empty
+        end
+      end
+
+      context 'and actions had a key by default' do
+        subject(:key_config) { described_class.parse("keys:\n  a: z\n  quit: escape\n  reset: []\n") }
+
+        it 'names them' do
+          expect(key_config.unbound_actions).to contain_exactly(:b, :menu, :reset)
+        end
       end
     end
 

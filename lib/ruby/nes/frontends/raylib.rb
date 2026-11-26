@@ -8,9 +8,11 @@ require_relative 'controls'
 require_relative 'frame_pacing'
 require_relative 'frame_rate'
 require_relative 'gamepad'
+require_relative 'held_over'
 require_relative 'hotkeys'
 require_relative 'key_bindings'
 require_relative 'key_config'
+require_relative 'menu_combination'
 require_relative 'notice'
 require_relative 'players'
 require_relative 'raylib_audio_stream'
@@ -27,7 +29,9 @@ module Ruby
       # collaborators, each specified on its own (plan 18). The frame is drawn by Frontends::RaylibPicture, its colours
       # looked up on the GPU (plan 32), into the Frontends::Viewport; the keyboard and the gamepads (plan 36), read
       # through Frontends::RaylibInput, drive the controllers through Frontends::Players, and the keyboard drives the
-      # emulator through Frontends::Hotkeys; the frame rate (Frontends::FrameRate) and the JIT are drawn over the frame
+      # emulator through Frontends::Hotkeys; the menus open from the hotkeys and from L + R on the first gamepad
+      # (Frontends::MenuCombination, plan 38), and the buttons held as a menu closes over a game are kept from it until
+      # let go (Frontends::HeldOver); the frame rate (Frontends::FrameRate) and the JIT are drawn over the frame
       # while the overlay is shown, and a message (Frontends::Notice, plan 35) at the bottom left while it lasts; after
       # each frame the pacing waits. With audio (plan 24), each frame's samples go through Frontends::AudioPacing into a
       # raylib audio stream (Frontends::RaylibAudioStream), and the audio paces the window; while paused it queues
@@ -66,6 +70,8 @@ module Ruby
         KEY_CODES = input_codes(KEY_PREFIX)
         # raylib's gamepad button names to their codes, the names the config file's `gamepad:` section uses (plan 36).
         GAMEPAD_BUTTON_CODES = input_codes(GAMEPAD_BUTTON_PREFIX)
+        # The pad's way into the menus: L and R held together (plan 38, decision 3).
+        MENU_BUTTONS = GAMEPAD_BUTTON_CODES.values_at('left_trigger_1', 'right_trigger_1').freeze
         DEFAULT_VIEWPORT = Viewport.new(scale: 3, pixel_aspect: 1, crop_overscan: false)
 
         # Attaches the raylib library shipped inside the gem's platform build, once per process. raylib-bindings only
@@ -101,9 +107,9 @@ module Ruby
         )
           super()
           self.class.load_library
-          key_bindings = KeyBindings.new(keys, codes: KEY_CODES, kind: 'key')
-          @players = players(key_bindings, gamepad_buttons)
-          @hotkeys = Hotkeys.new(key_bindings.hotkeys)
+          read_input(keys, gamepad_buttons)
+          @left = false
+          @quitting = false
           @jit_name = jit_name
           @notice = Notice.new
           @notice_top = viewport.height - OVERLAY_MARGIN - OVERLAY_FONT_SIZE
@@ -117,13 +123,16 @@ module Ruby
           @frame_rate = FrameRate.new
         end
 
-        def running? = !closed? && !@hotkeys.quit?
+        def running? = !closed? && !@hotkeys.quit? && !@left
 
         def paused? = @hotkeys.paused?
 
         def reset_requested? = @hotkeys.reset_requested?
 
-        def button_states = @players.button_states(RaylibInput)
+        # A menu key, or L + R on the first gamepad, pressed during the last frame (plan 38).
+        def menu_requested? = @hotkeys.menu_requested? || @menu_combination.pressed?
+
+        def button_states = @held_over.filter(@players.button_states(RaylibInput))
 
         def state_action = @hotkeys.state_action
 
@@ -136,18 +145,36 @@ module Ruby
           @audio_pacing&.clear
         end
 
-        # Whether the player closed the window (its close button), which ends the ROM browser too (plan 37).
-        def closed? = ::Raylib.WindowShouldClose
+        # Whether the player closed the window (its close button) or quit from a menu, which ends the ROM browser too
+        # (plans 37 and 38).
+        def closed? = @quitting || ::Raylib.WindowShouldClose
 
-        # Starts over for the ROM browser's next screen (plan 37, decision 7): the hotkeys, not paused nor quitting, and
-        # the audio queued dropped.
+        # Starts over for the ROM browser's next screen (plan 37, decision 7): the hotkeys and the menu's buttons, not
+        # paused nor quitting nor asking, the screen not left, the buttons held kept from the next screen until let go
+        # (plan 38), and the audio queued dropped.
         def next_screen
-          @hotkeys.restart
+          start_over
+          @left = false
           discard_audio
         end
 
-        # Draws the frame (and the overlay), reads the hotkeys pressed meanwhile (raylib polls its input events as the
-        # drawing ends), counts the frame, queues a frame of silence while paused and waits for the pacing.
+        # Ends the screen from a menu (BACK TO THE LIST, plan 38): not running until the next screen starts.
+        def leave
+          @left = true
+        end
+
+        # Ends the session from a menu (QUIT, plan 38), as the window's close button does.
+        def quit
+          @quitting = true
+        end
+
+        # A menu closed over the game (plan 38): the hotkeys and the menu's buttons start over, and the buttons held now
+        # are kept from the game until let go.
+        def resume = start_over
+
+        # Draws the frame (and the overlay), reads the hotkeys and the menu's buttons pressed meanwhile (raylib polls its
+        # input events as the drawing ends), counts the frame, queues a frame of silence while paused and waits for the
+        # pacing.
         def present(frame_buffer)
           ::Raylib.BeginDrawing
           @picture.draw(frame_buffer, @source, @destination)
@@ -155,6 +182,7 @@ module Ruby
           draw_notice
           ::Raylib.EndDrawing
           @hotkeys.poll { ::Raylib.IsKeyPressed(it) }
+          @menu_combination.poll(RaylibInput)
           @frame_rate.tick
           @notice.tick
           @audio_pacing.queue_silence if @audio_pacing && paused?
@@ -178,6 +206,20 @@ module Ruby
         end
 
         private
+
+        def start_over
+          @hotkeys.restart
+          @menu_combination.restart
+          @held_over.hold(@players.button_states(RaylibInput))
+        end
+
+        def read_input(keys, gamepad_buttons)
+          key_bindings = KeyBindings.new(keys, codes: KEY_CODES, kind: 'key')
+          @players = players(key_bindings, gamepad_buttons)
+          @hotkeys = Hotkeys.new(key_bindings.hotkeys)
+          @menu_combination = MenuCombination.new(buttons: MENU_BUTTONS)
+          @held_over = HeldOver.new
+        end
 
         def players(key_bindings, gamepad_buttons)
           gamepad_bindings = KeyBindings.new(gamepad_buttons, codes: GAMEPAD_BUTTON_CODES, kind: 'gamepad button')

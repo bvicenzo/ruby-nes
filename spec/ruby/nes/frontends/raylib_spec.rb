@@ -2,7 +2,8 @@
 
 # A smoke test of the raylib backend (plan 17, decision 4; plan 18; plan 36): little assertion on the library's calls,
 # only that a hidden window opens, hands extra gamepad mappings to raylib, names raylib's keys and gamepad buttons for
-# the config file, takes a frame and audio, draws a message and drops its audio (plan 35), and closes. Its decisions are
+# the config file, takes a frame and audio, draws a message and drops its audio (plan 35), ends its screen or the
+# session and resumes from a menu (plan 38), and closes. Its decisions are
 # specified in its collaborators. Skipped when the optional `frontends` group is not installed.
 RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/frontends/raylib' do
   describe 'KEY_CODES' do
@@ -42,6 +43,25 @@ RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/front
     subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
 
     after { frontend.close }
+
+    context 'when the screen was left' do
+      before { frontend.leave }
+
+      context 'and no screen started since' do
+        it 'is false, the window still open', :aggregate_failures do
+          expect(frontend).not_to be_running
+          expect(frontend).not_to be_closed
+        end
+      end
+
+      context 'but the next screen started' do
+        before { frontend.next_screen }
+
+        it 'is true' do
+          expect(frontend).to be_running
+        end
+      end
+    end
 
     context 'when the window is open' do
       it 'is true' do
@@ -125,7 +145,11 @@ RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/front
   describe '#notify' do
     subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
 
-    before { allow(Raylib).to receive(:DrawText).and_call_original }
+    # The window opens first: it attaches the raylib library, which defines DrawText.
+    before do
+      frontend
+      allow(Raylib).to receive(:DrawText).and_call_original
+    end
 
     after { frontend.close }
 
@@ -154,6 +178,14 @@ RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/front
 
     after { frontend.close }
 
+    context 'when the player quit from a menu' do
+      before { frontend.quit }
+
+      it 'is true' do
+        expect(frontend).to be_closed
+      end
+    end
+
     context 'when the window is open' do
       it 'is false' do
         expect(frontend).not_to be_closed
@@ -161,15 +193,104 @@ RSpec.describe 'Ruby::Nes::Frontends::Raylib', frontend_library: 'ruby/nes/front
     end
   end
 
-  describe '#next_screen' do
+  describe '#menu_requested?' do
     subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
 
     after { frontend.close }
 
-    it 'takes the order to start over' do
-      frontend.queue_audio(Array.new(Ruby::Nes::Frontends::Raylib::SAMPLES_PER_FRAME * 3, 1000))
+    context 'when no key or button is pressed' do
+      it 'is false' do
+        expect(frontend).not_to be_menu_requested
+      end
+    end
+  end
 
-      expect { frontend.next_screen }.not_to raise_error
+  describe '#resume' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    let(:x_key) { Ruby::Nes::Frontends::Raylib::KEY_CODES.fetch('x') }
+
+    after { frontend.close }
+
+    context 'when L + R on the gamepad closed the menu' do
+      before do
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive_messages(
+          key_down?: false, gamepad_available?: true, gamepad_button_down?: true, left_stick: [0.0, 0.0]
+        )
+        frontend.present(Array.new(Ruby::Nes::Ppu::Picture::WIDTH * Ruby::Nes::Ppu::Picture::HEIGHT, 0x0F))
+      end
+
+      it 'asks for the menu no more' do
+        frontend.resume
+
+        expect(frontend).not_to be_menu_requested
+      end
+    end
+
+    context 'when a button is held as the menu closes' do
+      before do
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive_messages(gamepad_available?: false)
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive(:key_down?) { |code| code == x_key }
+      end
+
+      it 'keeps it from the controllers until let go', :aggregate_failures do
+        frontend.resume
+
+        expect(frontend.button_states).to eq([0, 0])
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive(:key_down?).and_return(false)
+        frontend.button_states
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive(:key_down?) { |code| code == x_key }
+        expect(frontend.button_states).to eq([Ruby::Nes::Input::Controller::BUTTONS.fetch(:a), 0])
+      end
+    end
+  end
+
+  describe '#next_screen' do
+    subject(:frontend) { Ruby::Nes::Frontends::Raylib.new(hidden: true) }
+
+    let(:x_key) { Ruby::Nes::Frontends::Raylib::KEY_CODES.fetch('x') }
+
+    after { frontend.close }
+
+    context 'when audio is queued' do
+      it 'takes the order to start over' do
+        frontend.queue_audio(Array.new(Ruby::Nes::Frontends::Raylib::SAMPLES_PER_FRAME * 3, 1000))
+
+        expect { frontend.next_screen }.not_to raise_error
+      end
+    end
+
+    context 'when L + R on the gamepad are held as the screen changes' do
+      before do
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive_messages(
+          key_down?: false, gamepad_available?: true, gamepad_button_down?: true, left_stick: [0.0, 0.0]
+        )
+        frontend.present(Array.new(Ruby::Nes::Ppu::Picture::WIDTH * Ruby::Nes::Ppu::Picture::HEIGHT, 0x0F))
+      end
+
+      it 'asks for the menu no more' do
+        frontend.next_screen
+
+        expect(frontend).not_to be_menu_requested
+      end
+    end
+
+    # The A that chose BACK TO LIST would start the game again in the list (plan 38, review).
+    context 'when a button is held as the screen changes' do
+      before do
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive_messages(gamepad_available?: false)
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive(:key_down?) { |code| code == x_key }
+      end
+
+      it 'keeps it from the controllers until let go', :aggregate_failures do
+        frontend.next_screen
+
+        expect(frontend.button_states).to eq([0, 0])
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive(:key_down?).and_return(false)
+        frontend.button_states
+        allow(Ruby::Nes::Frontends::RaylibInput).to receive(:key_down?) { |code| code == x_key }
+        expect(frontend.button_states).to eq([Ruby::Nes::Input::Controller::BUTTONS.fetch(:a), 0])
+      end
     end
   end
 

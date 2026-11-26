@@ -3,9 +3,9 @@
 require 'ruby/nes/frontends/hotkeys'
 
 # The keys that drive the emulator rather than the controller (plan 18, decision 6): quit, pause, reset and the frame
-# rate overlay, and the save states' (plan 35, decision 3). A windowed frontend tells it once per frame which bound keys
-# were pressed during that frame; pause and the overlay toggle on each frame their key is pressed, reset and a state
-# action are asked for during that frame only, quit stays asked. The ROM browser starts them over between screens
+# rate overlay, the save states' (plan 35, decision 3) and the menu's (plan 38, decision 2). A windowed frontend tells it
+# once per frame which bound keys were pressed during that frame; pause and the overlay toggle on each frame their key
+# is pressed, reset, the menu and a state action are asked for during that frame only, quit stays asked. The ROM browser starts them over between screens
 # (plan 37, decision 7), keeping the overlay as the player left it.
 # Key codes here are arbitrary integers, as each graphics library numbers its keys its own way.
 RSpec.describe Ruby::Nes::Frontends::Hotkeys do
@@ -19,7 +19,7 @@ RSpec.describe Ruby::Nes::Frontends::Hotkeys do
     end
 
     context 'when every binding names an action' do
-      let(:bindings) { { 80 => :pause, 82 => :reset, 256 => :quit, 70 => :frame_rate } }
+      let(:bindings) { { 80 => :pause, 82 => :reset, 256 => :quit, 70 => :frame_rate, 27 => :menu } }
 
       it 'builds hotkeys' do
         expect { described_class.new(bindings) }.not_to raise_error
@@ -119,6 +119,37 @@ RSpec.describe Ruby::Nes::Frontends::Hotkeys do
 
       it 'is false' do
         expect(hotkeys).not_to be_reset_requested
+      end
+    end
+  end
+
+  describe '#menu_requested?' do
+    subject(:hotkeys) { described_class.new({ 256 => :menu, 80 => :pause }) }
+
+    context 'when no menu key has been pressed' do
+      before { hotkeys.poll { |key_code| key_code == 80 } }
+
+      it 'is false' do
+        expect(hotkeys).not_to be_menu_requested
+      end
+    end
+
+    context 'when the last poll pressed a menu key' do
+      before { hotkeys.poll { |key_code| key_code == 256 } }
+
+      it 'is true' do
+        expect(hotkeys).to be_menu_requested
+      end
+    end
+
+    context 'when only an earlier poll pressed a menu key' do
+      before do
+        hotkeys.poll { |key_code| key_code == 256 }
+        hotkeys.poll { false }
+      end
+
+      it 'is false' do
+        expect(hotkeys).not_to be_menu_requested
       end
     end
   end
@@ -227,7 +258,9 @@ RSpec.describe Ruby::Nes::Frontends::Hotkeys do
 
   describe '#restart' do
     subject(:hotkeys) do
-      described_class.new({ 256 => :quit, 80 => :pause, 82 => :reset, 70 => :frame_rate, 116 => :save_state })
+      described_class.new(
+        { 256 => :quit, 80 => :pause, 82 => :reset, 70 => :frame_rate, 116 => :save_state, 27 => :menu }
+      )
     end
 
     before { hotkeys.poll { true } }
@@ -236,7 +269,12 @@ RSpec.describe Ruby::Nes::Frontends::Hotkeys do
       hotkeys.restart
 
       expect(hotkeys).to have_attributes(
-        quit?: false, paused?: false, reset_requested?: false, state_action: nil, frame_rate_shown?: false
+        quit?: false,
+        paused?: false,
+        reset_requested?: false,
+        menu_requested?: false,
+        state_action: nil,
+        frame_rate_shown?: false
       )
     end
   end

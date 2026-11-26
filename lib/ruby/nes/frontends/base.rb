@@ -27,9 +27,18 @@ module Ruby
       # - `discard_audio`: drops the audio queued and not yet played, after a state is loaded; nothing by default;
       # - `closed?`: whether the player closed the window, which ends the ROM browser too (plan 37); false by default;
       # - `next_screen`: the ROM browser goes from its list to a game or back (plan 37, decision 7): the frontend starts
-      #   over, not paused nor quitting, its queued audio dropped; nothing by default;
+      #   over, not paused nor quitting, its queued audio dropped, and the buttons held then are left out of
+      #   `button_states` until let go (plan 38); nothing by default;
       # - `queue_silence`: a frame of silence for a screen with no sound, the ROM browser's list, so audio keeps pacing
       #   it (plan 37, decision 7); nothing by default;
+      # - `menu_requested?`: whether the player asked for a menu (plan 38): the pause menu in a game, the list's menu in
+      #   the ROM browser, closing a menu that is open; false by default;
+      # - `leave`: a menu's order to end the screen, as BACK TO THE LIST does: `running?` turns false until
+      #   `next_screen`; nothing by default;
+      # - `quit`: a menu's order to end the session, as QUIT does: `closed?` turns true; nothing by default;
+      # - `resume`: a menu closes over a game or the ROM list: the frontend starts over, not paused nor asking (a list
+      #   paused with P is un-paused), and the buttons held then are left out of `button_states` until let go (plan 38,
+      #   scope 3); nothing by default;
       # - `close`: once the run ends, however it ends, releases what the frontend opened (a window, an audio device;
       #   plan 17); nothing by default.
       class Base
@@ -62,6 +71,14 @@ module Ruby
         def next_screen = nil
 
         def queue_silence = nil
+
+        def menu_requested? = false
+
+        def leave = nil
+
+        def quit = nil
+
+        def resume = nil
 
         def close = nil
       end

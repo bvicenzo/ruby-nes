@@ -10,19 +10,27 @@ module Ruby
       # again (plan 18, decision 5). After each frame it runs, the frame observer is told `frame_ran` (the window's
       # battery save keeper, plan 34); without one, NoFrameObserver. A save state action the frontend asks for goes to
       # the states (the window's Saves::StateSlots, plan 35) with the frontend, after the reset and before the frame,
-      # paused or not; without states, NoStates. Off the hot path: once per frame.
+      # paused or not; without states, NoStates. When the frontend asks for the menu, the pause menu (the window's
+      # CommandLine::Pause, plan 38) opens with the frontend and takes the turn: no frame runs and nothing is presented
+      # in it; without one, NoPauseMenu. Off the hot path: once per frame.
       class Driver
-        def initialize(console:, frontend:, frame_observer: NoFrameObserver, states: NoStates)
+        def initialize(console:, frontend:, frame_observer: NoFrameObserver, states: NoStates, pause_menu: NoPauseMenu)
           @console = console
           @frontend = frontend
           @frame_observer = frame_observer
           @states = states
+          @pause_menu = pause_menu
         end
 
         def run
           while @frontend.running?
             @console.reset if @frontend.reset_requested?
             perform_state_action
+            if @frontend.menu_requested?
+              @pause_menu.open(@frontend)
+              next
+            end
+
             run_frame unless @frontend.paused?
             @frontend.present(@console.ppu.frame_buffer)
           end
@@ -52,3 +60,4 @@ end
 
 require_relative 'driver/no_frame_observer'
 require_relative 'driver/no_states'
+require_relative 'driver/no_pause_menu'

@@ -45,7 +45,9 @@ module Ruby
           right: ['right'],
           pause: ['p'],
           reset: ['r'],
-          quit: ['escape'],
+          # Escape opens the menus, where quitting is; a quit key is the file's to give (plan 38, decision 2).
+          menu: ['escape'],
+          quit: [],
           frame_rate: ['f'],
           # The save states' keys, as several emulators lay them out (plan 35, decision 3).
           save_state: ['f5'],
@@ -118,9 +120,10 @@ module Ruby
           @roms_directory = roms_directory
         end
 
-        # The actions left without a key. Actions without a gamepad button are not named: a person without a pad
-        # would always see them (plan 36, decision 4).
-        def unbound_actions = @keys.select { |_action, names| names.empty? }.keys
+        # The actions left without the key their defaults give them. Actions without a gamepad button are not named:
+        # a person without a pad would always see them (plan 36, decision 4); nor is quit, which has no default key
+        # (plan 38, decision 2).
+        def unbound_actions = @keys.select { |action, names| names.empty? && DEFAULTS.fetch(action).any? }.keys
       end
     end
   end
