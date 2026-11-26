@@ -34,10 +34,10 @@ module Ruby
         end
 
         # The slot of the state written last, or nil when there is none.
-        def latest_slot
-          written_slots = SLOTS.times.select { File.file?(state_path(it)) }
-          written_slots.max_by { [File.mtime(state_path(it)), -it] }
-        end
+        def latest_slot = written_slots.max_by { [File.mtime(state_path(it)), -it] }
+
+        # The slots that hold a state, in order.
+        def written_slots = SLOTS.times.select { File.file?(state_path(it)) }
 
         private
 

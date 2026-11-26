@@ -39,6 +39,33 @@ module Ruby
         # The current slot; raises Saves::Error or SystemCallError when the states folder cannot be found.
         def slot = @slot ||= @files.latest_slot || 0
 
+        # The current slot, or 0 when the states folder cannot be found, which every action then reports: the slot the
+        # pause menu's slot picker opens on (plan 38).
+        def current_slot
+          slot
+        rescue Error, SystemCallError
+          0
+        end
+
+        # Makes `slot` the current slot, as the pause menu's slot picker does (plan 38); raises ArgumentError for a
+        # number that is not a slot's.
+        def pick(slot)
+          raise ArgumentError, "not a slot: #{slot}" unless (0...StateFiles::SLOTS).cover?(slot)
+
+          @slot = slot
+        end
+
+        # The slots that hold a state, in order; none when the states folder cannot be found, which every action then
+        # reports.
+        def written_slots
+          @files.written_slots
+        rescue Error, SystemCallError
+          []
+        end
+
+        # The pictures of the slots (Saves::StatePictures), for the slot picker to keep while it is open.
+        def pictures = StatePictures.new(console: @console, files: @files)
+
         # Performs one of ACTIONS and tells `frontend` (Frontends::Base) the outcome; raises ArgumentError for another
         # action.
         def perform(action, frontend)

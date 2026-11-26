@@ -157,4 +157,46 @@ RSpec.describe Ruby::Nes::Saves::StateFiles do
       end
     end
   end
+
+  describe '#written_slots' do
+    subject(:files) { described_class.new(directory:, rom_path: 'roms/Zelda.nes') }
+
+    let(:data_home) { Dir.mktmpdir }
+    let(:directory) { Ruby::Nes::Saves::Directory.new(environment: { 'XDG_DATA_HOME' => data_home }) }
+    let(:folder) { File.join(data_home, 'ruby-nes', 'states', 'Zelda') }
+
+    after { FileUtils.remove_entry(data_home) }
+
+    context 'when the game has no states folder' do
+      it 'is empty' do
+        expect(files.written_slots).to be_empty
+      end
+    end
+
+    context 'when the game has a states folder' do
+      context 'but no state is in it' do
+        before do
+          FileUtils.mkdir_p(folder)
+          File.binwrite(File.join(folder, '4.png'), 'picture')
+          File.binwrite(File.join(folder, '10.state'), 'not a slot')
+        end
+
+        it 'is empty' do
+          expect(files.written_slots).to be_empty
+        end
+      end
+
+      context 'and states are in it' do
+        before do
+          FileUtils.mkdir_p(folder)
+          File.binwrite(File.join(folder, '7.state'), 'state')
+          File.binwrite(File.join(folder, '2.state'), 'state')
+        end
+
+        it 'is their slots, in order' do
+          expect(files.written_slots).to eq([2, 7])
+        end
+      end
+    end
+  end
 end

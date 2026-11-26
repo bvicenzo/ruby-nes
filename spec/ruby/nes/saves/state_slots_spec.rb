@@ -63,6 +63,100 @@ RSpec.describe Ruby::Nes::Saves::StateSlots do
     end
   end
 
+  # The slot the pause menu's slot picker opens on (plan 38): the current slot, or the first when the states folder
+  # cannot be found, which the action chosen then reports.
+  describe '#current_slot' do
+    subject(:slots) { described_class.new(console:, state:, files:, picture:, error_output: StringIO.new) }
+
+    let(:console) { instance_double(Ruby::Nes::Console) }
+    let(:state) { instance_double(Ruby::Nes::Saves::ConsoleState) }
+    let(:picture) { object_double(Ruby::Nes::Frontends::Screenshot) }
+
+    context 'when the states folder cannot be found' do
+      let(:files) { instance_double(Ruby::Nes::Saves::StateFiles) }
+
+      before { allow(files).to receive(:latest_slot).and_raise(Ruby::Nes::Saves::Error, 'no home directory') }
+
+      it 'is 0' do
+        expect(slots.current_slot).to eq(0)
+      end
+    end
+
+    context 'when the states folder is found' do
+      let(:files) { instance_double(Ruby::Nes::Saves::StateFiles, latest_slot: 6) }
+
+      it 'is the current slot' do
+        expect(slots.current_slot).to eq(6)
+      end
+    end
+  end
+
+  # The slot picker of the pause menu (plan 38) makes the slot chosen the current one before it saves or loads there.
+  describe '#pick' do
+    subject(:slots) { described_class.new(console:, state:, files:, picture:, error_output: StringIO.new) }
+
+    let(:console) { instance_double(Ruby::Nes::Console) }
+    let(:state) { instance_double(Ruby::Nes::Saves::ConsoleState) }
+    let(:files) { instance_double(Ruby::Nes::Saves::StateFiles, latest_slot: 6) }
+    let(:picture) { object_double(Ruby::Nes::Frontends::Screenshot) }
+
+    context 'when the slot is not one of the slots' do
+      it 'raises ArgumentError naming it' do
+        expect { slots.pick(10) }.to raise_error(ArgumentError, /10/)
+      end
+    end
+
+    context 'when the slot is one of the slots' do
+      it 'makes it the current slot' do
+        slots.pick(2)
+
+        expect(slots.slot).to eq(2)
+      end
+    end
+  end
+
+  # The slot picker marks the slots that hold a state, and offers only those to load.
+  describe '#written_slots' do
+    subject(:slots) { described_class.new(console:, state:, files:, picture:, error_output: StringIO.new) }
+
+    let(:console) { instance_double(Ruby::Nes::Console) }
+    let(:state) { instance_double(Ruby::Nes::Saves::ConsoleState) }
+    let(:picture) { object_double(Ruby::Nes::Frontends::Screenshot) }
+
+    context 'when the states folder cannot be found' do
+      let(:files) { instance_double(Ruby::Nes::Saves::StateFiles) }
+
+      before { allow(files).to receive(:written_slots).and_raise(Ruby::Nes::Saves::Error, 'no home directory') }
+
+      it 'is empty' do
+        expect(slots.written_slots).to be_empty
+      end
+    end
+
+    context 'when the states folder is found' do
+      let(:files) { instance_double(Ruby::Nes::Saves::StateFiles, written_slots: [1, 4]) }
+
+      it "is the game's slots that hold a state" do
+        expect(slots.written_slots).to eq([1, 4])
+      end
+    end
+  end
+
+  # The slot picker shows the picture of the slot in focus (Saves::StatePictures), for as long as it is open.
+  describe '#pictures' do
+    subject(:slots) { described_class.new(console:, state:, files:, picture:, error_output: StringIO.new) }
+
+    let(:console) { instance_double(Ruby::Nes::Console) }
+    let(:state) { instance_double(Ruby::Nes::Saves::ConsoleState) }
+    let(:files) { instance_double(Ruby::Nes::Saves::StateFiles, read: nil) }
+    let(:picture) { object_double(Ruby::Nes::Frontends::Screenshot) }
+
+    it "gives the pictures of the game's slots, read from its files", :aggregate_failures do
+      expect(slots.pictures.picture(3)).to be_nil
+      expect(files).to have_received(:read).with(3)
+    end
+  end
+
   describe '#perform' do
     let(:frame_buffer) { [0x0F] * 4 }
     let(:console) { instance_double(Ruby::Nes::Console, ppu: instance_double(Ruby::Nes::Ppu, frame_buffer:)) }
