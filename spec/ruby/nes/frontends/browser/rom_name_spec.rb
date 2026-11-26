@@ -5,7 +5,7 @@ require 'ruby/nes/frontends/browser'
 # The name the ROM browser shows for a ROM file (plan 37, decision 4): its file name, without the folder and the
 # extension, in upper case, as the pixel font has no lower case. The No-Intro tags, the parts in brackets such as
 # "(USA)" and "(Rev 1)", are left out of the name and kept apart, to show under the preview; a file name made of tags
-# alone keeps them as its name. Both are printable (Browser::PixelFont.printable), so they can always be drawn.
+# alone keeps them as its name. Both are printable (Screens::PixelFont.printable), so they can always be drawn.
 RSpec.describe Ruby::Nes::Frontends::Browser::RomName do
   describe '.of' do
     context 'when the file name has no tags' do

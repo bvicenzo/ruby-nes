@@ -36,7 +36,7 @@ module Ruby
             @problem = nil
           end
 
-          # Why the cartridge of the game in focus cannot be loaded, printable (Browser::PixelFont), or nil.
+          # Why the cartridge of the game in focus cannot be loaded, printable (Screens::PixelFont), or nil.
           attr_reader :problem
 
           # Takes `rom` (a Browser::Rom) as the game in focus, in place of the one before.
@@ -54,7 +54,7 @@ module Ruby
             @learning = !restore_cached
           rescue Nes::Error, SystemCallError => error
             @console = nil
-            @problem = PixelFont.printable(error.message)
+            @problem = Screens::PixelFont.printable(error.message)
           end
 
           # Counts a menu frame the cursor rested on the game, and runs the game's next frame once it has rested.

@@ -3,10 +3,10 @@
 module Ruby
   module Nes
     module Frontends
-      module Browser
-        # The focus in the browser's list and the rows of it shown (plan 37, scope 3): the focus starts on the first ROM
-        # and moves by rows or pages, stopping at the ends; the rows shown scroll only as far as needed to keep it in
-        # sight. Off the hot path: once per press.
+      module Screens
+        # The focus in a menu's list and the rows of it shown (plan 37, scope 3; shared since plan 38): the focus starts on
+        # the first entry and moves by rows or pages, stopping at the ends; the rows shown scroll only as far as needed to
+        # keep it in sight. Off the hot path: once per press.
         class Cursor
           # The index of the ROM in focus.
           attr_reader :focus

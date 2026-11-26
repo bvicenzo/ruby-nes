@@ -3,12 +3,12 @@
 module Ruby
   module Nes
     module Frontends
-      module Browser
-        # The buttons the browser takes as pressed in a frame (plan 37, decision 6), from those held on controller 1:
-        # a button is pressed on the frame it starts being held. A direction held on is pressed again after
-        # REPEAT_DELAY frames and every REPEAT_INTERVAL frames from then on, so a held direction scrolls the list; the
-        # other buttons never repeat, so A or Start held as a game ends starts nothing. Each button is timed on its own.
-        # Off the hot path: once per menu frame.
+      module Screens
+        # The buttons a menu takes as pressed in a frame (plan 37, decision 6; shared since plan 38), from those held on
+        # controller 1: a button is pressed on the frame it starts being held. A direction held on is pressed again
+        # after REPEAT_DELAY frames and every REPEAT_INTERVAL frames from then on, so a held direction scrolls the list;
+        # the other buttons never repeat, so A or Start held as a game ends starts nothing. Each button is timed on its
+        # own. Off the hot path: once per menu frame.
         class ButtonPresses
           # About a third of a second, then 10 rows a second, at 60.0988 frames per second
           # (https://www.nesdev.org/wiki/Cycle_reference_chart).

@@ -3,8 +3,8 @@
 module Ruby
   module Nes
     module Frontends
-      module Browser
-        # The ROM browser's pixel font (plan 37, decision 4), drawn for this project: upper case letters, digits,
+      module Screens
+        # The menus' pixel font (plan 37, decision 4), drawn for this project: upper case letters, digits,
         # punctuation and the marks' icons, each a glyph of 5 × 7 pixels in a cell of 8 × 8, from its second column and
         # its first row, so characters side by side and lines one under the other keep a gap. A glyph only colours its
         # own pixels; the rest of the cell keeps what is under it. Text from outside ruby-nes (a file name) is made

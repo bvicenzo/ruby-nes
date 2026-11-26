@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-require 'ruby/nes/frontends/browser'
+require 'ruby/nes/frontends/screens'
 
-# The ROM browser's 8×8 pixel font (plan 37, decision 4): upper case letters, digits, punctuation and the marks' icons,
+# The menus' 8×8 pixel font (plan 37, decision 4): upper case letters, digits, punctuation and the marks' icons,
 # drawn into a frame buffer of 256 × 240 palette indices, one 8-pixel cell per character from the position given, in
 # one colour. Only the glyph's own pixels change: what lies under the rest of each cell stays. The text comes from
 # ruby-nes's own code, or is made printable first, so a character without a glyph is a bug: it raises, before any pixel
 # is drawn. Printable text is upper case, without accents, with "?" for any other character without a glyph.
-RSpec.describe Ruby::Nes::Frontends::Browser::PixelFont do
+RSpec.describe Ruby::Nes::Frontends::Screens::PixelFont do
   describe '.draw' do
     context 'when a character has no glyph' do
       let(:frame_buffer) { Array.new(256 * 240, 0x0F) }

@@ -15,7 +15,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
       subject(:screen) { described_class.new }
 
       let(:roms) { [BrowserRoms.build(name: 'CASTLEVANIA III', problem: 'MAPPER 5 IS NOT SUPPORTED')] }
-      let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 1, rows: 10) }
+      let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 1, rows: 10) }
 
       it "shows the reason in the preview's place, in lines that fit" do
         rows = ScreenText.rows(screen.list(roms:, cursor:, preview_frame: nil, problem: 'MAPPER 5 IS NOT SUPPORTED'))
@@ -29,7 +29,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
         subject(:screen) { described_class.new }
 
         let(:roms) { [BrowserRoms.build(name: 'CASTLEVANIA')] }
-        let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 1, rows: 10) }
+        let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 1, rows: 10) }
 
         it "says so in the preview's place" do
           rows = ScreenText.rows(screen.list(roms:, cursor:, preview_frame: nil, problem: nil))
@@ -42,7 +42,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
         subject(:screen) { described_class.new }
 
         let(:roms) { [BrowserRoms.build(name: 'CASTLEVANIA')] }
-        let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 1, rows: 10) }
+        let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 1, rows: 10) }
         # Every pixel of a colour of its own along each row.
         let(:preview_frame) { Array.new(256 * 240) { it % 64 } }
 
@@ -72,7 +72,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
           BrowserRoms.build(name: 'MARIO BROS.', save_states: true)
         ]
       end
-      let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 3, rows: 10).tap { it.move(1) } }
+      let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 3, rows: 10).tap { it.move(1) } }
 
       it "shows the focus's tags, each ROM with its marks and the cursor on the focus, with no arrows" do
         rows = ScreenText.rows(screen.list(roms:, cursor:, preview_frame: nil, problem: nil))
@@ -95,7 +95,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
         subject(:screen) { described_class.new }
 
         let(:roms) { Array.new(15) { BrowserRoms.build(name: "GAME #{it + 1}") } }
-        let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 15, rows: 10) }
+        let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 15, rows: 10) }
 
         it 'points down from the last row shown' do
           rows = ScreenText.rows(screen.list(roms:, cursor:, preview_frame: nil, problem: nil))
@@ -108,7 +108,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
         subject(:screen) { described_class.new }
 
         let(:roms) { Array.new(15) { BrowserRoms.build(name: "GAME #{it + 1}") } }
-        let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 15, rows: 10).tap { it.move(14) } }
+        let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 15, rows: 10).tap { it.move(14) } }
 
         it 'points up from the first row shown' do
           rows = ScreenText.rows(screen.list(roms:, cursor:, preview_frame: nil, problem: nil))
@@ -121,7 +121,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
         subject(:screen) { described_class.new }
 
         let(:roms) { Array.new(20) { BrowserRoms.build(name: "GAME #{it + 1}") } }
-        let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 20, rows: 10).tap { it.move(15) } }
+        let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 20, rows: 10).tap { it.move(15) } }
 
         it 'points both ways' do
           rows = ScreenText.rows(screen.list(roms:, cursor:, preview_frame: nil, problem: nil))
@@ -135,7 +135,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
       subject(:screen) { described_class.new }
 
       let(:roms) { [BrowserRoms.build(name: 'MEGA MAN 3', tags: '(USA, EUROPE) (REV A) (VIRTUAL CONSOLE)')] }
-      let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 1, rows: 10) }
+      let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 1, rows: 10) }
 
       it 'cuts them to fit', :aggregate_failures do
         rows = ScreenText.rows(screen.list(roms:, cursor:, preview_frame: nil, problem: nil))
@@ -151,7 +151,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
       let(:roms) do
         [BrowserRoms.build(name: 'CASTLEVANIA'), BrowserRoms.build(name: 'CASTLEVANIA III', problem: 'MAPPER 5')]
       end
-      let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 2, rows: 10) }
+      let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 2, rows: 10) }
 
       it 'shows its name in grey' do
         frame = screen.list(roms:, cursor:, preview_frame: nil, problem: nil)
@@ -167,7 +167,7 @@ RSpec.describe Ruby::Nes::Frontends::Browser::Screen do
       let(:roms) do
         [BrowserRoms.build(name: 'BOMBERMAN II'), BrowserRoms.build(name: 'SUPER MARIO BROS. 3 - THE ADVENTURE')]
       end
-      let(:cursor) { Ruby::Nes::Frontends::Browser::Cursor.new(size: 2, rows: 10) }
+      let(:cursor) { Ruby::Nes::Frontends::Screens::Cursor.new(size: 2, rows: 10) }
 
       it 'cuts it to fit' do
         rows = ScreenText.rows(screen.list(roms:, cursor:, preview_frame: nil, problem: nil))

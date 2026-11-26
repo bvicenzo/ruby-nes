@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative '../saves'
+require_relative 'screens'
 
 module Ruby
   module Nes
@@ -15,12 +16,9 @@ module Ruby
   end
 end
 
-require_relative 'browser/pixel_font'
 require_relative 'browser/rom_name'
 require_relative 'browser/rom'
 require_relative 'browser/rom_list'
-require_relative 'browser/button_presses'
-require_relative 'browser/cursor'
 require_relative 'browser/motion_watch'
 require_relative 'browser/preview_cache'
 require_relative 'browser/preview'

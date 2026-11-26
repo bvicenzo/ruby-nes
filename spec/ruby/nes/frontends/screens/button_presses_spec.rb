@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-require 'ruby/nes/frontends/browser'
+require 'ruby/nes/frontends/screens'
 
-# The buttons the ROM browser takes as pressed in a frame (plan 37, decision 6), from the mask of controller 1's
+# The buttons a menu takes as pressed in a frame (plan 37, decision 6), from the mask of controller 1's
 # buttons held in it (Input::Controller::BUTTONS): a button is pressed on the frame it starts being held. A direction
 # held on is pressed again on its 21st frame held (after a delay of 20 frames) and every 6 frames from then on, as a
 # list scrolls; A, B, Select and Start never repeat, so a button held as a game ends starts nothing. Each button is
 # timed on its own; releasing it starts the delay over.
-RSpec.describe Ruby::Nes::Frontends::Browser::ButtonPresses do
+RSpec.describe Ruby::Nes::Frontends::Screens::ButtonPresses do
   describe '#presses' do
     subject(:button_presses) { described_class.new }
 

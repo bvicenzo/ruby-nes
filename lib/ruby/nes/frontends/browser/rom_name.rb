@@ -5,7 +5,7 @@ module Ruby
     module Frontends
       module Browser
         # The name the ROM browser shows for a ROM file, and its No-Intro tags apart (plan 37, decision 4), both
-        # printable (Browser::PixelFont.printable). Off the hot path: once per file listed.
+        # printable (Screens::PixelFont.printable). Off the hot path: once per file listed.
         RomName = Data.define(:name, :tags)
 
         class RomName
@@ -16,7 +16,7 @@ module Ruby
           # The name and tags of the ROM at `path`: its file name without the extension. A file name made of tags alone
           # is its own name, with no tags.
           def self.of(path)
-            file_name = PixelFont.printable(File.basename(path, '.*'))
+            file_name = Screens::PixelFont.printable(File.basename(path, '.*'))
             tags = file_name.scan(TAG)
             title = squeezed(file_name.gsub(TAG, ''))
             return new(name: squeezed(file_name), tags: '') if title.empty?

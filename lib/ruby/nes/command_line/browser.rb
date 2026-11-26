@@ -25,7 +25,7 @@ module Ruby
           @preview = Frontends::Browser::Preview.new(
             cache: Frontends::Browser::PreviewCache.new(directory:, error_output:)
           )
-          @button_presses = Frontends::Browser::ButtonPresses.new
+          @button_presses = Frontends::Screens::ButtonPresses.new
           @menu = menu(roms, 0)
         end
 

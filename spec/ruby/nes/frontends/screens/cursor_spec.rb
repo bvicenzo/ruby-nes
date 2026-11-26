@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-require 'ruby/nes/frontends/browser'
+require 'ruby/nes/frontends/screens'
 
 # The focus in the browser's list of ROMs and the rows of it shown (plan 37, scope 3): the focus starts on the first
 # ROM, moves by rows or by pages of the rows shown, and stops at the first and the last ROM. The rows shown follow the
 # focus, scrolling only as far as needed to keep it in sight. The list holds at least one ROM.
-RSpec.describe Ruby::Nes::Frontends::Browser::Cursor do
+RSpec.describe Ruby::Nes::Frontends::Screens::Cursor do
   describe '#move' do
     context 'when the focus would pass the first ROM' do
       subject(:cursor) { described_class.new(size: 30, rows: 10) }

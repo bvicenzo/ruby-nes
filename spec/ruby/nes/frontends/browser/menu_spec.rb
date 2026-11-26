@@ -4,7 +4,7 @@ require 'ruby/nes/frontends/browser'
 
 # The ROM browser's menu (plan 37, decision 6), told each frame the buttons held on controller 1: up and down move the
 # focus a ROM, left and right a page of the list's rows, each press once and then repeating while held
-# (Browser::ButtonPresses); A or Start start the ROM in focus when ruby-nes can run it. The preview (Browser::Preview)
+# (Screens::ButtonPresses); A or Start start the ROM in focus when ruby-nes can run it. The preview (Browser::Preview)
 # takes the focus when it lands on another ROM, and only then, so a press against the end of the list leaves the
 # preview running; it is told every frame. The focus starts on the ROM given, the first by default, the preview on it.
 # Its picture is the screen of the list (Browser::Screen), with the reason the ROM in focus cannot be run: its own
