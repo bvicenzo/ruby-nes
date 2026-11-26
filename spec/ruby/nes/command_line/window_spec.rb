@@ -13,7 +13,8 @@ require 'ruby/nes/command_line'
 # The game's battery save (plan 34) is loaded before the window opens, by a Saves::BatteryKeeper the driver tells each
 # frame, and written when the run ends, before the window closes; a refused save stops the run before the window opens.
 # The keeper decides when to write: here a stand-in, but for a real dump without battery RAM, whose run must leave no
-# file in the temporary data directory.
+# file in the temporary data directory. The game's save states (plan 35) are kept by a Saves::StateSlots the driver
+# hands each state action the frontend asks for.
 RSpec.describe Ruby::Nes::CommandLine::Window do
   describe '#run' do
     subject(:window) { described_class.new(open_window:, default_config_path:, error_output:, saves_directory:) }
@@ -158,6 +159,8 @@ RSpec.describe Ruby::Nes::CommandLine::Window do
                   Ruby::Nes::Frontends::Base,
                   paused?: false,
                   reset_requested?: false,
+                  state_action: nil,
+                  notify: nil,
                   button_states: [0x00, 0x00],
                   queue_audio: nil,
                   present: nil,
@@ -168,6 +171,21 @@ RSpec.describe Ruby::Nes::CommandLine::Window do
               before do
                 File.write(config_path, "keys:\n  pause: space\n")
                 allow(frontend).to receive(:running?).and_return(true, false)
+              end
+
+              context 'and the player saves a state before it' do
+                let(:console) { Ruby::Nes::Console.new(Cartridges.build) }
+
+                before do
+                  allow(frontend).to receive(:state_action).and_return(:save_state, nil)
+                  window.run(console, options, jit_name: 'yjit')
+                end
+
+                it "saves it with its picture in the ROM's states folder, and says so", :aggregate_failures do
+                  expect(Dir.children(File.join(directory, 'ruby-nes', 'states', 'game')))
+                    .to contain_exactly('0.state', '0.png')
+                  expect(frontend).to have_received(:notify).with('State 0 saved')
+                end
               end
 
               context 'but it is a dump without battery RAM', local_rom: 'Bomberman II (USA).nes' do

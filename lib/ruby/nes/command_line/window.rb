@@ -8,7 +8,9 @@ module Ruby
       # (CommandLine::RaylibWindow by default), runs the console in it through Frontends::Driver until it stops, and
       # closes it however the run ends. The game's battery save (plan 34) is loaded from `saves_directory` before the
       # window opens, kept in step every few seconds by a Saves::BatteryKeeper the driver tells each frame, and written
-      # when the run ends, however it ends, before the window closes. Off the hot path.
+      # when the run ends, however it ends, before the window closes. The game's save states (plan 35) are kept by a
+      # Saves::StateSlots in the same directory, which the driver hands each state action the frontend asks for, the
+      # frame on screen drawn as its picture by Frontends::Screenshot. Off the hot path.
       class Window
         # `open_window` takes `keys:`, `gamepad_buttons:` and `gamepad_mappings:` (Frontends::KeyConfig), `viewport:`,
         # `jit_name:` and `audio:` (false with --no-audio) and returns the frontend.
@@ -33,8 +35,9 @@ module Ruby
           battery_keeper = Saves::BatteryKeeper
             .for(console:, directory: @saves_directory, rom_path: options.rom_path, error_output: @error_output)
             .tap(&:load)
+          states = state_slots(console, options)
           frontend = open_frontend(key_config, options, jit_name)
-          Frontends::Driver.new(console:, frontend:, frame_observer: battery_keeper).run
+          Frontends::Driver.new(console:, frontend:, frame_observer: battery_keeper, states:).run
         ensure
           close(battery_keeper, frontend)
         end
@@ -58,6 +61,16 @@ module Ruby
           battery_keeper&.close
         ensure
           frontend&.close
+        end
+
+        def state_slots(console, options)
+          Saves::StateSlots.for(
+            console:,
+            directory: @saves_directory,
+            rom_path: options.rom_path,
+            picture: Frontends::Screenshot,
+            error_output: @error_output
+          )
         end
 
         def warn_unbound(actions)
