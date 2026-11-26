@@ -67,7 +67,7 @@ Conventions (see also `CLAUDE.md`):
 | 34 | [Battery-backed saves](34-battery-backed-saves.md) | 20, 21 | done |
 | 35 | [Save states](35-save-states.md) | 34 | done |
 | 36 | [Gamepad input](36-gamepad-input.md) | 18 | done |
-| 37 | [ROM browser](37-rom-browser.md) | 35, 36 | todo |
+| 37 | [ROM browser](37-rom-browser.md) | 35, 36 | done |
 | 38 | [On-screen settings and pause menu](38-on-screen-settings.md) | 36, 37 | todo |
 | 39 | [The audio device's period on Linux](39-audio-device-period.md) | 24, 32 | done |
 

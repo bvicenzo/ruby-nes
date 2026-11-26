@@ -16,9 +16,14 @@ controls, reset, back to the list, quit.
   `Frontends::KeyConfig`. Its rules: an action takes a list of keys, `[]` leaves it without one, and a key the file
   gives to another action leaves its default action.
 - Writing that file back from the program is new. Today it is only read, and people may have written comments in it.
-- Plan 37 brings the menu's look and a window that outlives a game. Plan 35 brings save state slots. Plan 36 brings
-  gamepad bindings for the controller buttons only: hotkeys on the pad, and the pad combination that opens this menu,
-  were left to this plan (plan 36, decision 3), so `Frontends::Hotkeys` must learn a second input source here.
+- Plan 37 brings the menu's look and a window that outlives a game. Its menu is an NES frame composed in Ruby
+  (`Frontends::Browser::Screen`, with the 8×8 `Frontends::Browser::PixelFont`) and drawn like a game, navigated with
+  controller 1's buttons; the screens here can be built the same way. In a game started from its list, Escape returns
+  to the list (plan 37, decision 5): this plan's pause menu takes Escape's place there, with "back to the list" among
+  its entries. Returning to the list and quitting from the gamepad alone were left to this plan's pad combination.
+  Plan 35 brings save state slots. Plan 36 brings gamepad bindings for the controller buttons only: hotkeys on the
+  pad, and the pad combination that opens this menu, were left to this plan (plan 36, decision 3), so
+  `Frontends::Hotkeys` must learn a second input source here.
 
 ## Scope
 
