@@ -25,6 +25,29 @@ RSpec.describe Ruby::Nes::Saves::ConsoleState do
     end
   end
 
+  # The key of the ROM browser's preview cache (plan 37, decision 2).
+  describe '#rom_digest' do
+    subject(:state) { described_class.new(console) }
+
+    context 'when the cartridge has CHR ROM' do
+      # 16 KiB of NOP and 8 KiB of zeros.
+      let(:console) { Ruby::Nes::Console.new(Cartridges.build) }
+
+      it 'is the SHA-256 of its PRG ROM then its CHR ROM, in hexadecimal' do
+        expect(state.rom_digest).to eq('b870f6206319c9cdf988b1e9846527a10644011203edf2b0fb1d45568d79b6db')
+      end
+    end
+
+    context 'when the cartridge has CHR RAM' do
+      # 16 KiB of NOP.
+      let(:console) { Ruby::Nes::Console.new(Cartridges.build(chr_rom: [])) }
+
+      it 'is the SHA-256 of its PRG ROM alone' do
+        expect(state.rom_digest).to eq('78f2530731cd8b40e507d5ddd553996979d53aa1ab0de31fca1cfbfb43fb021f')
+      end
+    end
+  end
+
   describe '#restore' do
     subject(:state) { described_class.new(console) }
 

@@ -55,6 +55,13 @@ module Ruby
           raise InvalidState, 'cannot be read by this version of ruby-nes'
         end
 
+        # The SHA-256 of the console's ROM, its PRG ROM then its CHR ROM (none with CHR RAM), in hexadecimal: the
+        # header's, and the key of the ROM browser's preview cache (plan 37, decision 2).
+        def rom_digest
+          cartridge = @console.cartridge
+          @rom_digest ||= Digest::SHA256.hexdigest((cartridge.prg_rom + cartridge.chr_rom).pack(UNSIGNED_BYTES))
+        end
+
         private
 
         def check_header(bytes)
@@ -74,11 +81,6 @@ module Ruby
           raise InvalidState, 'saved with the sound off (--no-audio)' if sample_rate == NO_SOUND
 
           raise InvalidState, 'saved with the sound on (without --no-audio)'
-        end
-
-        def rom_digest
-          cartridge = @console.cartridge
-          @rom_digest ||= Digest::SHA256.hexdigest((cartridge.prg_rom + cartridge.chr_rom).pack(UNSIGNED_BYTES))
         end
 
         def sample_rate = @console.audio_sample_rate || NO_SOUND

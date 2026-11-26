@@ -110,4 +110,14 @@ RSpec.describe Ruby::Nes::Saves::Directory do
       end
     end
   end
+
+  # The ROM browser's previews are named after the ROM's SHA-256, not its file name: a renamed ROM keeps its preview
+  # (plan 37, decision 2).
+  describe '#preview_path' do
+    subject(:directory) { described_class.new(environment: { 'XDG_DATA_HOME' => '/data' }, home: -> { '' }) }
+
+    it "is the ROM's digest with .state in the previews folder of the root" do
+      expect(directory.preview_path('b870f620')).to eq('/data/ruby-nes/previews/b870f620.state')
+    end
+  end
 end

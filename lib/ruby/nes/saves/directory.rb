@@ -10,13 +10,16 @@ module Ruby
       # config's `~` is, and must be an absolute path. Both are read when a path is asked, so a run that saves nothing
       # never needs them. A battery save is named after the ROM's file name, its extension replaced with `.sav` (plan
       # 34, decision 2), as other emulators name theirs; a game's save states live in a folder named after it too (plan
-      # 35, decision 7).
+      # 35, decision 7). The ROM browser's previews are named after the ROM's SHA-256, so a renamed ROM keeps its own
+      # (plan 37, decision 2).
       class Directory
         APPLICATION = 'ruby-nes'
         DEFAULT_DATA_HOME = ['.local', 'share'].freeze
         BATTERY_SAVES = 'saves'
         BATTERY_SAVE_EXTENSION = '.sav'
         STATES = 'states'
+        PREVIEWS = 'previews'
+        PREVIEW_EXTENSION = '.state'
 
         # `home` answers the home directory when called.
         def initialize(environment: ENV, home: -> { Dir.home })
@@ -35,6 +38,9 @@ module Ruby
 
         # The folder of the save states of the ROM at `rom_path`.
         def states_folder(rom_path) = File.join(root, STATES, game_name(rom_path))
+
+        # The ROM browser's preview of the ROM whose SHA-256 is `rom_digest` (Saves::ConsoleState#rom_digest).
+        def preview_path(rom_digest) = File.join(root, PREVIEWS, rom_digest + PREVIEW_EXTENSION)
 
         private
 
