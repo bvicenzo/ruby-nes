@@ -21,6 +21,18 @@ module Cartridges
   VECTORS = [INTERRUPT_HANDLER_START, PROGRAM_START, INTERRUPT_HANDLER_START].pack('v*').bytes.freeze
   # RTI.
   RETURN_FROM_INTERRUPT = [0x40].freeze
+  # Reads PPUSTATUS (clearing the address latch, w), sets the backdrop colour, $3F00, to $21 through PPUADDR and
+  # PPUDATA, points PPUADDR back at $0000 and starts over (https://www.nesdev.org/wiki/PPU_registers). Its frames show
+  # $21 once the PPU accepts writes, the end of the first VBlank after reset
+  # (https://www.nesdev.org/wiki/PPU_power_up_state): with rendering off the PPU draws the backdrop, or the colour v
+  # points at in palette RAM (https://www.nesdev.org/wiki/PPU_palettes). A console at power-up has drawn nothing (0).
+  #
+  #   LDA $2002; LDA #$3F; STA $2006; LDA #$00; STA $2006; LDA #$21; STA $2007
+  #   LDA #$00; STA $2006; STA $2006; JMP $8000
+  BACKDROP_PROGRAM = [%w[AD0220 A93F 8D0620 A900 8D0620 A921 8D0720 A900 8D0620 8D0620 4C0080].join]
+    .pack('H*')
+    .bytes
+    .freeze
 
   # One optional keyword per memory and header field a board reads, so each spec passes only its cause's.
   # rubocop:disable-next Metrics/ParameterLists
@@ -46,12 +58,16 @@ module Cartridges
     Ruby::Nes::Cartridge.new(header:, prg_rom: prg_rom.dup.freeze, chr_rom: chr_rom.dup.freeze, trainer: [].freeze)
   end
 
-  # The iNES image of an NROM cartridge, as a file holds it (https://www.nesdev.org/wiki/INES): the header with one
-  # unit of 16 KiB of PRG ROM per 16 KiB given and 8 KiB of CHR ROM, the battery flag of flags 6 when asked, then the
-  # PRG ROM and the CHR ROM (zeros).
-  def self.ines_image(prg_rom:, battery: false)
-    flags6 = battery ? Ruby::Nes::Cartridge::Header::BATTERY_FLAG : 0
-    header = [*Ruby::Nes::Cartridge::Header::MAGIC, prg_rom.size / PRG_ROM_SIZE, 1, flags6, *Array.new(9, 0)]
+  # The iNES image of a cartridge, as a file holds it (https://www.nesdev.org/wiki/INES): the header with one unit of
+  # 16 KiB of PRG ROM per 16 KiB given and 8 KiB of CHR ROM, the battery flag of flags 6 when asked, the mapper number's
+  # lower nybble in flags 6 and its upper nybble in flags 7 (NROM, 0, by default), then the PRG ROM and the CHR ROM
+  # (zeros).
+  def self.ines_image(prg_rom:, battery: false, mapper_number: 0)
+    battery_flag = battery ? Ruby::Nes::Cartridge::Header::BATTERY_FLAG : 0
+    mapper_low_nibble = Ruby::Nes::Bits.low_bits(mapper_number, Ruby::Nes::Bits::NIBBLE_MASK)
+    flags6 = Ruby::Nes::Bits.combine_nibbles(low: battery_flag, high: mapper_low_nibble)
+    flags7 = Ruby::Nes::Bits.combine_nibbles(low: 0, high: Ruby::Nes::Bits.high_nibble(mapper_number))
+    header = [*Ruby::Nes::Cartridge::Header::MAGIC, prg_rom.size / PRG_ROM_SIZE, 1, flags6, flags7, *Array.new(8, 0)]
     [*header, *prg_rom, *Array.new(CHR_ROM_SIZE, 0)].pack('C*')
   end
 

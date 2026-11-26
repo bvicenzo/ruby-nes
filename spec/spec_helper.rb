@@ -17,6 +17,7 @@ if ENV['COVERAGE']
 end
 
 require 'ruby/nes'
+require_relative 'support/browser_roms'
 require_relative 'support/cartridges'
 require_relative 'support/constant_samples'
 require_relative 'support/flat_bus'
@@ -35,6 +36,7 @@ require_relative 'support/range_log'
 require_relative 'support/recorded_play'
 require_relative 'support/schedule_lines'
 require_relative 'support/scripted_play'
+require_relative 'support/screen_text'
 require_relative 'support/shape_samples'
 require_relative 'support/signals'
 require_relative 'support/test_roms'
