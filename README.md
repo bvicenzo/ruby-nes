@@ -191,9 +191,8 @@ roms_directory: ~/games/nes
 ```
 
 - **Moving.** Up and down move through the list, left and right a page at a time, from the keyboard or the first
-  gamepad. A or Start starts the game. Escape in the list quits.
-- **Back to the list.** Escape in a game started from the list goes back to it, writing the game's battery save first.
-  `ruby-nes ROM` keeps Escape quitting.
+  gamepad. A or Start starts the game. Escape, or L + R on the gamepad, opens the list's menu: RESUME or QUIT.
+- **Back to the list.** BACK TO LIST in a game's pause menu goes back to it, writing the game's battery save first.
 - **Names and marks.** A game shows under its file name, without the tags in brackets, such as `(USA)`, which show
   under the preview. ♥ marks a game with a battery save, ★ one with save states. A ROM ruby-nes cannot run, such as
   one with a mapper it does not support, is listed in grey with the reason in the preview's place, and does not
@@ -204,6 +203,22 @@ roms_directory: ~/games/nes
   `~/.local/share/ruby-nes/previews/`, named after the ROM's SHA-256. From then on that moment shows at once, and the
   demo goes on from there. The preview is silent and never touches the game's saves.
 
+### The pause menu
+
+Escape in a game, or L and R held together on the gamepad, pauses it under a menu, its picture dimmed:
+
+- **RESUME** goes back to the game, as B, Escape or L + R again do.
+- **SAVE STATE** and **LOAD STATE** open the ten save state slots, each with the picture of its moment; ★ marks a slot
+  that holds a state. Up and down pick one, A or Start save or load there, and it becomes the current slot (see Save
+  states). B goes back to the menu.
+- **RESET** presses the console's reset button.
+- **BACK TO LIST** returns to the ROM browser, in a game started from it.
+- **QUIT** closes ruby-nes, writing the game's battery save first.
+
+The menu is moved with the D-pad or the arrow keys, from the keyboard or the first gamepad, so a game can be left,
+and ruby-nes closed, from the pad alone. Buttons still held as the menu closes reach the game only once let go. P still
+pauses without a menu.
+
 ### Keys
 
 | NES controller | Key | | Emulator | Key |
@@ -211,10 +226,11 @@ roms_directory: ~/games/nes
 | A | X | | Pause | P |
 | B | Z | | Reset | R |
 | Select | Right Shift | | Frame rate overlay | F |
-| Start | Enter | | Quit (from a game started in the browser, back to the list) | Escape |
+| Start | Enter | | Menu (pause menu in a game) | Escape |
 | D-pad | Arrow keys | | Save state | F5 |
 | | | | Load state | F7 |
 | | | | Previous / next state slot | F6 / F8 |
+| | | | Quit at once | none |
 
 Keys are set in `~/.config/ruby-nes/config.yml`, or in the file given with `--config`. Each action takes a key name or
 a list of them, and `[]` leaves an action without a key. Actions the file doesn't mention keep their default keys:
@@ -225,6 +241,10 @@ keys:
   b: [z, left_control]
   pause: space
 ```
+
+Quitting is in the menu, so `quit` has no key unless the file gives it one; `quit: escape` brings back Escape as it was
+before the menu (in a game started from the list it returns to the list, elsewhere it quits), and leaves the menu to
+L + R on the gamepad.
 
 ### Gamepads
 
@@ -244,7 +264,7 @@ them, so on a SNES-style pad the letters match:
 The left analog stick, on pads that have one, moves too once pushed past half way. The other buttons are
 `left_trigger_1`, `right_trigger_1` (L and R), `left_trigger_2`, `right_trigger_2`, `middle`, `left_thumb` and
 `right_thumb`. The `gamepad:` section of the config file sets them with the rules of `keys:`. Emulator hotkeys stay on
-the keyboard.
+the keyboard, except the menus: L and R held together open them (see The pause menu).
 
 ```yaml
 gamepad:
@@ -282,8 +302,8 @@ nothing, and `--headless` never reads or writes saves.
 A save state keeps the whole machine at one moment, so any game can be left and taken up again exactly there, even
 one with no save of its own:
 
-- **Save and load.** F5 saves to the current slot, replacing what was there, and F7 loads it. The sound starts over
-  from that moment.
+- **Save and load.** F5 saves to the current slot, replacing what was there, and F7 loads it; the pause menu does both
+  on the slot picked by its picture. The sound starts over from that moment.
 - **Slots.** There are 10 slots, 0 to 9, picked with F6 and F8, and a game opens on the slot it saved last. A message
   at the bottom of the window says what happened: "State 3 saved", "Slot 4", "State 3 is empty".
 - **Files.** A state lives in `~/.local/share/ruby-nes/states/<ROM name>/` (or under `$XDG_DATA_HOME`), as

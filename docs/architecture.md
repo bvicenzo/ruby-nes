@@ -361,7 +361,7 @@ alike), `Frontends::Players` (plan 36: port 1 is the keyboard and gamepad 0 comb
 only while raylib says it is available, so plugging in and out needs nothing more; each port through
 `Frontends::OppositeDirections`, Left+Right and Up+Down cancel) with `Frontends::Gamepad` (a pad's bound buttons and
 its left stick past a dead zone of 0.5, `Frontends::StickDirections`), read through `Frontends::RaylibInput` (raylib's
-key, gamepad and axis calls, loadable without the gem), `Frontends::Hotkeys` (Esc quits, P pauses, R resets, F
+key, gamepad and axis calls, loadable without the gem), `Frontends::Hotkeys` (Esc opens the menus, P pauses, R resets, F
 toggles the overlay, F5-F8 save, load and pick a save state slot), `Frontends::FrameRate` (the overlay's frames per second, beside the JIT running) and `Frontends::FramePacing` (sleep until the next deadline at
 60.0988 Hz, deadlines a period apart so oversleeping never drifts, a period or more late restarts the schedule with no
 catch-up burst). With audio (plan 24) the window paces by it instead: `Frontends::AudioPacing` queues each frame's
@@ -426,24 +426,53 @@ outlives a game in the ROM browser (plan 37), in two layers:
 
 - **The browser's screen, in `Frontends::Browser`, loadable without raylib.** `RomList` lists the `.nes` files of a
   folder (hidden ones left out), each a `Rom` with its name and tags (`RomName`: the file name without its No-Intro
-  tags), the reason it cannot run, read from its iNES header alone (a file that cannot be read included), and marks
-  for its battery save and save states. `Menu` is told controller 1's buttons each frame: `ButtonPresses` turns held
-  buttons into presses, the directions repeating after 20 frames and every 6, `Cursor` keeps the focus and the rows
-  shown, and A or Start return the ROM to start; a folder with no ROM gets `EmptyMenu` instead. `Screen`
-  composes the menu as an NES frame, 256 × 240 palette indices on the 8 × 8 grid, with `PixelFont`'s 8 × 8 glyphs, so
-  the window draws it as it draws a game and its specs read it as text. `Preview` gives the game in focus a silent
-  console of its own: its cached state (`PreviewCache`, `previews/<ROM SHA-256>.state`, a `Saves::ConsoleState`) is
-  restored at once as the still picture; after 30 frames of rest the console runs a frame per menu frame, and from
-  power-up `MotionWatch` counts the different pictures of each second (a frame buffer's hash) until 30 mark the moving
-  picture, or a minute passes, and the state is cached there. A cartridge the preview cannot load gives its reason
-  (`Preview#problem`), which the screen shows as it shows a ROM's own.
+  tags), the reason it cannot run, read from its iNES header alone (a file that cannot be read included), and marks for
+  its battery save and save states. `Menu` is told controller 1's buttons each frame: `Screens::ButtonPresses` turns
+  held buttons into presses, the directions repeating after 20 frames and every 6, `Screens::Cursor` keeps the focus and
+  the rows shown, and A or Start return the ROM to start; a folder with no ROM gets `EmptyMenu` instead. `Screen`
+  composes the menu as an NES frame, 256 × 240 palette indices on the 8 × 8 grid, in a `Screens::Canvas` with
+  `Screens::PixelFont`'s 8 × 8 glyphs, so the window draws it as it draws a game and its specs read it as text.
+  `Preview` gives the game in focus a silent console of its own: its cached state (`PreviewCache`, `previews/<ROM
+  SHA-256>.state`, a `Saves::ConsoleState`) is restored at once as the still picture; after 30 frames of rest the
+  console runs a frame per menu frame, and from power-up `MotionWatch` counts the different pictures of each second (a
+  frame buffer's hash) until 30 mark the moving picture, or a minute passes, and the state is cached there. A cartridge
+  the preview cannot load gives its reason (`Preview#problem`), which the screen shows as it shows a ROM's own.
 - **The loop, in `CommandLine`.** `CommandLine::Window#browse` reads the config, picks the folder (the command line's,
   else `roms_directory:`, else `roms/`), lists it and opens the window; `CommandLine::Browser` runs the menu, asking the
   window for a frame of silence each frame (`Frontends::Base#queue_silence`; while paused the window queues its own) so
   the audio keeps pacing it, plays the ROM started as a `Game` on a console of
-  its own, and goes back to the list, read again, when the game ends. Escape ends the game (the hotkeys' quit), the
-  window's close button (`Frontends::Base#closed?`) ends the browser, and `Frontends::Base#next_screen` starts the
-  hotkeys and the queued audio over between screens.
+  its own, and goes back to the list, read again, when the game ends: BACK TO THE LIST in its pause menu
+  (`Frontends::Base#leave`). The window's close button and QUIT in a menu (`Frontends::Base#closed?`, `#quit`) end the
+  browser, and `Frontends::Base#next_screen` starts the hotkeys, the menu's buttons, the screen left and the queued
+  audio over between screens, the buttons held then kept from the next screen until let go (plan 38).
+
+The menus over a paused screen (plan 38) are in three layers:
+
+- **What every menu shares, in `Frontends::Screens`.** Out of plan 37's browser: `Colours`, `PixelFont`,
+  `ButtonPresses`, `Cursor`, `Canvas` (one frame buffer: text on the grid, centred, a filled area, a frame just outside
+  one, a picture scaled down, another frame's pixels copied in) and `Layout` (the picture at half size and the list's
+  rows). `Shade` dims a frame as a menu opens: each colour the same hue one value row lower, the darkest row, the black
+  hues and $1D (which would give $0D, "blacker than black") becoming $0F, emphasis bits kept, through a table of the 512
+  pixel values. `Choices` is a column of entries: up and down move, A or Start choose an available one, B is BACK.
+- **The menus, in `Frontends::Pause`.** `Menu` holds the entries over the dimmed picture (`Screen#menu`, a framed box)
+  and gives a `Choice`: B is `Choice::RESUME`, SAVE STATE and LOAD STATE open a `SlotPicker` (the ten slots, those
+  with a state starred, only those loadable; `Screen#slots`, laid out as the browser's list), whose slot chosen is the
+  choice. The picture of the slot in focus is `Saves::StatePictures`: the state restored into a console of its own,
+  built from the playing console's cartridge and sound, once per move of the focus, so its palette indices are exact.
+- **The loop, in `CommandLine`.** `CommandLine::MenuLoop` runs a menu in the window: a frame of silence and the menu's
+  picture each frame, then the menu's key or buttons, read as the frame was presented, close it as RESUME, or the menu
+  is told controller 1's presses, a button held as it opens being no press. `CommandLine::Pause` is the game's pause
+  menu, which `Frontends::Driver` opens (its `pause_menu:`, `Driver::NoPauseMenu` by default) when the frontend asks
+  (`Frontends::Base#menu_requested?`), taking that turn: it does the choice (`Saves::StateSlots#pick` and `#perform`
+  for a slot, `Console#reset`, `Frontends::Base#leave` or `#quit`) and resumes the window
+  (`Frontends::Base#resume`: the hotkeys and `MenuCombination` start over, so the L + R that closed a menu does not
+  open it again, and `Frontends::HeldOver` keeps the buttons then held from the screen under the menu until let go).
+  `CommandLine::Browser` opens the list's menu (RESUME, QUIT) over the list the same way, and resumes the window after
+  RESUME, which also un-pauses a list paused with P. `HeldOver` learns a button was let go only when the buttons are
+  read, which a game paused with P does not do: a button held as a menu closed, let go while paused and held again
+  stays hidden until let go once more. The window asks
+  for the menu with the `menu` hotkey (Escape; `quit` has no key by default) or with L + R held together on the first
+  gamepad (`Frontends::MenuCombination`, on the frame the second becomes held).
 
 `bench/frontends.rb` and `rake bench:frontends` run and time the backend unpaced; its tone still reaches the speaker,
 as the audio pacing submits whatever the stream has room for when samples are queued.
@@ -593,12 +622,14 @@ most calls.
 | `lib/ruby/nes/input/` | `Ruby::Nes::Input::Controller`, `::ControllerPorts` | a standard controller; the device answering `$4016`/`$4017` |
 | `lib/ruby/nes/audio.rb` | `Ruby::Nes::Audio` | the sample rate and the RC time constant (plan 24) |
 | `lib/ruby/nes/audio/` | `Ruby::Nes::Audio::Resampler`, `::OutputStage`, `::HighPassFilter`, `::LowPassFilter`, `::SampleBuffer` | the box resampler, the NES's output filters and 16-bit conversion, the frame's samples (plan 24) |
-| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver` (`::Driver::NoFrameObserver`, `::Driver::NoStates`), `::Headless`, `::InputScript`, `::Palette`, `::Png`, `::Screenshot`, `::Wav`, `::Controls`, `::Gamepad`, `::Players`, `::StickDirections`, `::Raylib`, `::RaylibInput`, `::RaylibLibrary`, `::RaylibAudioStream`, `::AudioDeviceLatency`, `::RaylibPicture`, `::Viewport`, `::KeyConfig` (`::KeyConfig::Section`), `::KeyBindings`, `::Hotkeys`, `::OppositeDirections`, `::FramePacing`, `::AudioPacing`, `::FrameRate`, `::MonotonicClock`, `::Notice` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); keys to controller buttons and the raylib window (plan 17), the frame on the GPU (plan 32); the window's viewport, key config, hotkeys, direction filter, pacing and frame rate (plan 18); WAV encoding, the raylib audio stream and audio-driven pacing (plan 24), the audio device's latency (plan 39); gamepads, both players and the raylib input (plan 36); a frame as a PNG image and the window's messages (plan 35). Never loaded by `lib/ruby/nes.rb` |
-| `lib/ruby/nes/frontends/browser.rb`, `frontends/browser/` | `Ruby::Nes::Frontends::Browser::PixelFont`, `::RomName`, `::Rom`, `::RomList`, `::ButtonPresses`, `::Cursor`, `::MotionWatch`, `::PreviewCache`, `::Preview`, `::Screen`, `::Menu`, `::EmptyMenu` | the ROM browser's screen (plan 37): the ROMs of a folder, their names and marks, navigation from controller 1, the preview of the game in focus from a cached save state, and the menu composed as an NES frame with an 8 × 8 font of its own. Loadable without raylib; never loaded by `lib/ruby/nes.rb` |
+| `lib/ruby/nes/frontends/` | `Ruby::Nes::Frontends::Base`, `::Driver` (`::Driver::NoFrameObserver`, `::Driver::NoStates`, `::Driver::NoPauseMenu`), `::MenuCombination`, `::HeldOver`, `::Headless`, `::InputScript`, `::Palette`, `::Png`, `::Screenshot`, `::Wav`, `::Controls`, `::Gamepad`, `::Players`, `::StickDirections`, `::Raylib`, `::RaylibInput`, `::RaylibLibrary`, `::RaylibAudioStream`, `::AudioDeviceLatency`, `::RaylibPicture`, `::Viewport`, `::KeyConfig` (`::KeyConfig::Section`), `::KeyBindings`, `::Hotkeys`, `::OppositeDirections`, `::FramePacing`, `::AudioPacing`, `::FrameRate`, `::MonotonicClock`, `::Notice` | the frontend contract and its loop, the headless frontend and its input script, RGB conversion, PNG encoding (plan 16); keys to controller buttons and the raylib window (plan 17), the frame on the GPU (plan 32); the window's viewport, key config, hotkeys, direction filter, pacing and frame rate (plan 18); WAV encoding, the raylib audio stream and audio-driven pacing (plan 24), the audio device's latency (plan 39); gamepads, both players and the raylib input (plan 36); a frame as a PNG image and the window's messages (plan 35). Never loaded by `lib/ruby/nes.rb` |
+| `lib/ruby/nes/frontends/screens.rb`, `frontends/screens/` | `Ruby::Nes::Frontends::Screens::Colours`, `::PixelFont`, `::ButtonPresses`, `::Cursor`, `::Canvas`, `::Layout`, `::Shade`, `::Choices` | what the window's menus share (plan 38, out of plan 37's browser): their colours, the 8 × 8 font, presses and focus from controller 1, the frame they draw in and where things go on it, the paused picture dimmed, a column of entries |
+| `lib/ruby/nes/frontends/pause.rb`, `frontends/pause/` | `Ruby::Nes::Frontends::Pause::Choice`, `::Screen`, `::SlotPicker`, `::Menu` | the menus over a paused screen (plan 38): the pause menu over a game and the ROM list's menu, the slot picker with the picture of the slot in focus |
+| `lib/ruby/nes/frontends/browser.rb`, `frontends/browser/` | `Ruby::Nes::Frontends::Browser::RomName`, `::Rom`, `::RomList`, `::MotionWatch`, `::PreviewCache`, `::Preview`, `::Screen`, `::Menu`, `::EmptyMenu` | the ROM browser's screen (plan 37): the ROMs of a folder, their names and marks, navigation from controller 1, the preview of the game in focus from a cached save state, and the menu composed as an NES frame with an 8 × 8 font of its own. Loadable without raylib; never loaded by `lib/ruby/nes.rb` |
 | `lib/ruby/nes/debug/` | `Ruby::Nes::Debug::Tracer` | tooling off the hot path |
 | `lib/ruby/nes/bits.rb` | `Ruby::Nes::Bits` | the bit constants hot paths use inline (`BYTE_MASK`, `PAGE_MASK`…) and readable bit helpers for code off the hot path |
-| `lib/ruby/nes/command_line.rb`, `command_line/` | `Ruby::Nes::CommandLine`, `::Options`, `::Jit`, `::ConfigFile`, `::Window`, `::RaylibWindow`, `::Game`, `::Browser` | `exe/ruby-nes`: loads the core and the frontends, parses the arguments, enables the JIT, runs a ROM headless or in the window (plans 16 and 18); a game in an open window and the ROM browser's loop (plan 37) |
-| `lib/ruby/nes/saves.rb`, `saves/` | `Ruby::Nes::Saves`, `::Directory`, `::AtomicFile`, `::BatteryFile`, `::BatteryKeeper`, `::NoBattery`, `::Shape`, `::ConstantsDigest`, `::ConsoleState`, `::StateFiles`, `::StateSlots`, errors | the window's battery saves (plan 34): where they live, the `.sav` file, the keeper that loads the save and writes the RAM back; save states (plan 35): the console's shape, a state's bytes and their checks, the slots' files and the player's actions; atomic writes for both. Never loaded by `lib/ruby/nes.rb` |
+| `lib/ruby/nes/command_line.rb`, `command_line/` | `Ruby::Nes::CommandLine`, `::Options`, `::Jit`, `::ConfigFile`, `::Window`, `::RaylibWindow`, `::Game`, `::Browser`, `::MenuLoop`, `::Pause` | `exe/ruby-nes`: loads the core and the frontends, parses the arguments, enables the JIT, runs a ROM headless or in the window (plans 16 and 18); a game in an open window and the ROM browser's loop (plan 37); a menu's loop in the window and the pause menu's choices (plan 38) |
+| `lib/ruby/nes/saves.rb`, `saves/` | `Ruby::Nes::Saves`, `::Directory`, `::AtomicFile`, `::BatteryFile`, `::BatteryKeeper`, `::NoBattery`, `::Shape`, `::ConstantsDigest`, `::ConsoleState`, `::StateFiles`, `::StatePictures`, `::StateSlots`, errors | the window's battery saves (plan 34): where they live, the `.sav` file, the keeper that loads the save and writes the RAM back; save states (plan 35): the console's shape, a state's bytes and their checks, the slots' files and the player's actions; atomic writes for both. Never loaded by `lib/ruby/nes.rb` |
 | `spec/support/test_roms.rb`, `spec/support/test_roms/` | `TestRoms`, `TestRoms::Manifest`, `::Fetcher`… | test ROM harness (plan 02): test tooling, not shipped in the gem |
 | `spec/support/blargg.rb`, `spec/support/blargg/` | `Blargg`, `Blargg::Report`, `::LegacyReport`, `::ScreenReport`, `::Runner`, `::Programs` | blargg's "Output at $6000" protocol, the 2005 ROMs' result at `$F8` (plan 14), the older shell's result line on screen (plan 19), and a runner that presses reset when asked (plan 12): test tooling, also used by `rake blargg:run`; specs in `spec/blargg/`, the real ROMs tagged `slow: true` |
 | `spec/support/nestest.rb`, `spec/support/nestest/` | `Nestest`, `Nestest::Log`, `::Runner`, `::Divergence` | nestest in automation mode compared with its reference trace (plan 08): test tooling, also used by `rake nestest:diff` |
@@ -875,3 +906,7 @@ presentation, in a frontend).
 | 110 | 2026-11-25 | The ROM browser's menu is an NES frame, 256 × 240 palette indices composed in Ruby (`Frontends::Browser::Screen`) and drawn by `Frontends::RaylibPicture` like a game; its text sits on the 8 × 8 grid, in an 8 × 8 upper case font of our own (`Frontends::Browser::PixelFont`), within lines 8-231 | Colours of the NES palette by construction and no new drawing code in the window; specs read the screen back as text; composing a frame takes about 0.6 ms under YJIT; raygui's widgets have a tool's look (plan 37, decisions 3 and 4) | Plan 38 (its screens) |
 | 111 | 2026-11-25 | The preview of the game in focus is its own silent console: a cached save state (`previews/<ROM SHA-256>.state`) restored at once as the still picture, then run live after 30 frames of rest; with none, it runs from power-up and the state is cached at the end of the first second showing 30 different pictures (`Frontends::Browser::MotionWatch`), or after a minute | Deterministic emulation makes the ROM its own video; the six local games move after 2-22 s; counting frames that differ from the one before found Super Pitfall's blinking title moving 20 s before its demo; a background scan of every ROM was declined as more code and a busy CPU (plan 37, decision 2) | When a game is found whose picture moves before its demo, or a list too long to wait for |
 | 112 | 2026-11-25 | One window and one audio stream for a browser session, a console per game; Escape goes up a level (a game started from the list returns to it, the list quits) and the close button ends the session (`Frontends::Base#closed?`, `#next_screen`); the menu is navigated with controller 1's buttons | The window outlives a game; the menu queues silence so the audio keeps pacing it; Escape quitting a game outright would lose the list; NES menus read the controller (plan 37, decisions 5-7) | Plan 38 (Escape in a game opens its pause menu; the pad returns to the list) |
+| 113 | 2026-11-26 | Escape is the `menu` hotkey: in a game it opens the pause menu, in the ROM list the list's menu, in a menu it closes it; `quit` stays a hotkey with no default key, and P keeps pausing silently | One rule, "Escape goes up a level, through a menu", instead of three; quitting at once was the riskier key. A config file with `quit: escape` takes Escape back by the file's rule. `unbound_actions` names only actions that lose a default key (plan 38, decision 2) | Plan 40 (the controls screen captures keys) |
+| 114 | 2026-11-26 | L + R held together on gamepad 0 open the menus, fixed, on the frame the second becomes held (`Frontends::MenuCombination`) | NES games never see L or R, so it cannot collide with a game, where Select + Start can (soft resets); SNES pads have no guide button; L and R alone stay free for hotkeys on the pad (plan 38, decision 3) | Plan 40 (hotkeys on the pad) |
+| 115 | 2026-11-26 | Under a menu the paused picture is dimmed by a table of the 512 pixel values (same hue one value row lower; the darkest row, black hues and $1D to $0F, emphasis kept), once as it opens; a slot's picture is its state restored into a console of its own | Colours stay in the NES palette with no new drawing code; a slot's picture has exact palette indices without decoding the PNG beside it, in about 5 ms once per move (plan 38, decision 4) | — |
+| 116 | 2026-11-26 | The menus share `Frontends::Screens` (out of `Frontends::Browser`); the pause menu runs inside the driver's turn (`Driver#pause_menu`, no frame run in it), and its choice is done by `CommandLine::Pause` through `Frontends::Base#leave`, `#quit` and `#resume`; buttons held as a menu closes or a screen changes are kept from the next screen until let go (`Frontends::HeldOver`, `#resume` and `#next_screen`), and both start `Frontends::MenuCombination` over | The driver already hands the frontend's requests to collaborators between frames; ending a screen and ending the session were two meanings of the old quit; the A that chose RESUME would make Mario jump, a held Start pause the game, the A that chose BACK TO LIST start the game again in the list, and the L + R that closed the pause menu open it again (plan 38; review) | — |
