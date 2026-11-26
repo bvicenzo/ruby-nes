@@ -86,9 +86,10 @@ Every measurement, with the profiles that led to each change, is in [`docs/bench
 - **APU:** two pulse channels, triangle, noise and DMC, the frame counter and the mixer, played at 48 kHz.
 - **Mappers:** NROM (0), MMC1 (1), UxROM (2), CNROM (3), MMC3 (4) with its scanline IRQ, and AxROM (7). iNES files.
 - **Controllers:** both controllers, from the keyboard and USB gamepads, with configurable keys and buttons.
-- **Frontends:** a window with sound (raylib), and a headless mode that writes screenshots and WAV audio.
+- **Frontends:** a window with sound (raylib) and a ROM browser in it, save states, and a headless mode that writes
+  screenshots and WAV audio.
 
-Not emulated (yet): save states, PAL consoles, and other mappers. The test ROMs the suite runs are listed in
+Not emulated (yet): PAL consoles, and other mappers. The test ROMs the suite runs are listed in
 [`docs/test-roms.md`](docs/test-roms.md).
 
 ## Installation
@@ -175,6 +176,34 @@ The window opens at 3× scale and runs under YJIT, with sound.
 
 `bundle exec exe/ruby-nes --help` lists every option.
 
+### The ROM browser
+
+```bash
+bundle exec exe/ruby-nes            # the ROMs of roms/
+bundle exec exe/ruby-nes ~/games    # the ROMs of a folder
+```
+
+Without a ROM, the window opens on a list of the `.nes` files of a folder: the one named on the command line, else the
+one `roms_directory:` names in the config file, else `roms/` under the current directory.
+
+```yaml
+roms_directory: ~/games/nes
+```
+
+- **Moving.** Up and down move through the list, left and right a page at a time, from the keyboard or the first
+  gamepad. A or Start starts the game. Escape in the list quits.
+- **Back to the list.** Escape in a game started from the list goes back to it, writing the game's battery save first.
+  `ruby-nes ROM` keeps Escape quitting.
+- **Names and marks.** A game shows under its file name, without the tags in brackets, such as `(USA)`, which show
+  under the preview. ♥ marks a game with a battery save, ★ one with save states. A ROM ruby-nes cannot run, such as
+  one with a mapper it does not support, is listed in grey with the reason in the preview's place, and does not
+  start.
+- **Previews.** Rest on a game for half a second and it plays itself in the preview, as it would on a TV left alone:
+  its title screen, then the demo. The first time, the preview waits for the picture to start moving (a few seconds
+  for most games, about 20 for some), and keeps that moment as a save state in
+  `~/.local/share/ruby-nes/previews/`, named after the ROM's SHA-256. From then on that moment shows at once, and the
+  demo goes on from there. The preview is silent and never touches the game's saves.
+
 ### Keys
 
 | NES controller | Key | | Emulator | Key |
@@ -182,7 +211,7 @@ The window opens at 3× scale and runs under YJIT, with sound.
 | A | X | | Pause | P |
 | B | Z | | Reset | R |
 | Select | Right Shift | | Frame rate overlay | F |
-| Start | Enter | | Quit | Escape |
+| Start | Enter | | Quit (from a game started in the browser, back to the list) | Escape |
 | D-pad | Arrow keys | | Save state | F5 |
 | | | | Load state | F7 |
 | | | | Previous / next state slot | F6 / F8 |

@@ -98,6 +98,7 @@ kept in names because they are what the libraries and protocols call them.
 | Term | Stands for | Meaning | Reference |
 |---|---|---|---|
 | AOT | Ahead-Of-Time (compiler) | A compiler that turns the whole program into machine code before it runs, as Spinel does (plan 26, `docs/spinel.md`), as opposed to a JIT. | [Spinel](https://github.com/matz/spinel) |
+| Attract mode | — | A game playing itself from its title screen when left alone, a demo; the ROM browser's preview shows it (plan 37). | [Attract mode](https://en.wikipedia.org/wiki/Attract_mode) |
 | Box filter | — | The resampler's average: each output sample is the mean of the input levels of its period (`Audio::Resampler`, plan 24). | [Moving average](https://en.wikipedia.org/wiki/Moving_average) |
 | CRuby | — (the C implementation of Ruby) | The reference Ruby interpreter, whose `RUBY_ENGINE` is `"ruby"`; YJIT and ZJIT are its JITs. `CpuBenchmark::Configuration::CRUBY` names its engine, so a binary Spinel compiled reports its own (plan 26). | [Ruby](https://www.ruby-lang.org/) |
 | CRC | Cyclic Redundancy Check | The 32-bit checksum that closes every PNG chunk, computed over its type and data (`Zlib.crc32`). | [PNG](https://www.w3.org/TR/png-3/) |
@@ -112,6 +113,7 @@ kept in names because they are what the libraries and protocols call them.
 | JSON | JavaScript Object Notation | The one-line format `bench/cpu.rb` prints its measurement in, for the bench rake tasks to collect. | [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259) |
 | KiB | Kibibyte | 1024 bytes, the unit of every NES memory size in the code and the docs (`ONE_KIB`, `TWO_KIB` in `Mappers::Mmc3`). | [IEC binary prefixes](https://en.wikipedia.org/wiki/Binary_prefix) |
 | High-pass, low-pass filter | — | A filter that lets frequencies above (high-pass) or below (low-pass) its cut-off through; first order means one RC stage, 3 dB down at the cut-off. The NES has a high-pass at 90 Hz and a low-pass at 14 kHz (plan 24). | [APU Mixer](https://www.nesdev.org/wiki/APU_Mixer) |
+| NFD | Normalization Form D (Canonical Decomposition) | The Unicode form in which an accented letter is its base letter followed by combining marks; the ROM browser's font drops the marks to print "Pokémon" as "POKEMON" (`Frontends::Browser::PixelFont.printable`, plan 37). | [Unicode normalization forms](https://unicode.org/reports/tr15/) |
 | Nyquist frequency | — | Half the sample rate (24 kHz at 48 kHz), the highest frequency samples can carry; discrete filters drift from their analogue models near it. | [Nyquist frequency](https://en.wikipedia.org/wiki/Nyquist_frequency) |
 | PCM | Pulse-Code Modulation | Sound as a series of sample values; here signed 16-bit integers, 48 000 per second (`Audio::SAMPLE_RATE`). | [WAVE format](https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html) |
 | PNG | Portable Network Graphics | The image format of the headless frontend's screenshots (`Frontends::Png`): a signature, then chunks (IHDR, IDAT, IEND), the pixels compressed with zlib. | [PNG](https://www.w3.org/TR/png-3/) |

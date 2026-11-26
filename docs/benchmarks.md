@@ -1004,3 +1004,34 @@ directions, within the noise.
 
 The picture (`Frontends::Screenshot`) takes 1.7-3.0 ms. With the ROM inside, SMB3's uncompressed dump would be
 1,265,209 bytes, 971 KB of it PRG and CHR ROM.
+
+### 2026-11-25 — Frames — Super Mario Bros. 3, world 1-1 with audio, 1200 warm-up frames and 5 runs of 60
+
+ruby 4.0.10 (2026-11-19 revision a704b7cd95) +YJIT +PRISM [x86_64-linux]; x86_64-pc-linux
+
+| Configuration | Frames per second | ms per frame | % of real time | Spread | Frame digest | Audio digest |
+|---|---|---|---|---|---|---|
+| yjit | 95.8 | 10.4 | 159% | 1.9% | f0903fbc59bf | 10369a5b40df |
+| yjit | 89.0 | 11.2 | 148% | 2.9% | f0903fbc59bf | 10369a5b40df |
+| yjit | 91.9 | 10.9 | 153% | 2.7% | f0903fbc59bf | 10369a5b40df |
+
+The frame digests are unchanged by plan 37, which leaves the core alone.
+
+### 2026-11-25 — ROM browser (plan 37)
+
+YJIT, on the same machine. Each of the six local games was left alone from power-up and watched by
+`Frontends::Browser::MotionWatch`: the frame at which a second first shows 30 different pictures, where its preview
+state is cached.
+
+| Game | Moving from frame | What moves |
+|---|---|---|
+| Bomberman II | 180 | the opening scene |
+| Castlevania | 840 | the demo, after the title |
+| The Legend of Zelda | 120 | the title's waterfall |
+| Mario Bros. | 960 | the demo, after the title |
+| Super Mario Bros. 3 | 120 | the curtain and the opening |
+| Super Pitfall | 1320 | the demo, after a title that blinks |
+
+Building a console takes 1-3 ms, restoring a preview state about 4 ms, composing the menu's frame 0.56 ms and hashing
+a frame buffer 0.43 ms. The browser's loop run headless over `roms/` takes 11-12 ms a menu frame with the preview
+running live, within a frame's 16.7 ms.
